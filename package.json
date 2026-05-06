@@ -1,0 +1,31 @@
+{
+  "name": "@groepchef/pi-missions",
+  "version": "0.1.0",
+  "description": "Long-running missions for the pi coding agent",
+  "type": "module",
+  "private": false,
+  "keywords": ["pi-package", "pi-extension", "missions", "coding-agent"],
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "main": "./src/index.ts",
+  "files": ["src", "README.md", "PLAN.md", "RESEARCH.md"],
+  "scripts": {
+    "check": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "pi": {
+    "extensions": ["./src/index.ts"]
+  },
+  "peerDependencies": {
+    "@mariozechner/pi-coding-agent": "*",
+    "@mariozechner/pi-ai": "*",
+    "@mariozechner/pi-tui": "*",
+    "typebox": "*"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.6.0",
+    "vitest": "^2.1.0"
+  }
+}
