@@ -1,7 +1,7 @@
 import type { ExtensionAPI, ExtensionCommandContext } from "@mariozechner/pi-coding-agent";
 import { buildCompactionSummary } from "./context.js";
 import { appendHistory, createMission, getActiveFeature, getAllFeatures, getFeatureById, getMilestoneById, getNextPendingFeature, linkSession, listMissions, loadMissionFromDisk, progress, readHistory, saveEvidence, saveMissionSafe } from "./state.js";
-import type { Feature, RuntimeState } from "./types.js";
+import type { Feature, MissionState, RuntimeState } from "./types.js";
 import { dashboardRows, statusText, updateFooter } from "./ui.js";
 
 export function registerMissionCommand(pi: ExtensionAPI, runtime: RuntimeState): void {
@@ -34,8 +34,8 @@ export function registerMissionCommand(pi: ExtensionAPI, runtime: RuntimeState):
   });
 }
 
-function allFeaturesDone(mission: { milestones: Array<{ features: Feature[] }> }): boolean {
-  return getAllFeatures(mission as never).every((f) => f.status === "done");
+function allFeaturesDone(mission: MissionState): boolean {
+  return getAllFeatures(mission).every((f) => f.status === "done");
 }
 
 function cloneFeatureForFork(feature: Feature, id: string, title: string, notes: string): Feature {
