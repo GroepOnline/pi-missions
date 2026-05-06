@@ -34,6 +34,24 @@ export function registerMissionCommand(pi: ExtensionAPI, runtime: RuntimeState):
   });
 }
 
+function allFeaturesDone(mission: { milestones: Array<{ features: Feature[] }> }): boolean {
+  return getAllFeatures(mission as never).every((f) => f.status === "done");
+}
+
+function cloneFeatureForFork(feature: Feature, id: string, title: string, notes: string): Feature {
+  return {
+    ...feature,
+    id,
+    title,
+    status: "active",
+    completedAt: undefined,
+    notes,
+    dependsOn: [...feature.dependsOn],
+    sessions: [...feature.sessions],
+    acceptance: feature.acceptance.map((ac) => ({ ...ac, verified: false, evidence: undefined })),
+  };
+}
+
 async function handleNew(titleArg: string, ctx: ExtensionCommandContext, pi: ExtensionAPI, runtime: RuntimeState): Promise<void> {
   const title = titleArg || "Untitled mission";
   let goal = title;
@@ -93,16 +111,25 @@ async function handleDashboard(ctx: ExtensionCommandContext, runtime: RuntimeSta
 async function handleNext(ctx: ExtensionCommandContext, runtime: RuntimeState): Promise<void> {
   const mission = runtime.activeMission;
   if (!mission) return ctx.ui.notify("No active mission.", "warning");
+
+  const active = getActiveFeature(mission);
+  if (active?.status === "active") {
+    return ctx.ui.notify(`Active feature is not done yet: ${active.id} — ${active.title}\nUse /mission done when complete, or /mission block <reason> if it cannot continue.`, "warning");
+  }
+
   const next = getNextPendingFeature(mission);
   if (!next) {
-    mission.status = "complete";
-    saveMissionSafe(mission);
-    updateFooter(ctx, mission);
-    return ctx.ui.notify("🎉 Mission complete.", "info");
+    if (allFeaturesDone(mission)) {
+      mission.status = "complete";
+      saveMissionSafe(mission);
+      updateFooter(ctx, mission);
+      return ctx.ui.notify("🎉 Mission complete.", "info");
+    }
+    return ctx.ui.notify("No unblocked pending feature found. Check blocked features and dependencies with /mission status.", "warning");
   }
-  const active = getActiveFeature(mission);
-  if (active && active.status === "active") active.status = "blocked";
+
   next.status = "active";
+  mission.status = "active";
   mission.activeFeatureId = next.id;
   mission.activeMilestoneId = next.milestoneId;
   appendHistory(mission, { event: "feature_active", featureId: next.id });
@@ -122,7 +149,7 @@ async function handleDone(evidence: string, ctx: ExtensionCommandContext, runtim
   const evidenceFile = saveEvidence(mission, feature, evidence || "Marked done.");
   appendHistory(mission, { event: "feature_done", featureId: feature.id, details: { evidenceFile } });
   const next = getNextPendingFeature(mission);
-  if (!next) mission.status = "complete";
+  if (!next && allFeaturesDone(mission)) mission.status = "complete";
   saveMissionSafe(mission);
   updateFooter(ctx, mission);
   ctx.ui.notify(`✅ ${feature.id} done. Evidence: ${evidenceFile}`, "info");
@@ -169,7 +196,15 @@ async function handleEdit(featureId: string | undefined, ctx: ExtensionCommandCo
   if (!ctx.hasUI) return ctx.ui.notify(JSON.stringify(feature, null, 2), "info");
   const edited = await ctx.ui.editor("Edit feature JSON", JSON.stringify(feature, null, 2));
   if (!edited) return;
-  const parsed = JSON.parse(edited) as Feature;
+
+  let parsed: Feature;
+  try {
+    parsed = JSON.parse(edited) as Feature;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return ctx.ui.notify(`Invalid feature JSON: ${message}`, "error");
+  }
+
   Object.assign(feature, parsed);
   appendHistory(mission, { event: "feature_edited", featureId });
   saveMissionSafe(mission);
@@ -181,12 +216,18 @@ async function handleFork(reason: string, ctx: ExtensionCommandContext, runtime:
   const feature = mission ? getActiveFeature(mission) : null;
   if (!mission || !feature) return ctx.ui.notify("No active feature to fork.", "warning");
   const approach = ctx.hasUI ? (await ctx.ui.input("Alternative approach", reason || "Try a smaller/safer approach")) || reason : reason;
-  const forked: Feature = { ...feature, id: `${feature.id}-fork-${Date.now()}`, title: `${feature.title} [fork]`, status: "active", notes: `Fork: ${approach}`, completedAt: undefined };
+  const forked = cloneFeatureForFork(
+    feature,
+    `${feature.id}-fork-${Date.now()}`,
+    `${feature.title} [fork]`,
+    `Fork: ${approach || "Alternative approach"}`,
+  );
   const milestone = getMilestoneById(mission, feature.milestoneId);
   if (!milestone) return ctx.ui.notify("Milestone not found.", "error");
   feature.status = "blocked";
   milestone.features.push(forked);
   mission.activeFeatureId = forked.id;
+  mission.status = "active";
   appendHistory(mission, { event: "feature_forked", featureId: feature.id, note: approach, details: { forkedFeatureId: forked.id } });
   saveMissionSafe(mission);
   const leafId = ctx.sessionManager.getLeafId();
