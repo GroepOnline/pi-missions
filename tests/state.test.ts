@@ -1,9 +1,14 @@
 import { describe, expect, it } from "vitest";
-import { createMission, getNextPendingFeature, missionDirSafe, progress, slugify } from "../src/state.js";
+import { createMission, createMissionId, getNextPendingFeature, missionDirSafe, progress, slugify } from "../src/state.js";
 
 describe("state helpers", () => {
   it("slugifies mission titles", () => {
     expect(slugify("Hello World! 🚀")).toBe("hello-world");
+  });
+
+  it("includes millisecond precision in mission ids", () => {
+    expect(createMissionId("Test", Date.UTC(2026, 4, 6, 12, 34, 56, 1))).toBe("mission-20260506123456001-test");
+    expect(createMissionId("Test", Date.UTC(2026, 4, 6, 12, 34, 56, 999))).toBe("mission-20260506123456999-test");
   });
 
   it("creates a default mission with active first feature", () => {
