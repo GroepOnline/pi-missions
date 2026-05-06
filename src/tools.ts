@@ -1,8 +1,12 @@
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { Type } from "typebox";
-import { appendHistory, getActiveFeature, getNextPendingFeature, saveEvidence, saveMissionSafe } from "./state.js";
-import type { RuntimeState } from "./types.js";
+import { appendHistory, getActiveFeature, getAllFeatures, getNextPendingFeature, saveEvidence, saveMissionSafe } from "./state.js";
+import type { MissionState, RuntimeState } from "./types.js";
 import { updateFooter } from "./ui.js";
+
+function allFeaturesDone(mission: MissionState): boolean {
+  return getAllFeatures(mission).every((f) => f.status === "done");
+}
 
 export function registerMissionTools(pi: ExtensionAPI, runtime: RuntimeState): void {
   pi.registerTool({
@@ -26,7 +30,7 @@ export function registerMissionTools(pi: ExtensionAPI, runtime: RuntimeState): v
       const evidenceFile = saveEvidence(mission, feature, params.evidence);
       appendHistory(mission, { event: "feature_done", featureId: feature.id, note: params.notes, details: { evidenceFile } });
       const next = getNextPendingFeature(mission);
-      if (!next) mission.status = "complete";
+      if (!next && allFeaturesDone(mission)) mission.status = "complete";
       saveMissionSafe(mission);
       updateFooter(ctx, mission);
       return { content: [{ type: "text", text: `✅ Feature ${feature.id} done. Evidence: ${evidenceFile}` }], details: { featureId: feature.id, evidenceFile }, isError: false };
@@ -42,15 +46,30 @@ export function registerMissionTools(pi: ExtensionAPI, runtime: RuntimeState): v
       const mission = runtime.activeMission;
       if (!mission) return { content: [{ type: "text", text: "No active mission." }], details: {}, isError: true };
       const current = getActiveFeature(mission);
-      if (current && current.status === "active") current.status = "blocked";
+      if (current?.status === "active") {
+        return {
+          content: [{ type: "text", text: `Active feature is not done yet: ${current.id} — ${current.title}. Use mission_feature_done when complete, or /mission block <reason> if it cannot continue.` }],
+          details: { featureId: current.id },
+          isError: true,
+        };
+      }
+
       const next = getNextPendingFeature(mission);
       if (!next) {
-        mission.status = "complete";
-        saveMissionSafe(mission);
-        updateFooter(ctx, mission);
-        return { content: [{ type: "text", text: "🎉 Mission complete." }], details: { missionId: mission.id }, isError: false };
+        if (allFeaturesDone(mission)) {
+          mission.status = "complete";
+          saveMissionSafe(mission);
+          updateFooter(ctx, mission);
+          return { content: [{ type: "text", text: "🎉 Mission complete." }], details: { missionId: mission.id }, isError: false };
+        }
+        return {
+          content: [{ type: "text", text: "No unblocked pending feature found. Check blocked features and dependencies with /mission status." }],
+          details: { missionId: mission.id },
+          isError: true,
+        };
       }
       next.status = "active";
+      mission.status = "active";
       mission.activeFeatureId = next.id;
       mission.activeMilestoneId = next.milestoneId;
       appendHistory(mission, { event: "feature_active", featureId: next.id });
