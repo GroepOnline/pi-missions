@@ -17,7 +17,8 @@ export function slugify(input: string): string {
 }
 
 export function createMissionId(title: string, now = Date.now()): string {
-  const stamp = new Date(now).toISOString().replace(/[-:T.Z]/g, "").slice(0, 14);
+  const date = new Date(now).toISOString().replace(/[-:T.Z]/g, "");
+  const stamp = date.slice(0, 17);
   return `mission-${stamp}-${slugify(title)}`;
 }
 
@@ -161,7 +162,8 @@ export function saveMissionSafe(mission: MissionState): void {
     if (!fs.existsSync(preMigration)) fs.copyFileSync(target, preMigration);
   }
   try {
-    fs.writeFileSync(temp, JSON.stringify({ ...mission, updatedAt: Date.now() }, null, 2), "utf-8");
+    mission.updatedAt = Date.now();
+    fs.writeFileSync(temp, JSON.stringify(mission, null, 2), "utf-8");
     fs.renameSync(temp, target);
   } catch (error) {
     if (fs.existsSync(backup)) fs.copyFileSync(backup, target);
