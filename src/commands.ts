@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 import type { ExtensionAPI, ExtensionCommandContext } from "@mariozechner/pi-coding-agent";
 import { buildCompactionSummary } from "./context.js";
 import { clearModelConfigCache, formatAgentModelLine, formatModelConfig, loadModelConfig, type ModelsConfig } from "./models.js";
-import { appendHistory, autoBlockBlockedFeatures, autoVerifyAcceptance, createMission, createMissionFromTemplate, exportMarkdown, getActiveFeature, getAllFeatures, getFeatureById, getMilestoneById, getNextPendingFeature, linkSession, listMissions, loadMissionFromDisk, MISSION_TEMPLATES, progress, readHistory, saveEvidence, saveMissionSafe } from "./state.js";
+import { appendHistory, autoBlockBlockedFeatures, autoCompleteMilestones, autoVerifyAcceptance, createMission, createMissionFromTemplate, createMissionId, exportMarkdown, getActiveFeature, getAllFeatures, getFeatureById, getMilestoneById, getNextPendingFeature, linkSession, listMissions, loadMissionFromDisk, MISSION_TEMPLATES, progress, readHistory, saveEvidence, saveMissionSafe } from "./state.js";
 import type { Feature, MissionState, RuntimeState } from "./types.js";
 import { dashboardRows, statusText, updateFooter } from "./ui.js";
 
@@ -60,6 +60,46 @@ export function cloneFeatureForFork(feature: Feature, id: string, title: string,
   };
 }
 
+// Planning wizard prompt sent to the agent to generate milestones + features.
+const PLANNING_WIZARD_PROMPT = `You are the mission planner for a software development mission. Analyze the user's goal and produce a structured mission plan.
+
+Goal: {goal}
+Constraints: {constraints}
+
+Respond ONLY with a valid JSON object (no markdown, no explanation) in this exact format:
+{
+  "title": "short mission title",
+  "milestones": [
+    {
+      "id": "M01",
+      "title": "Milestone 1 title",
+      "description": "What this milestone covers",
+      "features": [
+        {
+          "id": "F001",
+          "title": "Feature 1 title",
+          "description": "What this feature does",
+          "priority": 1,
+          "dependsOn": [],
+          "acceptance": [
+            { "id": "AC001", "description": "Acceptance criterion", "checkType": "manual" }
+          ]
+        }
+      ]
+    }
+  ]
+}
+
+Rules:
+- id format: M01, M02, ... for milestones; F001, F002, ... for features (per milestone)
+- At least 2 milestones, at least 5 total features
+- Features within a milestone should have appropriate dependsOn (use feature IDs)
+- Each feature needs at least one acceptance criterion with checkType: "manual" | "bash" | "test_file"
+- For bash checks, add checkCommand field with the verification command
+- priority: 1 (highest) to 5 (lowest)
+- Be specific and actionable — no vague "implement X" without context
+`;
+
 export async function handleNew(titleArg: string, ctx: ExtensionCommandContext, pi: ExtensionAPI, runtime: RuntimeState): Promise<void> {
   const title = titleArg || "Untitled mission";
   let goal = title;
@@ -68,14 +108,84 @@ export async function handleNew(titleArg: string, ctx: ExtensionCommandContext, 
     goal = (await ctx.ui.input("Mission goal", `What should '${title}' achieve?`)) || title;
     constraints = (await ctx.ui.input("Constraints", "Hard rules? (tests, no deps, etc.)")) || "";
   }
-  const mission = createMission(title, goal, constraints);
+
+  // Planning wizard: ask the agent to generate milestones + features
+  const planningPrompt = PLANNING_WIZARD_PROMPT.replace("{goal}", goal).replace("{constraints}", constraints);
+
+  // Ask the agent to plan — send a user message and wait for response
+  let parsedMission: ReturnType<typeof createMission> | null = null;
+  let usedWizard = false;
+
+  if ((pi as any).sendUserMessage) {
+    try {
+      ctx.ui.notify("🤖 Planning wizard generating milestones…", "info");
+      const response = await (pi as any).sendUserMessage(planningPrompt, { timeoutMs: 60_000 });
+      // Extract JSON from the response text
+      const text = typeof response === "string" ? response : (response?.content ?? JSON.stringify(response));
+      const jsonMatch = String(text).match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        const raw = JSON.parse(jsonMatch[0]);
+        if (raw.milestones && Array.isArray(raw.milestones) && raw.milestones.length > 0) {
+          // Build mission from wizard output
+          const now = Date.now();
+          parsedMission = {
+            schemaVersion: 2,
+            id: createMissionId(title, now),
+            title: raw.title || title,
+            goal,
+            status: "active" as const,
+            activeMilestoneId: raw.milestones[0]?.id ?? "M01",
+            activeFeatureId: raw.milestones[0]?.features?.[0]?.id ?? "F001",
+            tokensUsed: 0,
+            lastContextTokens: 0,
+            createdAt: now,
+            updatedAt: now,
+            milestones: raw.milestones.map((m: any, mi: number) => ({
+              id: m.id || `M${String(mi + 1).padStart(2, "0")}`,
+              title: m.title || `Milestone ${mi + 1}`,
+              description: m.description || "",
+              status: mi === 0 ? "active" as const : "pending" as const,
+              features: (m.features || []).map((f: any, fi: number) => ({
+                id: f.id || `F${String(fi + 1).padStart(3, "0")}`,
+                milestoneId: m.id || `M${String(mi + 1).padStart(2, "0")}`,
+                title: f.title || `Feature ${fi + 1}`,
+                description: f.description || "",
+                priority: f.priority ?? 1,
+                dependsOn: f.dependsOn || [],
+                status: mi === 0 && fi === 0 ? "active" as const : "pending" as const,
+                sessions: [],
+                toolCallCount: 0,
+                startedAt: mi === 0 && fi === 0 ? now : undefined,
+                acceptance: (f.acceptance || [{ id: `AC001`, description: "Complete", checkType: "manual", verified: false }]).map((ac: any) => ({
+                  id: ac.id || `AC001`,
+                  description: ac.description || "",
+                  checkType: ac.checkType || "manual",
+                  checkCommand: ac.checkCommand,
+                  verified: false,
+                })),
+              })),
+            })),
+          };
+          usedWizard = true;
+        }
+      }
+    } catch {
+      // Wizard failed — fall through to default mission creation
+    }
+  }
+
+  const mission = parsedMission ?? createMission(title, goal, constraints);
   runtime.activeMission = mission;
   saveMissionSafe(mission);
-  appendHistory(mission, { event: "mission_created", note: goal });
+  appendHistory(mission, { event: "mission_created", note: goal, details: { usedWizard } });
   pi.appendEntry("pi-mission-active", { missionId: mission.id });
   pi.setSessionName(`🎯 ${mission.title}`);
   updateFooter(ctx, mission);
-  ctx.ui.notify(`✅ Mission created: ${mission.id}\nUse /mission status or /mission next.`, "info");
+  const featureCount = mission.milestones.reduce((acc, m) => acc + m.features.length, 0);
+  const msg = usedWizard
+    ? `✅ Mission created with ${mission.milestones.length} milestones, ${featureCount} features (AI-generated)`
+    : `✅ Mission created: ${mission.id} — use /mission status or /mission next`;
+  ctx.ui.notify(msg, "info");
 }
 
 export async function handleList(ctx: ExtensionCommandContext, pi: ExtensionAPI, runtime: RuntimeState): Promise<void> {
@@ -130,6 +240,7 @@ export async function handleNext(ctx: ExtensionCommandContext, runtime: RuntimeS
   if (!next) {
     if (allFeaturesDone(mission)) {
       mission.status = "complete";
+      autoCompleteMilestones(mission);
       saveMissionSafe(mission);
       updateFooter(ctx, mission);
       return ctx.ui.notify("🎉 Mission complete.", "info");
@@ -176,6 +287,7 @@ export async function handleDone(evidence: string, ctx: ExtensionCommandContext,
   appendHistory(mission, { event: "feature_done", featureId: feature.id, details: { evidenceFile, autoVerified } });
   const next = getNextPendingFeature(mission);
   if (!next && allFeaturesDone(mission)) mission.status = "complete";
+  autoCompleteMilestones(mission);
   saveMissionSafe(mission);
   updateFooter(ctx, mission);
   ctx.ui.notify(`✅ ${feature.id} done. Evidence: ${evidenceFile}`, "info");

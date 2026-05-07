@@ -330,12 +330,137 @@ const result = await pi.exec("pi", [
 - pi-missions gebruikt key `"pi-mission"` voor `ctx.ui.setStatus()` — conflicteert niet
 - Footer: `🎯 Refactor Auth [3/7 43%] — Implement OAuth`
 
-### moshi-hook.ts
-- Stuur notificatie bij: mission complete, feature done, budget warning, blocker
+### moshi-hook.ts / Prometheus metrics
+- **REMOVED**: pi-missions is a local, open-source pi extension. No external observability integrations.
+- Metrics are shown IN the terminal dashboard (simple numbers, progress bars).
+- All tracking is via `history.jsonl` for later offline analysis.
 
 ---
 
-## 7. UX & Footer Widget
+## 7. UX & Dashboard Widget — Factory Droid Style
+
+> Inspired by Factory.ai Droid Missions mission control UI.
+> The dashboard must show the full mission hierarchy at a glance: milestones → features → progress.
+
+```typescript
+function updateFooter(ctx: ExtensionContext, mission: MissionState | null) {
+  if (!mission) { ctx.ui.setStatus("pi-mission", ""); return; }
+
+  const p = progress(mission);
+  const feat = getActiveFeature(mission);
+  const icon = mission.status === "paused" ? "⏸" :
+                mission.status === "budget_limited" ? "⚠️" :
+                mission.status === "complete" ? "✅" : "🎯";
+
+  ctx.ui.setStatus("pi-mission",
+    `${icon} ${mission.title} [${p.done}/${p.total} ${p.pct}%]${feat ? ` — ${feat.title}` : ""}`
+  );
+}
+```
+
+### Mission Control Dashboard (Factory Droid style)
+
+The `/mission dashboard` command renders a rich hierarchical view:
+
+```
+🎯 Mission: Refactor Auth Module
+   ID: mission-20260506-refactor-auth
+   Status: active | Progress: 4/9 (44%) | Tokens: 8,421
+────────────────────────────────────────────────────────────────────
+
+📦 M01: Discovery & Planning          [2/3 67%] ⬅ ACTIVE
+   ├── ✅ F001 [P1] done        Map current auth flow
+   ├── ✅ F002 [P1] done        Document session handling
+   └── ➡️  F003 [P1] active     Define acceptance criteria
+
+📦 M02: Implementation                [0/3 0%]
+   ├── • F004 [P2] pending      Extract auth service
+   ├── • F005 [P2] pending      Add JWT token support
+   └── • F006 [P2] pending      Implement refresh flow
+
+📦 M03: Verification                  [0/3 0%]
+   ├── • F007 [P3] pending      Run full test suite
+   ├── • F008 [P3] pending      Manual smoke tests
+   └── • F009 [P3] pending      Update documentation
+
+────────────────────────────────────────────────────────────────────
+🔥 Active feature: F003 — Define acceptance criteria
+   Check: bash "npm test" (unverified)
+   Check: manual "All routes still work" (unverified)
+```
+
+### Dashboard rendering rules
+
+- **Milestone level**: show ID, title, progress fraction, icon (✅/➡️/•)
+- **Feature level**: show icon, ID, priority, status, title. If blocked, show reason.
+- **Active feature**: show full acceptance criteria with check type and verification state
+- **Sort features**: active first, then pending (by priority), then blocked, then done
+- **Progress bars**: use `████░░░░░░` or `[##----]` style for milestone progress
+- **Collapse done milestones**: by default show last 2 done milestones collapsed
+- **Colors**: use status-based coloring in widget (done=green, active=yellow, blocked=red)
+
+### Dashboard widget structure
+
+```typescript
+function buildDashboardRows(mission: MissionState): string[] {
+  const rows: string[] = [];
+  const p = progress(mission);
+
+  // Header
+  rows.push(
+    `${mission.status === "complete" ? "✅" : "🎯"} Mission: ${mission.title}`,
+    `ID: ${mission.id}`,
+    `Status: ${mission.status} | Progress: ${p.done}/${p.total} (${p.pct}%) | Tokens: ${mission.tokensUsed}`,
+    "─".repeat(80),
+  );
+
+  for (const milestone of mission.milestones) {
+    const mDone = milestone.features.filter(f => f.status === "done").length;
+    const mTotal = milestone.features.length;
+    const bar = progressBar(mDone, mTotal, 10);
+    const mi = milestone.status === "complete" ? "✅" :
+               milestone.status === "active" ? "📦" : "•";
+
+    rows.push(`${mi} ${milestone.id}: ${milestone.title} [${bar} ${mDone}/${mTotal}]`);
+
+    const sorted = [...milestone.features].sort((a, b) => {
+      const order = { active: 0, pending: 1, blocked: 2, done: 3, failed: 4 };
+      return (order[a.status] ?? 5) - (order[b.status] ?? 5) || a.priority - b.priority;
+    });
+
+    for (const feature of sorted) {
+      const mark = feature.status === "done" ? "✅" :
+                   feature.status === "active" ? "➡️" :
+                   feature.status === "blocked" ? "⛔" : "•";
+      const deps = feature.dependsOn.length ? ` (deps: ${feature.dependsOn.join(", ")})` : "";
+      const note = feature.notes ? ` — ${feature.notes.slice(0, 40)}` : "";
+      rows.push(`  ${mark} ${feature.id} [P${feature.priority}] ${feature.status.padEnd(8)} ${feature.title}${deps}${note}`);
+
+      // Show acceptance criteria for active feature
+      if (feature.status === "active" && feature.acceptance.length) {
+        for (const ac of feature.acceptance) {
+          const checkMark = ac.verified ? "✅" : ac.waived ? "➖" : "⬜";
+          const cmdHint = ac.checkCommand ? ` [${ac.checkType}: \`${ac.checkCommand.slice(0, 40)}\`]` : "";
+          rows.push(`       ${checkMark} ${ac.id}: ${ac.description}${cmdHint}`);
+        }
+      }
+    }
+  }
+
+  const active = getActiveFeature(mission);
+  if (active) {
+    rows.push("─".repeat(80));
+    rows.push(`🔥 Active: ${active.id} — ${active.title}`);
+  }
+
+  return rows;
+}
+
+function progressBar(done: number, total: number, width: number): string {
+  const filled = Math.round((done / total) * width);
+  return "[" + "█".repeat(filled) + "░".repeat(width - filled) + "]";
+}
+```
 
 ```typescript
 function updateFooter(ctx: ExtensionContext, mission: MissionState | null) {
@@ -761,37 +886,35 @@ import { registerMissionTools } from "./tools.js";
 ## 15. Implementatie Fasen
 
 ### v0.1 — MVP
-- [ ] `state.ts`: MissionState + Feature + Milestone types + EXDEV-safe disk I/O
-- [ ] `commands.ts`: `/mission new` wizard + AI generatie
-- [ ] `/mission status` + footer (`ctx.ui.setStatus("pi-mission", ...)`)
-- [ ] `/mission done` + `/mission next` + disk write
-- [ ] `/mission load <id>` cross-session via appendEntry
-- [ ] `session_start` restore (skip bij reason=="reload"), `session_shutdown` save
-- [ ] `pi.setSessionName()` op mission title
+- [x] `state.ts`: MissionState + Feature + Milestone types + EXDEV-safe disk I/O
+- [x] `commands.ts`: `/mission new` + all 16 commands
+- [x] `/mission status` + footer (`ctx.ui.setStatus("pi-mission", ...)`)
+- [x] `/mission done` + `/mission next` + disk write
+- [x] `/mission load <id>` cross-session via appendEntry
+- [x] `session_start` restore, `session_shutdown` save
+- [x] `pi.setSessionName()` op mission title
 
-### v0.2 — Smart continuation
-- [ ] `before_agent_start`: context injectie met truncatie strategie
-- [ ] Token budget: delta tracking via `lastContextTokens`
-- [ ] `turn_end`: footer update + 80% budget warning → status=budget_limited
-- [ ] `agent_end`: completion detection + bash acceptance checks
-- [ ] `mission_feature_done` + `mission_next_feature` LLM tools
-- [ ] Ctrl+Shift+M / Ctrl+Shift+D shortcuts
+### v0.2 — Smart continuation ✅ ALLEEN TBD ITEMS
+- [x] `before_agent_start`: context injectie met truncatie strategie
+- [x] Token budget: delta tracking via `lastContextTokens`
+- [x] `turn_end`: footer update + 80% budget warning → status=budget_limited
+- [x] `agent_end`: completion detection + bash acceptance checks
+- [x] `mission_feature_done` + `mission_next_feature` LLM tools
+- [x] Ctrl+Shift+M / Ctrl+Shift+D shortcuts
 
-### v0.3 — Orchestrator mode
-- [ ] Milestone hiërarchie UI (`/mission status` toont milestones)
-- [ ] `dependsOn` blokkering (pending → blocked als dep niet done)
+### v0.3 — Dashboard & Planning Wizard ⬅ CURRENT FOCUS
+- [ ] **Factory Droid Dashboard**: milestone progress bars, feature hierarchy, acceptance criteria inline, active feature detail block
+- [ ] **Planning Wizard AI-generatie**: `/mission new` → AI generates milestones + features via `pi.sendUserMessage()` + JSON parse
+- [ ] **Milestone auto-complete**: when all features in a milestone are done, set milestone.status = "complete"
+- [ ] **More templates**: expand MISSION_TEMPLATES from 3 to 8+ (add: bug-fix, test-coverage, security-audit, docs-update, performance-opt, api-design)
+
+### v0.4 — Orchestrator & Polish
+- [ ] `dependsOn` blokkering visualisatie in dashboard
 - [ ] `session_before_compact` checkpoint met mission summary
 - [ ] `/handoff` suggestie na grote features
 - [ ] `agent-runtime` worker spawning via `pi.exec()`
-- [ ] Evidence opslag in `~/.pi/missions/<id>/evidence/`
-
-### v0.4 — Production
 - [ ] `/mission edit <feature-id>` met `ctx.ui.editor()`
-- [ ] Dashboard widget `ctx.ui.setWidget("pi-mission-dashboard", rows)`
-- [ ] `moshi-hook` notificaties (feature done, mission complete, budget warning)
-- [ ] Mission templates (auth, ci-cd, refactor)
-- [ ] `history.jsonl` undo/audit log
-- [ ] Markdown rapport export
+- [ ] History replay: `jq -r '.event + " " + (.featureId // "")' ~/.pi/missions/<id>/history.jsonl`
 - [ ] `pi.setLabel(entryId, featureTitle)` voor /tree navigatie
 - [ ] Project-local `.pi/extensions/pi-missions/` support
 
@@ -1098,7 +1221,59 @@ Mission is done when all milestones are `complete`, all acceptance criteria are 
 
 ---
 
-## 21. Observability & Debug Interface
+## 21. Metrics & Debug Interface (Terminal-first)
+
+> All observability is terminal-native. No external integrations.
+
+### Simple metrics in dashboard
+
+The `/mission dashboard` shows key numbers directly:
+- `Progress: 4/9 (44%)` — overall feature completion
+- `Tokens: 8,421` — token usage this session
+- `[████████░░]` — per-milestone progress bar
+- `M01 [2/3 67%]` — per-milestone completion fraction
+
+### Structured log format
+
+Elke belangrijke gebeurtenis gaat naar `history.jsonl`:
+
+```json
+{"ts":1778020000,"missionId":"mission-abc","event":"feature_done","featureId":"F001","duration_ms":12345,"tokensUsed":9021}
+{"ts":1778021000,"missionId":"mission-abc","event":"milestone_complete","milestoneId":"M01"}
+{"ts":1778022000,"missionId":"mission-abc","event":"mission_complete"}
+```
+
+### /mission debug
+
+```typescript
+case "debug": return handleDebug(rest[0], ctx, activeMission);
+
+async function handleDebug(id: string | undefined, ctx: ExtensionCommandContext, mission: MissionState | null) {
+  const m = id ? loadMissionFromDisk(id) : mission;
+  if (!m) { ctx.ui.notify("Geen mission voor debug", "error"); return; }
+  const history = readHistory(m.id).slice(-20);
+  ctx.ui.setWidget("pi-mission-debug", [
+    `Mission: ${m.title}`,
+    `Status: ${m.status}`,
+    `Active: ${m.activeFeatureId ?? "none"}`,
+    "─".repeat(80),
+    ...history.map(h => `${new Date(h.ts * 1000).toISOString()} ${h.event} ${h.featureId ?? ""}`),
+  ]);
+}
+```
+
+### Offline trace replay (bash)
+
+```bash
+# Event summary
+jq -r '.event + " " + (.featureId // "")' ~/.pi/missions/<id>/history.jsonl
+
+# Feature durations
+jq -s 'group_by(.featureId) | map({featureId: .[0].featureId, count: length, first: .[0].ts, last: .[-1].ts})' ~/.pi/missions/<id>/history.jsonl
+
+# Mission health
+jq -s '[.[] | select(.event == "feature_done") | .featureId] | unique | length' ~/.pi/missions/<id>/history.jsonl
+```
 
 ### Structured log format
 
@@ -1143,4 +1318,4 @@ jq -r '.event + " " + (.featureId // "")' ~/.pi/missions/<id>/history.jsonl
 - `acceptance.failures`
 - `tokens.used_per_feature`
 
-Deze metrics kunnen later naar Moshi, Prometheus, of een pi dashboard gestuurd worden.
+All metrics are terminal-native only. No external observability integrations.

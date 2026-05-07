@@ -10,10 +10,9 @@ function missionFixture(overrides: Partial<MissionState> = {}): MissionState {
 describe("dashboardRows", () => {
   it("shows mission header with id, status, progress, tokens", () => {
     const rows = dashboardRows(missionFixture({ tokensUsed: 12345 }));
-    expect(rows[0]).toContain("My mission");
-    expect(rows[1]).toContain("ID:");
-    expect(rows[2]).toContain("Status: active");
-    expect(rows[2]).toContain("Tokens: 12345");
+    // New format: rows[1] = "🎯 My mission", rows[2] = progress bar, rows[3] = metadata
+    expect(rows.some((r) => r.includes("🎯 My mission") || r.includes("✅ My mission"))).toBe(true);
+    expect(rows.some((r) => r.includes("ID:") && r.includes("Status: active") && r.includes("Tokens:"))).toBe(true);
   });
 
   it("shows milestones and features with status indicators", () => {
@@ -42,7 +41,8 @@ describe("dashboardRows", () => {
     ];
 
     const rows = dashboardRows(mission);
-    expect(rows).toContain("## ➡️ M01: Core [1/3]");
+    // New format: milestone header on its own line, progress bar on next line
+    expect(rows.some((r) => r.includes("➡️ M01: Core"))).toBe(true);
     expect(rows.some((r) => r.includes("✅") && r.includes("F001") && r.includes("Init"))).toBe(true);
     expect(rows.some((r) => r.includes("➡️") && r.includes("F002") && r.includes("Build"))).toBe(true);
     expect(rows.some((r) => r.includes("⛔") && r.includes("F003") && r.includes("Blocked item"))).toBe(true);
@@ -87,7 +87,7 @@ describe("dashboardRows", () => {
     ];
     const rows = dashboardRows(mission);
     // Active should be first, then pending, then blocked, then done
-    const featureLines = rows.filter((r) => r.startsWith("  "));
+    const featureLines = rows.filter((r) => r.startsWith("       "));
     expect(featureLines[0]).toContain("F001"); // active
     expect(featureLines[1]).toContain("F002"); // blocked
     expect(featureLines[2]).toContain("F003"); // done
@@ -97,12 +97,12 @@ describe("dashboardRows", () => {
     const mission = missionFixture();
     mission.milestones[0].features[0]!.dependsOn = ["F010", "F020"];
     const rows = dashboardRows(mission);
-    expect(rows.some((r) => r.includes("deps: F010, F020"))).toBe(true);
+    expect(rows.some((r) => r.includes("🔗F010,F020") || r.includes("F010") && r.includes("F020"))).toBe(true);
   });
 
   it("shows complete icon for complete missions", () => {
     const mission = missionFixture({ status: "complete" });
-    expect(dashboardRows(mission)[0]).toContain("✅");
+    expect(dashboardRows(mission).some((r) => r.includes("✅ My mission"))).toBe(true);
   });
 
   it("shows milestone progress counts", () => {
@@ -110,7 +110,9 @@ describe("dashboardRows", () => {
     mission.milestones[0].features[0]!.status = "done";
     mission.milestones[0].features[1]!.status = "done";
     const rows = dashboardRows(mission);
-    expect(rows).toContain("## ➡️ M01: Plan and execute [2/3]");
+    // New format: milestone title then progress bar on next line
+    expect(rows.some((r) => r.includes("➡️ M01: Plan and execute"))).toBe(true);
+    expect(rows.some((r) => r.includes("[2/3]") || r.includes("2/3"))).toBe(true);
   });
 });
 
