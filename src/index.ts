@@ -1,12 +1,17 @@
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { completionSignal, buildMissionContext } from "./context.js";
 import { compactionCheckpoint, missionSummaryForTree, registerMissionCommand, saveSessionLink } from "./commands.js";
-import { getActiveFeature, loadMissionFromDisk, saveMissionSafe } from "./state.js";
-import type { RuntimeState } from "./types.js";
+import { loadModelConfig } from "./models.js";
+import { appendHistory, autoBlockBlockedFeatures, getActiveFeature, getMissionPhase, loadMissionFromDisk, saveEvidence, saveMissionSafe } from "./state.js";
+import type { RuntimeState, ToolPhase } from "./types.js";
+import { TOOL_POLICIES } from "./types.js";
 import { registerMissionTools } from "./tools.js";
-import { updateFooter } from "./ui.js";
+import { dashboardRows, updateFooter } from "./ui.js";
 
 export default function piMissions(pi: ExtensionAPI): void {
+  // Load model configuration at extension startup
+  loadModelConfig();
+
   const runtime: RuntimeState = { activeMission: null, autoSaveInterval: null };
 
   registerMissionCommand(pi, runtime);
@@ -18,6 +23,7 @@ export default function piMissions(pi: ExtensionAPI): void {
     const missionId = activeEntry?.data?.missionId;
     if (typeof missionId === "string") runtime.activeMission = loadMissionFromDisk(missionId);
     if (runtime.activeMission) {
+      autoBlockBlockedFeatures(runtime.activeMission);
       updateFooter(ctx, runtime.activeMission);
       pi.setSessionName(`🎯 ${runtime.activeMission.title}`);
     }
@@ -41,6 +47,59 @@ export default function piMissions(pi: ExtensionAPI): void {
     if (!mission || mission.status !== "active") return;
     updateFooter(ctx, mission);
     return { message: { customType: "pi-mission-context", content: buildMissionContext(mission), display: false } };
+  });
+
+  // ── Tool call policy enforcement ────────────────────────────────────────────
+  let phaseToolCallCount = 0;
+  let currentPhase: ToolPhase = "execution";
+
+  pi.on("before_agent_start", async () => {
+    phaseToolCallCount = 0;
+    if (runtime.activeMission) currentPhase = getMissionPhase(runtime.activeMission);
+  });
+
+  pi.on("tool_call", async (event: { toolName: string }) => {
+    if (!runtime.activeMission) return;
+    const policy = TOOL_POLICIES[currentPhase];
+    if (!policy.allowedTools.includes(event.toolName)) {
+      return { block: true, reason: `Tool '${event.toolName}' not allowed in ${currentPhase} phase. Allowed: ${policy.allowedTools.join(", ")}` };
+    }
+    phaseToolCallCount++;
+    if (phaseToolCallCount > policy.maxToolCalls) {
+      return { block: true, reason: `Max tool calls (${policy.maxToolCalls}) exceeded for ${currentPhase} phase.` };
+    }
+  });
+
+  // ── Keyboard shortcuts ──────────────────────────────────────────────────────
+  pi.registerShortcut("ctrl+shift+m", {
+    description: "Toggle mission dashboard",
+    handler: async (ctx: any) => {
+      const mission = runtime.activeMission;
+      if (!mission) return ctx.ui.notify("No active mission. Use /mission new <title>.", "info");
+      ctx.ui.setWidget("pi-mission-dashboard", dashboardRows(mission));
+    },
+  });
+
+  pi.registerShortcut("ctrl+shift+d", {
+    description: "Mark current mission feature as done",
+    handler: async (ctx: any) => {
+      const mission = runtime.activeMission;
+      const feature = mission ? getActiveFeature(mission) : null;
+      if (!mission || !feature) return ctx.ui.notify("No active feature to mark done.", "warning");
+      if (ctx.hasUI) {
+        const ok = await ctx.ui.confirm("Feature done?", `Mark '${feature.title}' as completed?`);
+        if (!ok) return;
+      }
+      feature.status = "done";
+      feature.completedAt = Date.now();
+      for (const ac of feature.acceptance) if (!ac.waived) ac.verified = true;
+      const evidenceFile = saveEvidence(mission, feature, "Marked done via keyboard shortcut.");
+      appendHistory(mission, { event: "feature_done", featureId: feature.id, note: "Keyboard shortcut", details: { evidenceFile } });
+      autoBlockBlockedFeatures(mission);
+      saveMissionSafe(mission);
+      updateFooter(ctx, mission);
+      ctx.ui.notify(`✅ ${feature.title} marked as done! Evidence: ${evidenceFile}`, "success");
+    },
   });
 
   pi.on("turn_end", async (_event, ctx) => {

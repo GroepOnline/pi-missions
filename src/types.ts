@@ -26,6 +26,10 @@ export interface Feature {
   status: FeatureStatus;
   sessions: string[];
   completedAt?: number;
+  startedAt?: number;
+  maxWallClockMs?: number;
+  maxToolCalls?: number;
+  toolCallCount: number;
   notes?: string;
 }
 
@@ -54,6 +58,19 @@ export interface MissionState {
   updatedAt: number;
 }
 
+export interface MissionMetrics {
+  missionId: string;
+  created: number;
+  completed?: number;
+  totalFeatures: number;
+  featuresDone: number;
+  featuresFailed: number;
+  totalTokensUsed: number;
+  totalWallClockMs: number;
+  acceptanceFailures: number;
+  evidenceHashErrors: number;
+}
+
 export interface MissionHistoryEntry {
   ts: number;
   missionId: string;
@@ -70,3 +87,21 @@ export interface RuntimeState {
   activeMission: MissionState | null;
   autoSaveInterval: NodeJS.Timeout | null;
 }
+
+export type ToolPhase = "planning" | "execution" | "verification";
+
+export interface ToolPolicy {
+  phase: ToolPhase;
+  allowedTools: string[];
+  maxToolCalls: number;
+}
+
+export const TOOL_POLICIES: Record<ToolPhase, ToolPolicy> = {
+  planning: { phase: "planning", allowedTools: ["read", "grep", "find", "ls"], maxToolCalls: 30 },
+  execution: { phase: "execution", allowedTools: ["read", "write", "edit", "bash", "grep", "find", "ls"], maxToolCalls: 120 },
+  verification: { phase: "verification", allowedTools: ["read", "bash", "grep", "find", "ls"], maxToolCalls: 60 },
+};
+
+export const DEFAULT_FEATURE_MAX_WALL_CLOCK_MS = 30 * 60 * 1000; // 30 minutes
+export const DEFAULT_FEATURE_MAX_TOOL_CALLS = 150;
+export const STALE_FEATURE_WARN_CLOCK_MS = 20 * 60 * 1000; // 20 min — warn before hard limit

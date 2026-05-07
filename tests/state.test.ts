@@ -1,31 +1,803 @@
-import { describe, expect, it } from "vitest";
-import { createMission, createMissionId, getNextPendingFeature, missionDirSafe, progress, slugify } from "../src/state.js";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import {
+  appendHistory,
+  autoBlockBlockedFeatures,
+  autoUnblockResolved,
+  autoVerifyAcceptance,
+  buildWorkerPrompt,
+  computeMissionMetrics,
+  createMission,
+  createMissionFromTemplate,
+  createMissionId,
+  detectStaleFeature,
+  evidenceIntegrityHash,
+  exportMarkdown,
+  getFeatureById,
+  getMilestoneById,
+  getMissionPhase,
+  getNextPendingFeature,
+  linkSession,
+  listMissions,
+  loadMissionFromDisk,
+  migrateMission,
+  missionDirSafe,
+  progress,
+  readHistory,
+  saveEvidence,
+  saveMissionSafe,
+  slugify,
+} from "../src/state.js";
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
+import type { MissionState } from "../src/types.js";
 
-describe("state helpers", () => {
-  it("slugifies mission titles", () => {
+const tmpRoot = path.join(os.tmpdir(), `pi-missions-test-${process.pid}`);
+
+function setupTmp(): void {
+  fs.mkdirSync(tmpRoot, { recursive: true });
+  // Directory used via process.env.HOME override in beforeAll.
+}
+
+function cleanupTmp(): void {
+  if (fs.existsSync(tmpRoot)) fs.rmSync(tmpRoot, { recursive: true, force: true });
+}
+
+describe("slugify", () => {
+  it("removes emoji and special chars", () => {
     expect(slugify("Hello World! 🚀")).toBe("hello-world");
   });
 
-  it("includes millisecond precision in mission ids", () => {
+  it("trims leading/trailing dashes", () => {
+    expect(slugify("--test--")).toBe("test");
+  });
+
+  it("caps at 64 chars", () => {
+    expect(slugify("a".repeat(100)).length).toBeLessThanOrEqual(64);
+  });
+
+  it("returns 'mission' for empty input", () => {
+    expect(slugify("")).toBe("mission");
+  });
+});
+
+describe("createMissionId", () => {
+  it("includes millisecond precision", () => {
     expect(createMissionId("Test", Date.UTC(2026, 4, 6, 12, 34, 56, 1))).toBe("mission-20260506123456001-test");
     expect(createMissionId("Test", Date.UTC(2026, 4, 6, 12, 34, 56, 999))).toBe("mission-20260506123456999-test");
   });
+});
 
-  it("creates a default mission with active first feature", () => {
-    const mission = createMission("Test", "Goal");
-    expect(mission.schemaVersion).toBe(2);
-    expect(mission.activeFeatureId).toBe("F001");
-    expect(progress(mission)).toEqual({ done: 0, total: 3, pct: 0 });
+describe("createMission", () => {
+  it("sets schemaVersion 2, active first feature, 0% progress", () => {
+    const m = createMission("Test", "Goal");
+    expect(m.schemaVersion).toBe(2);
+    expect(m.activeFeatureId).toBe("F001");
+    expect(m.activeMilestoneId).toBe("M01");
+    expect(progress(m)).toEqual({ done: 0, total: 3, pct: 0 });
+    expect(m.status).toBe("active");
+    expect(m.tokensUsed).toBe(0);
   });
 
-  it("respects dependsOn when selecting next feature", () => {
-    const mission = createMission("Test", "Goal");
-    expect(getNextPendingFeature(mission)).toBeNull();
-    mission.milestones[0].features[0].status = "done";
-    expect(getNextPendingFeature(mission)?.id).toBe("F002");
+  it("includes constraints in milestone description", () => {
+    const m = createMission("T", "G", "No new deps");
+    expect(m.milestones[0]!.description).toContain("Constraints: No new deps");
+  });
+});
+
+describe("getNextPendingFeature", () => {
+  it("returns null when all pending are blocked by deps", () => {
+    const m = createMission("Test", "Goal");
+    expect(getNextPendingFeature(m)).toBeNull();
   });
 
-  it("guards mission dir against traversal", () => {
+  it("returns next after done", () => {
+    const m = createMission("Test", "Goal");
+    m.milestones[0].features[0]!.status = "done";
+    expect(getNextPendingFeature(m)?.id).toBe("F002");
+  });
+
+  it("respects priority ordering", () => {
+    const m = createMission("Test", "Goal");
+    // Remove cascading dependencies: make F002 and F003 both depend only on F001.
+    m.milestones[0].features[0]!.status = "done";
+    m.milestones[0].features[1]!.priority = 3;
+    m.milestones[0].features[2]!.priority = 2;
+    m.milestones[0].features[2]!.dependsOn = ["F001"];
+    expect(getNextPendingFeature(m)?.id).toBe("F003"); // prio 2 beats prio 3
+  });
+});
+
+describe("missionDirSafe", () => {
+  it("guards against traversal", () => {
     expect(missionDirSafe("../../etc/passwd")).toContain(".pi/missions");
+  });
+
+  it("sanitizes special chars", () => {
+    expect(missionDirSafe("hello/world")).toContain("hello-world");
+  });
+});
+
+describe("migrateMission", () => {
+  it("passes through v2 unchanged", () => {
+    const m = createMission("T", "G");
+    expect(migrateMission(m).schemaVersion).toBe(2);
+  });
+
+  it("migrates v1 flat features into a milestone", () => {
+    const v1 = {
+      schemaVersion: 1,
+      id: "m-1",
+      title: "Old mission",
+      goal: "Do it",
+      status: "active" as const,
+      features: [
+        { id: "F1", milestoneId: "M01", title: "Old feature", description: "desc", priority: 1, dependsOn: [], acceptance: [], status: "done" as const, sessions: [] },
+      ],
+      tokensUsed: 50,
+    };
+    const m = migrateMission(v1);
+    expect(m.schemaVersion).toBe(2);
+    expect(m.milestones).toHaveLength(1);
+    expect(m.milestones[0]!.features).toHaveLength(1);
+    expect(m.milestones[0]!.features[0]!.id).toBe("F1");
+    expect(m.tokensUsed).toBe(50);
+  });
+
+  it("throws on unsupported version", () => {
+    expect(() => migrateMission({ schemaVersion: 99 })).toThrow("Unsupported mission schemaVersion");
+  });
+});
+
+describe("save / load roundtrip", () => {
+  const origHome = process.env.HOME;
+
+  beforeAll(() => {
+    process.env.HOME = tmpRoot;
+    setupTmp();
+  });
+
+  afterAll(() => {
+    process.env.HOME = origHome;
+    cleanupTmp();
+  });
+
+  it("roundtrips via plan.json", () => {
+    const m = createMission("Roundtrip", "Ensure save works");
+    saveMissionSafe(m);
+    const loaded = loadMissionFromDisk(m.id);
+    expect(loaded).not.toBeNull();
+    expect(loaded!.id).toBe(m.id);
+    expect(loaded!.title).toBe("Roundtrip");
+    expect(loaded!.schemaVersion).toBe(2);
+  });
+
+  it("falls back to plan.json.bak when plan.json is corrupted", () => {
+    const m = createMission("Backup test", "Testing");
+    saveMissionSafe(m);
+    // Save twice so plan.json.bak is created from the first save.
+    m.title = "Backup test modified";
+    saveMissionSafe(m);
+    // Corrupt plan.json
+    const dir = missionDirSafe(m.id);
+    fs.writeFileSync(path.join(dir, "plan.json"), "{corrupted}", "utf-8");
+    const loaded = loadMissionFromDisk(m.id);
+    expect(loaded).not.toBeNull();
+    expect(loaded!.id).toBe(m.id);
+  });
+
+  it("returns null for unknown mission id", () => {
+    expect(loadMissionFromDisk("nonexistent-999")).toBeNull();
+  });
+});
+
+describe("listMissions", () => {
+  const origHome = process.env.HOME;
+
+  beforeAll(() => {
+    process.env.HOME = tmpRoot;
+    cleanupTmp();
+    setupTmp();
+  });
+
+  afterAll(() => {
+    process.env.HOME = origHome;
+    cleanupTmp();
+  });
+
+  it("returns empty array when no missions exist", () => {
+    expect(listMissions()).toEqual([]);
+  });
+
+  it("lists saved missions", () => {
+    const m1 = createMission("A", "Goal A");
+    const m2 = createMission("B", "Goal B");
+    // saveMissionSafe overwrites updatedAt; both get near-identical timestamps.
+    saveMissionSafe(m1);
+    saveMissionSafe(m2);
+    const list = listMissions();
+    expect(list).toHaveLength(2);
+    const titles = list.map((m) => m.title);
+    expect(titles).toContain("A");
+    expect(titles).toContain("B");
+  });
+});
+
+describe("history", () => {
+  const origHome = process.env.HOME;
+
+  beforeAll(() => {
+    process.env.HOME = tmpRoot;
+    cleanupTmp();
+    setupTmp();
+  });
+
+  afterAll(() => {
+    process.env.HOME = origHome;
+    cleanupTmp();
+  });
+
+  it("appends and reads history entries", () => {
+    const m = createMission("Hist test", "Testing history");
+    appendHistory(m, { event: "feature_done", featureId: "F001", note: "all good" });
+    appendHistory(m, { event: "mission_paused" });
+    const entries = readHistory(m.id);
+    expect(entries).toHaveLength(2);
+    expect(entries[0]!.event).toBe("feature_done");
+    expect(entries[0]!.featureId).toBe("F001");
+    expect(entries[1]!.event).toBe("mission_paused");
+  });
+
+  it("returns empty array for missing history file", () => {
+    expect(readHistory("nonexistent-mission")).toEqual([]);
+  });
+});
+
+describe("evidence", () => {
+  const origHome = process.env.HOME;
+
+  beforeAll(() => {
+    process.env.HOME = tmpRoot;
+    cleanupTmp();
+    setupTmp();
+  });
+
+  afterAll(() => {
+    process.env.HOME = origHome;
+    cleanupTmp();
+  });
+
+  it("saves evidence to file", () => {
+    const m = createMission("Evidence", "Test");
+    const f = m.milestones[0].features[0]!;
+    const file = saveEvidence(m, f, "## Test output\nAll passing");
+    expect(fs.existsSync(file)).toBe(true);
+    expect(fs.readFileSync(file, "utf-8")).toContain("All passing");
+  });
+});
+
+describe("progress", () => {
+  it("computes correct percentage", () => {
+    const m = createMission("P", "G");
+    expect(progress(m)).toEqual({ done: 0, total: 3, pct: 0 });
+    m.milestones[0].features[0]!.status = "done";
+    expect(progress(m)).toEqual({ done: 1, total: 3, pct: 33 });
+    m.milestones[0].features[1]!.status = "done";
+    m.milestones[0].features[2]!.status = "done";
+    expect(progress(m)).toEqual({ done: 3, total: 3, pct: 100 });
+  });
+
+  it("returns 0% for empty milestones", () => {
+    const m = createMission("Empty", "Test");
+    m.milestones = [];
+    expect(progress(m)).toEqual({ done: 0, total: 0, pct: 0 });
+  });
+});
+
+describe("getFeatureById", () => {
+  it("finds a feature by id", () => {
+    const m = createMission("Lookup", "Test");
+    expect(getFeatureById(m, "F001")?.title).toBe("Clarify scope and current state");
+  });
+
+  it("returns undefined for nonexistent id", () => {
+    const m = createMission("Lookup", "Test");
+    expect(getFeatureById(m, "F999")).toBeUndefined();
+  });
+});
+
+describe("getMilestoneById", () => {
+  it("finds a milestone by id", () => {
+    const m = createMission("Lookup", "Test");
+    expect(getMilestoneById(m, "M01")?.title).toBe("Plan and execute");
+  });
+
+  it("returns undefined for nonexistent id", () => {
+    const m = createMission("Lookup", "Test");
+    expect(getMilestoneById(m, "M99")).toBeUndefined();
+  });
+});
+
+describe("linkSession", () => {
+  const origHome = process.env.HOME;
+
+  beforeAll(() => {
+    process.env.HOME = tmpRoot;
+    cleanupTmp();
+    setupTmp();
+  });
+
+  afterAll(() => {
+    process.env.HOME = origHome;
+    cleanupTmp();
+  });
+
+  it("creates a session reference file", () => {
+    const m = createMission("Session", "Test");
+    saveMissionSafe(m);
+    linkSession(m, "/home/user/.pi/sessions/session-abc.jsonl");
+    const refFile = path.join(missionDirSafe(m.id), "sessions", "session-abc.jsonl.ref");
+    expect(fs.existsSync(refFile)).toBe(true);
+    expect(fs.readFileSync(refFile, "utf-8")).toBe("/home/user/.pi/sessions/session-abc.jsonl");
+  });
+});
+
+describe("autoBlockBlockedFeatures", () => {
+
+  it("blocks features with unresolved dependencies", () => {
+    const m = createMission("Deps", "Test deps");
+    // F001 active, F002 depends on F001 (not done), F003 depends on F002
+    expect(autoBlockBlockedFeatures(m)).toBe(2); // F002 and F003 blocked
+    expect(m.milestones[0].features[1]!.status).toBe("blocked");
+    expect(m.milestones[0].features[2]!.status).toBe("blocked");
+  });
+
+  it("does not block features with done dependencies", () => {
+    const m = createMission("DepsDone", "Test");
+    m.milestones[0].features[0]!.status = "done";
+    // F001 done → F002 deps resolved → stays pending. F003 depends on F002 (pending) → gets blocked.
+    expect(autoBlockBlockedFeatures(m)).toBe(1);
+    expect(m.milestones[0].features[1]!.status).toBe("pending");
+    expect(m.milestones[0].features[2]!.status).toBe("blocked");
+  });
+
+  it("skips already done features", () => {
+    const m = createMission("Skipped", "Test");
+    m.milestones[0].features[0]!.status = "done";
+    m.milestones[0].features[1]!.status = "done";
+    autoBlockBlockedFeatures(m);
+    expect(m.milestones[0].features[0]!.status).toBe("done");
+    expect(m.milestones[0].features[1]!.status).toBe("done");
+  });
+
+  it("blocks active feature if its deps are not done", () => {
+    const m = createMission("ActiveBlocked", "Test");
+    m.milestones[0].features[0]!.status = "pending";
+    m.milestones[0].features[1]!.status = "active";
+    m.milestones[0].features[1]!.dependsOn = ["F000"]; // nonexistent dep
+    autoBlockBlockedFeatures(m);
+    expect(m.milestones[0].features[1]!.status).toBe("blocked");
+  });
+});
+
+describe("getMissionPhase", () => {
+
+  it("returns planning for planning status", () => {
+    const m = createMission("Phase", "Test");
+    m.status = "planning";
+    expect(getMissionPhase(m)).toBe("planning");
+  });
+
+  it("returns execution for active with no active feature", () => {
+    const m = createMission("Phase", "Test");
+    m.activeFeatureId = undefined;
+    expect(getMissionPhase(m)).toBe("execution");
+  });
+
+  it("returns verification for verify/test/summarize titles", () => {
+    const m = createMission("Phase", "Test");
+    m.milestones[0].features[0]!.title = "Verify the implementation";
+    expect(getMissionPhase(m)).toBe("verification");
+    m.milestones[0].features[0]!.title = "Test everything";
+    expect(getMissionPhase(m)).toBe("verification");
+    m.milestones[0].features[0]!.title = "Summarize results";
+    expect(getMissionPhase(m)).toBe("verification");
+  });
+
+  it("returns planning for clarify/plan/scope titles", () => {
+    const m = createMission("Phase", "Test");
+    m.milestones[0].features[0]!.title = "Clarify the requirements";
+    expect(getMissionPhase(m)).toBe("planning");
+    m.milestones[0].features[0]!.title = "Plan the architecture";
+    expect(getMissionPhase(m)).toBe("planning");
+    m.milestones[0].features[0]!.title = "Scope the work";
+    expect(getMissionPhase(m)).toBe("planning");
+  });
+
+  it("returns execution for neutral titles", () => {
+    const m = createMission("Phase", "Test");
+    m.milestones[0].features[0]!.title = "Implement the feature";
+    expect(getMissionPhase(m)).toBe("execution");
+  });
+});
+
+describe("buildWorkerPrompt", () => {
+
+  it("includes mission goal and progress", () => {
+    const m = createMission("Worker", "Build X");
+    const f = m.milestones[0].features[0]!;
+    const prompt = buildWorkerPrompt(m, f);
+    expect(prompt).toContain("## Mission: Worker");
+    expect(prompt).toContain("Goal: Build X");
+    expect(prompt).toContain("Progress: 0/3");
+  });
+
+  it("includes feature details and acceptance criteria", () => {
+    const m = createMission("Worker", "Build X");
+    const f = m.milestones[0].features[0]!;
+    f.acceptance = [
+      { id: "AC001", description: "Tests pass", checkType: "bash", checkCommand: "npm test", verified: false },
+    ];
+    const prompt = buildWorkerPrompt(m, f);
+    expect(prompt).toContain("## Feature: F001");
+    expect(prompt).toContain("AC001: Tests pass");
+    expect(prompt).toContain("npm test");
+  });
+
+  it("includes dependency info", () => {
+    const m = createMission("Worker", "Build X");
+    const f = m.milestones[0].features[0]!;
+    f.dependsOn = ["F000"];
+    const prompt = buildWorkerPrompt(m, f);
+    expect(prompt).toContain("Dependencies");
+    expect(prompt).toContain("F000");
+  });
+
+  it("tells worker NOT to call mission_feature_done", () => {
+    const m = createMission("Worker", "Build X");
+    const f = m.milestones[0].features[0]!;
+    expect(buildWorkerPrompt(m, f)).toContain("do NOT call mission_feature_done");
+  });
+});
+
+describe("exportMarkdown", () => {
+  const origHome = process.env.HOME;
+
+  beforeAll(() => {
+    process.env.HOME = tmpRoot;
+    cleanupTmp();
+    setupTmp();
+  });
+
+  afterAll(() => {
+    process.env.HOME = origHome;
+    cleanupTmp();
+  });
+
+  it("produces a complete markdown report", () => {
+    const m = createMission("Export", "Export test");
+    m.tokensUsed = 500;
+    const md = exportMarkdown(m);
+    expect(md).toContain("# Mission Report: Export");
+    expect(md).toContain("**Status**: active");
+    expect(md).toContain("**Goal**: Export test");
+    expect(md).toContain("**Progress**: 0/3 (0%)");
+    expect(md).toContain("**Tokens used**: 500");
+    expect(md).toContain("##");
+  });
+
+  it("shows milestone and feature sections", () => {
+    const m = createMission("Export", "Export test");
+    m.milestones[0].features[0]!.status = "done";
+    m.milestones[0].features[0]!.completedAt = 1000;
+    const md = exportMarkdown(m);
+    expect(md).toContain("### ✅ F001:");
+    expect(md).toContain("Acceptance criteria");
+  });
+
+  it("includes evidence section when evidence exists", () => {
+    const m = createMission("ExportEv", "Test");
+    const f = m.milestones[0].features[0]!;
+    f.status = "done";
+    saveMissionSafe(m);
+    saveEvidence(m, f, "## Test evidence\nAll passed");
+    const md = exportMarkdown(m);
+    expect(md).toContain("Evidence");
+    expect(md).toContain("All passed");
+  });
+
+  it("handles empty milestones gracefully", () => {
+    const m = createMission("Empty", "Test");
+    m.milestones = [];
+    const md = exportMarkdown(m);
+    expect(md).toContain("# Mission Report: Empty");
+    expect(md).not.toContain("## ✅ Milestone:");
+  });
+});
+
+describe("createMissionFromTemplate", () => {
+  it("creates mission from refactor template", () => {
+    const m = createMissionFromTemplate("refactor", "Refactor Core");
+    expect(m).not.toBeNull();
+    expect(m!.title).toBe("Refactor Core");
+    expect(m!.goal).toContain("Refactor");
+    expect(m!.milestones[0]!.description).toContain("Constraints:");
+  });
+
+  it("uses template label as fallback title", () => {
+    const m = createMissionFromTemplate("auth", "");
+    expect(m).not.toBeNull();
+    expect(m!.title).toBe("Auth implementation");
+  });
+
+  it("returns null for unknown template", () => {
+    expect(createMissionFromTemplate("nonexistent", "Title")).toBeNull();
+  });
+
+  it("ci-cd template contains pipeline goal", () => {
+    const m = createMissionFromTemplate("ci-cd", "CI Setup");
+    expect(m!.goal).toContain("CI/CD");
+    expect(m!.milestones[0]!.description).toContain("Constraints:");
+  });
+});
+
+describe("autoVerifyAcceptance", () => {
+  it("verifies bash criteria with exit code 0", () => {
+    const m = createMission("AutoVerify", "Test");
+    const f = m.milestones[0].features[0]!;
+    f.acceptance = [
+      { id: "AC001", description: "Echo test", checkType: "bash", checkCommand: "echo ok", verified: false },
+    ];
+    const execFn = (_cmd: string) => ({ code: 0, stdout: "ok" });
+    expect(autoVerifyAcceptance(f, execFn)).toBe(1);
+    expect(f.acceptance[0]!.verified).toBe(true);
+    expect(f.acceptance[0]!.evidence).toBe("ok");
+  });
+
+  it("does not verify bash criteria with non-zero exit", () => {
+    const m = createMission("AutoVerify", "Test");
+    const f = m.milestones[0].features[0]!;
+    f.acceptance = [
+      { id: "AC001", description: "Fail test", checkType: "bash", checkCommand: "exit 1", verified: false },
+    ];
+    const execFn = (_cmd: string) => ({ code: 1, stdout: "" });
+    expect(autoVerifyAcceptance(f, execFn)).toBe(0);
+    expect(f.acceptance[0]!.verified).toBe(false);
+  });
+
+  it("skips already verified and waived criteria", () => {
+    const m = createMission("AutoVerify", "Test");
+    const f = m.milestones[0].features[0]!;
+    f.acceptance = [
+      { id: "AC001", description: "Already done", checkType: "bash", checkCommand: "echo x", verified: true },
+      { id: "AC002", description: "Waived", checkType: "bash", checkCommand: "echo x", verified: false, waived: true },
+      { id: "AC003", description: "Manual check", checkType: "manual", verified: false },
+    ];
+    const execFn = (_cmd: string) => ({ code: 0, stdout: "x" });
+    expect(autoVerifyAcceptance(f, execFn)).toBe(0);
+  });
+
+  it("handles execFn throwing gracefully", () => {
+    const m = createMission("AutoVerify", "Test");
+    const f = m.milestones[0].features[0]!;
+    f.acceptance = [
+      { id: "AC001", description: "Will throw", checkType: "bash", checkCommand: "bad", verified: false },
+    ];
+    const execFn = (_cmd: string) => { throw new Error("Command failed"); };
+    expect(autoVerifyAcceptance(f, execFn)).toBe(0);
+  });
+});
+
+describe("detectStaleFeature", () => {
+
+  it("returns null for non-active mission", () => {
+    const m = createMission("Stale", "Test");
+    m.status = "paused";
+    expect(detectStaleFeature(m)).toBeNull();
+  });
+
+  it("returns null when no active feature", () => {
+    const m = createMission("Stale", "Test");
+    m.activeFeatureId = undefined;
+    expect(detectStaleFeature(m)).toBeNull();
+  });
+
+  it("returns null when feature has no startedAt", () => {
+    const m = createMission("Stale", "Test");
+    m.milestones[0].features[0]!.startedAt = undefined;
+    expect(detectStaleFeature(m)).toBeNull();
+  });
+
+  it("returns null when within both limits", () => {
+    const m = createMission("Stale", "Test");
+    m.milestones[0].features[0]!.startedAt = Date.now();
+    expect(detectStaleFeature(m, Date.now() + 1000)).toBeNull();
+  });
+
+  it("warns when approaching time limit (two-tier: > 20min)", () => {
+    const m = createMission("Stale", "Test");
+    const f = m.milestones[0].features[0]!;
+    f.startedAt = 1000;
+    // Don't set maxWallClockMs — defaults to 30 min, so 21 min is warn level
+    const alert = detectStaleFeature(m, 1000 + 21 * 60 * 1000); // 21 min elapsed
+    expect(alert).not.toBeNull();
+    expect(alert!.level).toBe("warn");
+    expect(alert!.activeMs).toBe(21 * 60 * 1000);
+  });
+
+  it("detects time-exceeded stale feature (critical)", () => {
+    const m = createMission("Stale", "Test");
+    const f = m.milestones[0].features[0]!;
+    f.startedAt = 1000;
+    f.maxWallClockMs = 1000;
+    const alert = detectStaleFeature(m, 3000);
+    expect(alert).not.toBeNull();
+    expect(alert!.level).toBe("critical");
+    expect(alert!.featureId).toBe("F001");
+    expect(alert!.activeMs).toBe(2000);
+  });
+
+  it("detects tools-exceeded stale feature (critical)", () => {
+    const m = createMission("Stale", "Test");
+    const f = m.milestones[0].features[0]!;
+    f.startedAt = 1000;
+    f.maxToolCalls = 5;
+    f.toolCallCount = 10;
+    const alert = detectStaleFeature(m, 2000);
+    expect(alert).not.toBeNull();
+    expect(alert!.level).toBe("critical");
+    expect(alert!.toolCallsUsed).toBe(10);
+    expect(alert!.maxToolCalls).toBe(5);
+  });
+
+  it("returns warn at 20min default, critical at 30min default", () => {
+    const m = createMission("Stale", "Test");
+    const f = m.milestones[0].features[0]!;
+    f.startedAt = 1;
+    // 25 min elapsed → should be "warn" (past 20min but not past 30min)
+    const warnAlert = detectStaleFeature(m, 1 + 25 * 60 * 1000);
+    expect(warnAlert?.level).toBe("warn");
+    // 31 min elapsed → should be "critical" (past 30min default)
+    const critAlert = detectStaleFeature(m, 1 + 31 * 60 * 1000);
+    expect(critAlert?.level).toBe("critical");
+  });
+});
+
+describe("autoUnblockResolved", () => {
+
+  it("unblocks features whose dependencies are now done", () => {
+    const m = createMission("Unblock", "Test");
+    // F001 done, F002 blocked (waiting on F001), F003 pending
+    m.milestones[0].features[0]!.status = "done";
+    m.milestones[0].features[1]!.status = "blocked";
+    m.milestones[0].features[1]!.notes = "Blocked: waiting on F001";
+    expect(autoUnblockResolved(m)).toBe(1);
+    expect(m.milestones[0].features[1]!.status).toBe("pending");
+    expect(m.milestones[0].features[1]!.notes).toBeUndefined();
+  });
+
+  it("unblocks features with no deps", () => {
+    const m = createMission("Unblock", "Test");
+    // Add a blocked feature with no dependencies
+    m.milestones[0].features[0]!.status = "blocked";
+    m.milestones[0].features[0]!.dependsOn = [];
+    m.milestones[0].features[0]!.notes = "Stuck";
+    expect(autoUnblockResolved(m)).toBe(1);
+    expect(m.milestones[0].features[0]!.status).toBe("pending");
+  });
+
+  it("does not unblock when deps still unresolved", () => {
+    const m = createMission("Unblock", "Test");
+    m.milestones[0].features[1]!.status = "blocked";
+    m.milestones[0].features[1]!.notes = "Waiting";
+    // F001 is not done, so F002 should stay blocked
+    expect(autoUnblockResolved(m)).toBe(0);
+    expect(m.milestones[0].features[1]!.status).toBe("blocked");
+  });
+
+  it("returns 0 when nothing to unblock", () => {
+    const m = createMission("Unblock", "Test");
+    expect(autoUnblockResolved(m)).toBe(0);
+  });
+});
+
+describe("evidenceIntegrityHash", () => {
+  const origHome = process.env.HOME;
+
+  beforeAll(() => {
+    process.env.HOME = tmpRoot;
+    cleanupTmp();
+    setupTmp();
+  });
+
+  afterAll(() => {
+    process.env.HOME = origHome;
+    cleanupTmp();
+  });
+
+  it("returns null when evidence file does not exist", () => {
+    const m = createMission("Hash", "Test");
+    expect(evidenceIntegrityHash(m, "F001")).toBeNull();
+  });
+
+  it("returns sha256 hex hash of evidence file", () => {
+    const m = createMission("Hash", "Test");
+    const f = m.milestones[0].features[0]!;
+    saveMissionSafe(m);
+    saveEvidence(m, f, "test data");
+    const hash = evidenceIntegrityHash(m, f.id);
+    expect(hash).not.toBeNull();
+    expect(hash).toHaveLength(64);
+    expect(typeof hash).toBe("string");
+  });
+
+  it("produces different hashes for different content", () => {
+    const m = createMission("Hash", "Test");
+    const f1 = m.milestones[0].features[0]!;
+    const f2 = m.milestones[0].features[1]!;
+    saveMissionSafe(m);
+    saveEvidence(m, f1, "data one");
+    saveEvidence(m, f2, "data two");
+    expect(evidenceIntegrityHash(m, "F001")).not.toBe(evidenceIntegrityHash(m, "F002"));
+  });
+});
+
+describe("computeMissionMetrics", () => {
+  const origHome = process.env.HOME;
+
+  beforeAll(() => {
+    process.env.HOME = tmpRoot;
+    cleanupTmp();
+    setupTmp();
+  });
+
+  afterAll(() => {
+    process.env.HOME = origHome;
+    cleanupTmp();
+  });
+
+  it("computes metrics for a fresh mission", () => {
+    const m = createMission("Metrics", "Test");
+    const metrics = computeMissionMetrics(m);
+    expect(metrics.totalFeatures).toBe(3);
+    expect(metrics.featuresDone).toBe(0);
+    expect(metrics.featuresFailed).toBe(0);
+    expect(metrics.totalTokensUsed).toBe(0);
+    expect(metrics.acceptanceFailures).toBeGreaterThan(0);
+    expect(metrics.totalWallClockMs).toBeGreaterThanOrEqual(0);
+  });
+
+  it("counts done and failed features", () => {
+    const m = createMission("Metrics", "Test");
+    m.milestones[0].features[0]!.status = "done";
+    m.milestones[0].features[1]!.status = "failed";
+    const metrics = computeMissionMetrics(m);
+    expect(metrics.featuresDone).toBe(1);
+    expect(metrics.featuresFailed).toBe(1);
+  });
+
+  it("tracks acceptance failures", () => {
+    const m = createMission("Metrics", "Test");
+    // F001 has 1 AC not verified
+    const metrics = computeMissionMetrics(m);
+    expect(metrics.acceptanceFailures).toBeGreaterThanOrEqual(3); // 3 features × 1 AC each
+  });
+
+  it("sets completed from mission_complete event", () => {
+    const m = createMission("Metrics", "Test");
+    m.createdAt = 1000000;
+    saveMissionSafe(m);
+    appendHistory(m, { event: "mission_complete" });
+    const metrics = computeMissionMetrics(m);
+    expect(metrics.completed).toBeGreaterThan(0);
+  });
+
+  it("computes evidenceHashErrors for done features without evidence", () => {
+    const m = createMission("Metrics", "Test");
+    m.milestones[0].features[0]!.status = "done";
+    saveMissionSafe(m);
+    // No evidence saved → evidenceHashErrors should be 1
+    const metrics = computeMissionMetrics(m);
+    expect(metrics.evidenceHashErrors).toBeGreaterThanOrEqual(1);
   });
 });

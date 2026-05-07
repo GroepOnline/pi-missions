@@ -1,7 +1,8 @@
+import * as crypto from "node:crypto";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { CURRENT_SCHEMA_VERSION, type Feature, type Milestone, type MissionHistoryEntry, type MissionState } from "./types.js";
+import { CURRENT_SCHEMA_VERSION, DEFAULT_FEATURE_MAX_TOOL_CALLS, DEFAULT_FEATURE_MAX_WALL_CLOCK_MS, STALE_FEATURE_WARN_CLOCK_MS, type Feature, type Milestone, type MissionHistoryEntry, type MissionMetrics, type MissionState, type ToolPhase } from "./types.js";
 
 export function missionsRoot(): string {
   return path.join(os.homedir(), ".pi", "missions");
@@ -94,6 +95,8 @@ export function createMission(title: string, goal: string, constraints = ""): Mi
             dependsOn: [],
             status: "active",
             sessions: [],
+            toolCallCount: 0,
+            startedAt: now,
             acceptance: [{ id: "AC001", description: "Relevant files and constraints documented", checkType: "manual", verified: false }],
           },
           {
@@ -105,6 +108,7 @@ export function createMission(title: string, goal: string, constraints = ""): Mi
             dependsOn: ["F001"],
             status: "pending",
             sessions: [],
+            toolCallCount: 0,
             acceptance: [{ id: "AC001", description: "Implementation matches mission goal", checkType: "manual", verified: false }],
           },
           {
@@ -116,6 +120,7 @@ export function createMission(title: string, goal: string, constraints = ""): Mi
             dependsOn: ["F002"],
             status: "pending",
             sessions: [],
+            toolCallCount: 0,
             acceptance: [{ id: "AC001", description: "Verification evidence saved", checkType: "manual", verified: false }],
           },
         ],
@@ -129,6 +134,7 @@ export function migrateMission(raw: unknown): MissionState {
   const version = value.schemaVersion ?? 1;
   if (version === CURRENT_SCHEMA_VERSION) return value as MissionState;
   if (version === 1) {
+    const v1Features = (value.features ?? []).map((f: any) => ({ ...f, toolCallCount: f.toolCallCount ?? 0 }));
     return {
       schemaVersion: CURRENT_SCHEMA_VERSION,
       id: String(value.id ?? createMissionId(String(value.title ?? "mission"))),
@@ -142,7 +148,7 @@ export function migrateMission(raw: unknown): MissionState {
       lastContextTokens: value.lastContextTokens ?? 0,
       createdAt: value.createdAt ?? Date.now(),
       updatedAt: Date.now(),
-      milestones: value.milestones ?? [{ id: "M01", title: "Migrated", description: "Migrated flat feature list", status: "active", features: value.features ?? [] }],
+      milestones: value.milestones ?? [{ id: "M01", title: "Migrated", description: "Migrated flat feature list", status: "active", features: v1Features }],
     };
   }
   throw new Error(`Unsupported mission schemaVersion: ${version}`);
@@ -221,4 +227,320 @@ export function linkSession(mission: MissionState, sessionFile: string): void {
   const dir = path.join(missionDirSafe(mission.id), "sessions");
   fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(path.join(dir, `${path.basename(sessionFile)}.ref`), sessionFile, "utf-8");
+}
+
+// ---------------------------------------------------------------------------
+// DependsOn auto-blocking
+// ---------------------------------------------------------------------------
+
+/** Mark features as blocked when their dependencies are not all done. */
+export function autoBlockBlockedFeatures(mission: MissionState): number {
+  let blocked = 0;
+  for (const f of getAllFeatures(mission)) {
+    if (f.status === "blocked" || f.status === "done") continue;
+    if (f.dependsOn.length && !dependenciesDone(mission, f)) {
+      f.status = "blocked";
+      f.notes = `Blocked: waiting on ${f.dependsOn.filter((id) => getFeatureById(mission, id)?.status !== "done").join(", ")}`;
+      blocked++;
+    }
+  }
+  return blocked;
+}
+
+// ---------------------------------------------------------------------------
+// Mission phase detection
+// ---------------------------------------------------------------------------
+
+export function getMissionPhase(mission: MissionState): ToolPhase {
+  if (mission.status === "planning") return "planning";
+  const active = getActiveFeature(mission);
+  if (!active) return "execution";
+  const t = active.title.toLowerCase();
+  if (t.includes("verify") || t.includes("test") || t.includes("summarize")) return "verification";
+  if (t.includes("clarify") || t.includes("plan") || t.includes("scope")) return "planning";
+  return "execution";
+}
+
+// ---------------------------------------------------------------------------
+// Orchestrator worker prompt builder
+// ---------------------------------------------------------------------------
+
+export function buildWorkerPrompt(mission: MissionState, feature: Feature): string {
+  const p = progress(mission);
+  return [
+    `## Mission: ${mission.title}`,
+    `Goal: ${mission.goal}`,
+    `Progress: ${p.done}/${p.total} features (${p.pct}%)`,
+    "",
+    `## Feature: ${feature.id} — ${feature.title}`,
+    feature.description,
+    "",
+    "### Acceptance Criteria",
+    ...feature.acceptance.map((ac) => `- [ ] ${ac.id}: ${ac.description}${ac.checkCommand ? `\n  Command: \`${ac.checkCommand}\`` : ""}`),
+    feature.dependsOn.length ? `\n### Dependencies\n${feature.dependsOn.join(", ")}` : "",
+    "",
+    "### Instructions",
+    "1. Read the feature description and acceptance criteria carefully.",
+    "2. Explore relevant code and understand the current state.",
+    "3. Implement the smallest change that satisfies all acceptance criteria.",
+    "4. Run checks to verify completion.",
+    "5. Report completion with evidence — do NOT call mission_feature_done; the orchestrator will do that.",
+    "",
+    "Work ONLY on this feature. Do not advance to the next feature.",
+  ].join("\n");
+}
+
+// ---------------------------------------------------------------------------
+// Markdown export
+// ---------------------------------------------------------------------------
+
+export function exportMarkdown(mission: MissionState): string {
+  const p = progress(mission);
+  const history = readHistory(mission.id).slice(-50);
+  const lines: string[] = [
+    `# Mission Report: ${mission.title}`,
+    "",
+    `- **ID**: \`${mission.id}\``,
+    `- **Status**: ${mission.status}`,
+    `- **Goal**: ${mission.goal}`,
+    `- **Progress**: ${p.done}/${p.total} (${p.pct}%)`,
+    `- **Tokens used**: ${mission.tokensUsed}`,
+    `- **Created**: ${new Date(mission.createdAt).toISOString()}`,
+    `- **Updated**: ${new Date(mission.updatedAt).toISOString()}`,
+    "",
+    "---",
+    "",
+  ];
+
+  for (const m of mission.milestones) {
+    const ms = m.status === "complete" ? "✅" : m.status === "active" ? "➡️" : "•";
+    lines.push(`## ${ms} Milestone: ${m.title}`, "", m.description, "");
+    for (const f of m.features) {
+      const icon = f.status === "done" ? "✅" : f.status === "active" ? "➡️" : f.status === "blocked" ? "⛔" : "•";
+      lines.push(`### ${icon} ${f.id}: ${f.title} (P${f.priority})`, "", f.description, "");
+      if (f.acceptance.length) {
+        lines.push("**Acceptance criteria:**", "");
+        for (const ac of f.acceptance) lines.push(`- [${ac.verified || ac.waived ? "x" : " "}] ${ac.id}: ${ac.description}`);
+        lines.push("");
+      }
+      if (f.dependsOn.length) lines.push(`**Dependencies:** ${f.dependsOn.join(", ")}`, "");
+      if (f.notes) lines.push(`**Notes:** ${f.notes}`, "");
+      if (f.completedAt) lines.push(`**Completed:** ${new Date(f.completedAt).toISOString()}`, "");
+      // Include evidence if it exists
+      const evidenceDir = path.join(missionDirSafe(mission.id), "evidence");
+      const evidenceFile = path.join(evidenceDir, `${f.id}.md`);
+      if (fs.existsSync(evidenceFile)) {
+        const content = fs.readFileSync(evidenceFile, "utf-8").slice(0, 2000);
+        lines.push("<details>", "<summary>Evidence</summary>", "", content, "", "</details>", "");
+      }
+      lines.push("---", "");
+    }
+  }
+
+  // History section
+  if (history.length) {
+    lines.push("## Recent History", "");
+    for (const h of history) {
+      const ts = new Date(h.ts * 1000).toISOString();
+      lines.push(`- \`${ts}\` **${h.event}** ${h.featureId ?? ""} ${h.note ?? ""}`);
+    }
+  }
+
+  return lines.join("\n");
+}
+
+// ---------------------------------------------------------------------------
+// Mission Templates
+// ---------------------------------------------------------------------------
+
+interface MissionTemplate {
+  id: string;
+  label: string;
+  description: string;
+  goal: string;
+  constraints: string;
+}
+
+export const MISSION_TEMPLATES: MissionTemplate[] = [
+  {
+    id: "refactor",
+    label: "Refactor module",
+    description: "Restructure code without behavior changes",
+    goal: "Refactor the target module for improved clarity, testability, and maintainability without changing external behavior.",
+    constraints: "All existing tests must pass. No behavior changes allowed. Use existing dependencies only.",
+  },
+  {
+    id: "auth",
+    label: "Auth implementation",
+    description: "Add or refactor authentication",
+    goal: "Implement or refactor the authentication system with proper session handling, token management, and secure defaults.",
+    constraints: "Must not break existing routes. Security best practices required. Use established auth libraries where possible.",
+  },
+  {
+    id: "ci-cd",
+    label: "CI/CD pipeline",
+    description: "Set up or improve CI/CD pipelines",
+    goal: "Set up or improve the CI/CD pipeline including build, test, lint, and deploy stages.",
+    constraints: "Must work with the existing toolchain. Pipeline must be fast (< 10 min). Artifact storage must be configured.",
+  },
+];
+
+export function createMissionFromTemplate(templateId: string, title: string): MissionState | null {
+  const tpl = MISSION_TEMPLATES.find((t) => t.id === templateId);
+  if (!tpl) return null;
+  return createMission(title || tpl.label, tpl.goal, tpl.constraints);
+}
+
+// ---------------------------------------------------------------------------
+// Revolutionary: Auto-acceptance verification
+// ---------------------------------------------------------------------------
+
+/** Run bash-check acceptance criteria and auto-verify them. Returns count of verified criteria. */
+export function autoVerifyAcceptance(feature: Feature, execFn: (cmd: string) => { code: number; stdout: string }): number {
+  let verified = 0;
+  for (const ac of feature.acceptance) {
+    if (ac.verified || ac.waived || ac.checkType !== "bash" || !ac.checkCommand) continue;
+    try {
+      const result = execFn(ac.checkCommand);
+      if (result.code === 0) {
+        ac.verified = true;
+        ac.evidence = result.stdout.slice(0, 1000);
+        verified++;
+      }
+    } catch {
+      // Command execution failed — leave unverified.
+    }
+  }
+  return verified;
+}
+
+// ---------------------------------------------------------------------------
+// Revolutionary: Stale feature detection
+// ---------------------------------------------------------------------------
+
+export interface StaleFeatureAlert {
+  featureId: string;
+  title: string;
+  activeMs: number;
+  maxMs: number;
+  warnMs: number;
+  toolCallsUsed: number;
+  maxToolCalls: number;
+  level: "warn" | "critical";
+}
+
+/** Check if the active feature has exceeded its wall-clock or tool-call limits.
+ * Two-tier: warn at STALE_FEATURE_WARN_CLOCK_MS (20min), critical at maxWallClockMs (30min default). */
+export function detectStaleFeature(mission: MissionState, now?: number): StaleFeatureAlert | null {
+  if (mission.status !== "active") return null;
+  const feature = getActiveFeature(mission);
+  if (!feature || feature.status !== "active") return null;
+  const ts = now ?? Date.now();
+  if (!feature.startedAt) return null;
+
+  const maxWallMs = feature.maxWallClockMs ?? DEFAULT_FEATURE_MAX_WALL_CLOCK_MS;
+  const maxToolCalls = feature.maxToolCalls ?? DEFAULT_FEATURE_MAX_TOOL_CALLS;
+  const activeMs = ts - feature.startedAt;
+
+  const timeCritical = activeMs > maxWallMs;
+  const timeWarn = activeMs > STALE_FEATURE_WARN_CLOCK_MS;
+  const toolsExceeded = feature.toolCallCount > maxToolCalls;
+
+  if (timeCritical || toolsExceeded) {
+    return {
+      featureId: feature.id,
+      title: feature.title,
+      activeMs,
+      maxMs: maxWallMs,
+      warnMs: STALE_FEATURE_WARN_CLOCK_MS,
+      toolCallsUsed: feature.toolCallCount,
+      maxToolCalls,
+      level: "critical",
+    };
+  }
+  if (timeWarn) {
+    return {
+      featureId: feature.id,
+      title: feature.title,
+      activeMs,
+      maxMs: maxWallMs,
+      warnMs: STALE_FEATURE_WARN_CLOCK_MS,
+      toolCallsUsed: feature.toolCallCount,
+      maxToolCalls,
+      level: "warn",
+    };
+  }
+  return null;
+}
+
+// ---------------------------------------------------------------------------
+// Revolutionary: Self-healing — auto-unblock when dependencies resolve
+// ---------------------------------------------------------------------------
+
+/** Unblock blocked features whose dependencies are now all done. Returns count of unblocked features. */
+export function autoUnblockResolved(mission: MissionState): number {
+  let unblocked = 0;
+  for (const f of getAllFeatures(mission)) {
+    if (f.status !== "blocked") continue;
+    if (f.dependsOn.length === 0) {
+      f.status = "pending";
+      f.notes = undefined;
+      unblocked++;
+      continue;
+    }
+    if (dependenciesDone(mission, f)) {
+      f.status = "pending";
+      f.notes = undefined;
+      unblocked++;
+    }
+  }
+  return unblocked;
+}
+
+// ---------------------------------------------------------------------------
+// Revolutionary: Evidence integrity hashing
+// ---------------------------------------------------------------------------
+
+/** Compute a SHA-256 hash of the evidence file for integrity verification. */
+export function evidenceIntegrityHash(mission: MissionState, featureId: string): string | null {
+  const evidenceFile = path.join(missionDirSafe(mission.id), "evidence", `${featureId}.md`);
+  if (!fs.existsSync(evidenceFile)) return null;
+  const content = fs.readFileSync(evidenceFile);
+  return crypto.createHash("sha256").update(content).digest("hex");
+}
+
+// ---------------------------------------------------------------------------
+// Revolutionary: Metrics computation
+// ---------------------------------------------------------------------------
+
+export function computeMissionMetrics(mission: MissionState): MissionMetrics {
+  const all = getAllFeatures(mission);
+  const history = readHistory(mission.id);
+  const doneFeatures = all.filter((f) => f.status === "done");
+  const failedFeatures = all.filter((f) => f.status === "failed");
+  let acceptanceFailures = 0;
+  let evidenceHashErrors = 0;
+  for (const f of all) {
+    acceptanceFailures += f.acceptance.filter((ac) => !ac.verified && !ac.waived).length;
+    if (f.status === "done") {
+      const hash = evidenceIntegrityHash(mission, f.id);
+      if (hash === null) evidenceHashErrors++;
+    }
+  }
+  const completionEvent = history.find((h) => h.event === "mission_complete");
+  const totalWallMs = completionEvent
+    ? (completionEvent.ts * 1000) - mission.createdAt
+    : Date.now() - mission.createdAt;
+  return {
+    missionId: mission.id,
+    created: mission.createdAt,
+    completed: completionEvent?.ts ? completionEvent.ts * 1000 : undefined,
+    totalFeatures: all.length,
+    featuresDone: doneFeatures.length,
+    featuresFailed: failedFeatures.length,
+    totalTokensUsed: mission.tokensUsed,
+    totalWallClockMs: totalWallMs,
+    acceptanceFailures,
+    evidenceHashErrors,
+  };
 }

@@ -1,6 +1,11 @@
+import { execSync } from "node:child_process";
+import * as fs from "node:fs";
+import * as path from "node:path";
+import { fileURLToPath } from "node:url";
 import type { ExtensionAPI, ExtensionCommandContext } from "@mariozechner/pi-coding-agent";
 import { buildCompactionSummary } from "./context.js";
-import { appendHistory, createMission, getActiveFeature, getAllFeatures, getFeatureById, getMilestoneById, getNextPendingFeature, linkSession, listMissions, loadMissionFromDisk, progress, readHistory, saveEvidence, saveMissionSafe } from "./state.js";
+import { clearModelConfigCache, formatAgentModelLine, formatModelConfig, loadModelConfig, type ModelsConfig } from "./models.js";
+import { appendHistory, autoBlockBlockedFeatures, autoVerifyAcceptance, createMission, createMissionFromTemplate, exportMarkdown, getActiveFeature, getAllFeatures, getFeatureById, getMilestoneById, getNextPendingFeature, linkSession, listMissions, loadMissionFromDisk, MISSION_TEMPLATES, progress, readHistory, saveEvidence, saveMissionSafe } from "./state.js";
 import type { Feature, MissionState, RuntimeState } from "./types.js";
 import { dashboardRows, statusText, updateFooter } from "./ui.js";
 
@@ -8,7 +13,7 @@ export function registerMissionCommand(pi: ExtensionAPI, runtime: RuntimeState):
   pi.registerCommand("mission", {
     description: "Mission management: new|list|load|status|next|done|block|pause|resume|clear|edit|fork|debug|dashboard",
     getArgumentCompletions: (prefix: string) =>
-      ["new", "list", "load", "status", "next", "done", "block", "pause", "resume", "clear", "edit", "fork", "debug", "dashboard"]
+      ["new", "list", "load", "status", "next", "done", "block", "pause", "resume", "clear", "edit", "fork", "debug", "dashboard", "models", "export", "templates"]
         .filter((s) => s.startsWith(prefix))
         .map((s) => ({ value: s, label: s })),
     handler: async (args: string, ctx: ExtensionCommandContext) => {
@@ -28,6 +33,9 @@ export function registerMissionCommand(pi: ExtensionAPI, runtime: RuntimeState):
         case "edit": return handleEdit(rest[0], ctx, runtime);
         case "fork": return handleFork(rest.join(" "), ctx, runtime);
         case "debug": return handleDebug(rest[0], ctx, runtime);
+        case "models": return handleModels(rest[0], rest[1], ctx, runtime);
+        case "export": return handleExport(rest[0], ctx, runtime);
+        case "templates": return handleTemplates(rest[0], rest[1], rest.slice(2).join(" "), ctx, pi, runtime);
         default: return ctx.ui.notify(`Unknown /mission subcommand: ${sub}`, "warning");
       }
     },
@@ -38,7 +46,7 @@ function allFeaturesDone(mission: MissionState): boolean {
   return getAllFeatures(mission).every((f) => f.status === "done");
 }
 
-function cloneFeatureForFork(feature: Feature, id: string, title: string, notes: string): Feature {
+export function cloneFeatureForFork(feature: Feature, id: string, title: string, notes: string): Feature {
   return {
     ...feature,
     id,
@@ -52,7 +60,7 @@ function cloneFeatureForFork(feature: Feature, id: string, title: string, notes:
   };
 }
 
-async function handleNew(titleArg: string, ctx: ExtensionCommandContext, pi: ExtensionAPI, runtime: RuntimeState): Promise<void> {
+export async function handleNew(titleArg: string, ctx: ExtensionCommandContext, pi: ExtensionAPI, runtime: RuntimeState): Promise<void> {
   const title = titleArg || "Untitled mission";
   let goal = title;
   let constraints = "";
@@ -70,7 +78,7 @@ async function handleNew(titleArg: string, ctx: ExtensionCommandContext, pi: Ext
   ctx.ui.notify(`✅ Mission created: ${mission.id}\nUse /mission status or /mission next.`, "info");
 }
 
-async function handleList(ctx: ExtensionCommandContext, pi: ExtensionAPI, runtime: RuntimeState): Promise<void> {
+export async function handleList(ctx: ExtensionCommandContext, pi: ExtensionAPI, runtime: RuntimeState): Promise<void> {
   const missions = listMissions();
   if (!missions.length) return ctx.ui.notify("No missions found.", "info");
   if (!ctx.hasUI) return ctx.ui.notify(missions.map((m) => `${m.id} — ${m.title} (${m.status})`).join("\n"), "info");
@@ -84,10 +92,11 @@ async function handleList(ctx: ExtensionCommandContext, pi: ExtensionAPI, runtim
   await handleLoad(id, ctx, pi, runtime);
 }
 
-async function handleLoad(id: string | undefined, ctx: ExtensionCommandContext, pi: ExtensionAPI, runtime: RuntimeState): Promise<void> {
+export async function handleLoad(id: string | undefined, ctx: ExtensionCommandContext, pi: ExtensionAPI, runtime: RuntimeState): Promise<void> {
   if (!id) return ctx.ui.notify("Usage: /mission load <id>", "warning");
   const mission = loadMissionFromDisk(id);
   if (!mission) return ctx.ui.notify(`Mission not found: ${id}`, "error");
+  autoBlockBlockedFeatures(mission);
   runtime.activeMission = mission;
   pi.appendEntry("pi-mission-active", { missionId: mission.id });
   pi.setSessionName(`🎯 ${mission.title}`);
@@ -95,20 +104,20 @@ async function handleLoad(id: string | undefined, ctx: ExtensionCommandContext, 
   ctx.ui.notify(`Loaded mission: ${mission.title}`, "info");
 }
 
-async function handleStatus(ctx: ExtensionCommandContext, runtime: RuntimeState): Promise<void> {
+export async function handleStatus(ctx: ExtensionCommandContext, runtime: RuntimeState): Promise<void> {
   const mission = runtime.activeMission;
   if (!mission) return ctx.ui.notify("No active mission. Use /mission new <title> or /mission load <id>.", "info");
   updateFooter(ctx, mission);
   ctx.ui.notify(statusText(mission), "info");
 }
 
-async function handleDashboard(ctx: ExtensionCommandContext, runtime: RuntimeState): Promise<void> {
+export async function handleDashboard(ctx: ExtensionCommandContext, runtime: RuntimeState): Promise<void> {
   const mission = runtime.activeMission;
   if (!mission) return ctx.ui.notify("No active mission.", "warning");
   ctx.ui.setWidget("pi-mission-dashboard", dashboardRows(mission));
 }
 
-async function handleNext(ctx: ExtensionCommandContext, runtime: RuntimeState): Promise<void> {
+export async function handleNext(ctx: ExtensionCommandContext, runtime: RuntimeState): Promise<void> {
   const mission = runtime.activeMission;
   if (!mission) return ctx.ui.notify("No active mission.", "warning");
 
@@ -132,22 +141,39 @@ async function handleNext(ctx: ExtensionCommandContext, runtime: RuntimeState): 
   mission.status = "active";
   mission.activeFeatureId = next.id;
   mission.activeMilestoneId = next.milestoneId;
+  autoBlockBlockedFeatures(mission);
   appendHistory(mission, { event: "feature_active", featureId: next.id });
   saveMissionSafe(mission);
   updateFooter(ctx, mission);
   ctx.ui.notify(`➡️ Active feature: ${next.id} — ${next.title}\n${next.description}`, "info");
 }
 
-async function handleDone(evidence: string, ctx: ExtensionCommandContext, runtime: RuntimeState): Promise<void> {
+export async function handleDone(evidence: string, ctx: ExtensionCommandContext, runtime: RuntimeState): Promise<void> {
   const mission = runtime.activeMission;
   const feature = mission ? getActiveFeature(mission) : null;
   if (!mission || !feature) return ctx.ui.notify("No active feature.", "warning");
   if (!evidence && ctx.hasUI) evidence = (await ctx.ui.input("Evidence", "Why is this feature done?")) || "Marked done manually.";
+
+  // Auto-verify bash-check acceptance criteria before marking done.
+  let autoVerified = 0;
+  try {
+    autoVerified = autoVerifyAcceptance(feature, (cmd: string) => {
+      try {
+        const out = execSync(cmd, { timeout: 30_000, encoding: "utf-8" });
+        return { code: 0, stdout: out };
+      } catch (e: any) {
+        return { code: e.status ?? 1, stdout: e.stdout ?? "" };
+      }
+    });
+  } catch {
+    // execSync entirely unavailable — continue with manual verification.
+  }
+
   feature.status = "done";
   feature.completedAt = Date.now();
   for (const ac of feature.acceptance) if (!ac.waived) ac.verified = true;
   const evidenceFile = saveEvidence(mission, feature, evidence || "Marked done.");
-  appendHistory(mission, { event: "feature_done", featureId: feature.id, details: { evidenceFile } });
+  appendHistory(mission, { event: "feature_done", featureId: feature.id, details: { evidenceFile, autoVerified } });
   const next = getNextPendingFeature(mission);
   if (!next && allFeaturesDone(mission)) mission.status = "complete";
   saveMissionSafe(mission);
@@ -155,7 +181,7 @@ async function handleDone(evidence: string, ctx: ExtensionCommandContext, runtim
   ctx.ui.notify(`✅ ${feature.id} done. Evidence: ${evidenceFile}`, "info");
 }
 
-async function handleBlock(reason: string, ctx: ExtensionCommandContext, runtime: RuntimeState): Promise<void> {
+export async function handleBlock(reason: string, ctx: ExtensionCommandContext, runtime: RuntimeState): Promise<void> {
   const mission = runtime.activeMission;
   const feature = mission ? getActiveFeature(mission) : null;
   if (!mission || !feature) return ctx.ui.notify("No active feature.", "warning");
@@ -166,7 +192,7 @@ async function handleBlock(reason: string, ctx: ExtensionCommandContext, runtime
   updateFooter(ctx, mission);
 }
 
-async function handlePause(ctx: ExtensionCommandContext, runtime: RuntimeState): Promise<void> {
+export async function handlePause(ctx: ExtensionCommandContext, runtime: RuntimeState): Promise<void> {
   if (!runtime.activeMission) return ctx.ui.notify("No active mission.", "warning");
   runtime.activeMission.status = "paused";
   appendHistory(runtime.activeMission, { event: "mission_paused" });
@@ -174,7 +200,7 @@ async function handlePause(ctx: ExtensionCommandContext, runtime: RuntimeState):
   updateFooter(ctx, runtime.activeMission);
 }
 
-async function handleResume(ctx: ExtensionCommandContext, runtime: RuntimeState): Promise<void> {
+export async function handleResume(ctx: ExtensionCommandContext, runtime: RuntimeState): Promise<void> {
   if (!runtime.activeMission) return ctx.ui.notify("No active mission.", "warning");
   runtime.activeMission.status = "active";
   appendHistory(runtime.activeMission, { event: "mission_resumed" });
@@ -182,7 +208,7 @@ async function handleResume(ctx: ExtensionCommandContext, runtime: RuntimeState)
   updateFooter(ctx, runtime.activeMission);
 }
 
-async function handleClear(ctx: ExtensionCommandContext, runtime: RuntimeState): Promise<void> {
+export async function handleClear(ctx: ExtensionCommandContext, runtime: RuntimeState): Promise<void> {
   runtime.activeMission = null;
   updateFooter(ctx, null);
   ctx.ui.notify("Mission detached from this session.", "info");
@@ -211,7 +237,7 @@ async function handleEdit(featureId: string | undefined, ctx: ExtensionCommandCo
   updateFooter(ctx, mission);
 }
 
-async function handleFork(reason: string, ctx: ExtensionCommandContext, runtime: RuntimeState): Promise<void> {
+export async function handleFork(reason: string, ctx: ExtensionCommandContext, runtime: RuntimeState): Promise<void> {
   const mission = runtime.activeMission;
   const feature = mission ? getActiveFeature(mission) : null;
   if (!mission || !feature) return ctx.ui.notify("No active feature to fork.", "warning");
@@ -240,7 +266,7 @@ async function handleFork(reason: string, ctx: ExtensionCommandContext, runtime:
   });
 }
 
-async function handleDebug(id: string | undefined, ctx: ExtensionCommandContext, runtime: RuntimeState): Promise<void> {
+export async function handleDebug(id: string | undefined, ctx: ExtensionCommandContext, runtime: RuntimeState): Promise<void> {
   const mission = id ? loadMissionFromDisk(id) : runtime.activeMission;
   if (!mission) return ctx.ui.notify("No mission to debug.", "warning");
   const history = readHistory(mission.id).slice(-25);
@@ -262,6 +288,107 @@ export function missionSummaryForTree(runtime: RuntimeState): string | null {
   if (!mission) return null;
   const active = getActiveFeature(mission);
   return `Mission: ${mission.title}${active ? ` — Feature: ${active.title}` : ""}`;
+}
+
+export async function handleModels(sub: string | undefined, arg: string | undefined, ctx: ExtensionCommandContext, runtime: RuntimeState): Promise<void> {
+  const cfg = loadModelConfig();
+
+  if (!sub || sub === "show") {
+    ctx.ui.notify(formatModelConfig(cfg), "info");
+    return;
+  }
+
+  if (sub === "set" && arg) {
+    const parts = arg.split("=");
+    if (parts.length === 2) {
+      const agentName = parts[0]!;
+      const presetName = parts[1]!;
+      if (!cfg.agents[agentName]) return ctx.ui.notify(`Unknown agent: ${agentName}`, "error");
+      if (!cfg.presets[presetName]) return ctx.ui.notify(`Unknown preset: ${presetName}. Available: ${Object.keys(cfg.presets).join(", ")}`, "error");
+      cfg.agents[agentName]!.preset = presetName;
+      persistModelConfig(cfg);
+      ctx.ui.notify(`✅ ${agentName} → ${presetName} preset.`, "info");
+    } else {
+      ctx.ui.notify("Usage: /mission models set <agent>=<preset>  (e.g., mission-scout=balanced)", "warning");
+    }
+    return;
+  }
+
+  if (sub === "agent" && arg) {
+    const resolved = formatAgentModelLine(arg, cfg);
+    ctx.ui.notify(resolved, "info");
+    return;
+  }
+
+  if (sub === "reload") {
+    clearModelConfigCache();
+    ctx.ui.notify("Model config cache cleared. Next resolution re-reads models.json.", "info");
+    return;
+  }
+
+  if (sub === "preset" && arg) {
+    if (!cfg.presets[arg]) return ctx.ui.notify(`Unknown preset: ${arg}`, "error");
+    for (const name of Object.keys(cfg.agents)) cfg.agents[name]!.preset = arg;
+    persistModelConfig(cfg);
+    ctx.ui.notify(`✅ All agents set to '${arg}' preset.`, "info");
+    return;
+  }
+
+  ctx.ui.notify(`Unknown /mission models sub: ${sub}. Use: show | set <agent>=<preset> | agent <name> | preset <name> | reload`, "warning");
+}
+
+function persistModelConfig(cfg: ModelsConfig): void {
+  const modelsPath = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "models.json");
+  try {
+    fs.writeFileSync(modelsPath, JSON.stringify(cfg, null, 2) + "\n", "utf-8");
+  } catch {
+    // Non-fatal: config is still valid in-memory for the session.
+  }
+}
+
+// ---------------------------------------------------------------------------
+// /mission export [filename]
+// ---------------------------------------------------------------------------
+
+export async function handleExport(filename: string | undefined, ctx: ExtensionCommandContext, runtime: RuntimeState): Promise<void> {
+  const mission = runtime.activeMission;
+  if (!mission) return ctx.ui.notify("No active mission to export.", "warning");
+  const markdown = exportMarkdown(mission);
+  if (filename) {
+    fs.writeFileSync(filename, markdown, "utf-8");
+    ctx.ui.notify(`✅ Report exported to ${filename}`, "info");
+  } else {
+    ctx.ui.notify(markdown, "info");
+  }
+}
+
+// ---------------------------------------------------------------------------
+// /mission templates [scaffold <id> [title]]
+// ---------------------------------------------------------------------------
+
+export async function handleTemplates(sub: string | undefined, arg: string | undefined, title: string, ctx: ExtensionCommandContext, pi: ExtensionAPI, runtime: RuntimeState): Promise<void> {
+  if (!sub || sub === "list") {
+    const lines = ["Available templates:", ""];
+    for (const t of MISSION_TEMPLATES) lines.push(`  ${t.id.padEnd(12)} ${t.label.padEnd(20)} ${t.description}`);
+    lines.push("", "Use /mission templates scaffold <id> [title] to create a mission from a template.");
+    ctx.ui.notify(lines.join("\n"), "info");
+    return;
+  }
+
+  if (sub === "scaffold" && arg) {
+    const mission = createMissionFromTemplate(arg, title);
+    if (!mission) return ctx.ui.notify(`Unknown template: ${arg}. Use /mission templates list.`, "error");
+    runtime.activeMission = mission;
+    saveMissionSafe(mission);
+    appendHistory(mission, { event: "mission_created", note: `From template: ${arg}` });
+    pi.appendEntry("pi-mission-active", { missionId: mission.id });
+    pi.setSessionName(`🎯 ${mission.title}`);
+    updateFooter(ctx, mission);
+    ctx.ui.notify(`✅ Mission created from '${arg}' template: ${mission.id}`, "info");
+    return;
+  }
+
+  ctx.ui.notify("Usage: /mission templates [list|scaffold <id> [title]]", "warning");
 }
 
 export function compactionCheckpoint(pi: ExtensionAPI, runtime: RuntimeState): void {
