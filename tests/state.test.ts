@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   appendHistory,
   autoBlockBlockedFeatures,
+  autoCompleteMilestones,
   autoUnblockResolved,
   autoVerifyAcceptance,
   buildWorkerPrompt,
@@ -698,6 +699,79 @@ describe("autoUnblockResolved", () => {
   it("returns 0 when nothing to unblock", () => {
     const m = createMission("Unblock", "Test");
     expect(autoUnblockResolved(m)).toBe(0);
+  });
+});
+
+describe("autoCompleteMilestones", () => {
+  it("returns 0 and does not change status when features are pending or active", () => {
+    const m = createMission("AC", "Test");
+    m.milestones[0].status = "active";
+    expect(autoCompleteMilestones(m)).toBe(0);
+    expect(m.milestones[0].status).toBe("active"); // unchanged
+  });
+
+  it("auto-completes milestone when all features are done", () => {
+    const m = createMission("AC", "Test");
+    m.milestones[0].features[0]!.status = "done";
+    m.milestones[0].features[1]!.status = "done";
+    m.milestones[0].features[2]!.status = "done";
+    m.milestones[0].status = "active";
+    expect(autoCompleteMilestones(m)).toBe(1);
+    expect(m.milestones[0].status).toBe("complete");
+  });
+
+  it("does NOT auto-complete when any feature is failed", () => {
+    const m = createMission("AC", "Test");
+    m.milestones[0].features[0]!.status = "done";
+    m.milestones[0].features[1]!.status = "done";
+    m.milestones[0].features[2]!.status = "failed";
+    m.milestones[0].status = "active";
+    expect(autoCompleteMilestones(m)).toBe(0);
+    expect(m.milestones[0].status).toBe("active"); // NOT complete
+  });
+
+  it("skips already complete milestones and returns 0", () => {
+    const m = createMission("AC", "Test");
+    m.milestones[0].status = "complete";
+    expect(autoCompleteMilestones(m)).toBe(0);
+    expect(m.milestones[0].status).toBe("complete"); // unchanged
+  });
+
+  it("returns 1 for empty milestones (vacuous truth)", () => {
+    const m = createMission("AC", "Test");
+    m.milestones[0].features = [];
+    m.milestones[0].status = "active";
+    expect(autoCompleteMilestones(m)).toBe(1); // every([]) = true → auto-complete
+  });
+
+  it("sets milestone to active when it has an active feature", () => {
+    const m = createMission("AC", "Test");
+    m.milestones[0].status = "pending";
+    m.milestones[0].features[0]!.status = "active";
+    expect(autoCompleteMilestones(m)).toBe(0);
+    expect(m.milestones[0].status).toBe("active");
+  });
+
+  it("handles multiple milestones correctly", () => {
+    const m = createMission("AC", "Test");
+    m.milestones[0].status = "active";
+    m.milestones[0].features[0]!.status = "done";
+    m.milestones[0].features[1]!.status = "done";
+    m.milestones[0].features[2]!.status = "done";
+    // Add second milestone
+    m.milestones.push({
+      id: "M02",
+      title: "Second",
+      description: "",
+      status: "active",
+      features: [
+        { id: "F004", milestoneId: "M02", title: "F1", description: "", priority: 1, dependsOn: [], acceptance: [], status: "done", sessions: [], toolCallCount: 0 },
+        { id: "F005", milestoneId: "M02", title: "F2", description: "", priority: 2, dependsOn: [], acceptance: [], status: "pending", sessions: [], toolCallCount: 0 },
+      ],
+    });
+    expect(autoCompleteMilestones(m)).toBe(1); // only M01 complete
+    expect(m.milestones[0].status).toBe("complete");
+    expect(m.milestones[1].status).toBe("active"); // M02 still has pending
   });
 });
 

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { dashboardRows, statusText, updateFooter } from "../src/ui.js";
-import { createMission } from "../src/state.js";
+import { autoCompleteMilestones, createMission } from "../src/state.js";
 import type { MissionState } from "../src/types.js";
 
 function missionFixture(overrides: Partial<MissionState> = {}): MissionState {
@@ -113,6 +113,45 @@ describe("dashboardRows", () => {
     // New format: milestone title then progress bar on next line
     expect(rows.some((r) => r.includes("➡️ M01: Plan and execute"))).toBe(true);
     expect(rows.some((r) => r.includes("[2/3]") || r.includes("2/3"))).toBe(true);
+  });
+
+  it("collapses fully-done milestones", () => {
+    const mission = missionFixture();
+    mission.milestones[0].features.forEach((f) => { f.status = "done"; });
+    mission.milestones[0].status = "complete";
+    // Add second incomplete milestone
+    mission.milestones.push({
+      id: "M02", title: "Second", description: "", status: "active",
+      features: [{ id: "F004", milestoneId: "M02", title: "P1", description: "", priority: 1, dependsOn: [], acceptance: [], status: "active", sessions: [], toolCallCount: 0 }],
+    });
+    const rows = dashboardRows(mission);
+    // M01 should be collapsed: single line "✅ M01: ...all X features done"
+    expect(rows.some((r) => r.includes("all 3 features done") && r.includes("M01"))).toBe(true);
+    // M02 should NOT be collapsed
+    expect(rows.some((r) => r.includes("➡️ M02: Second"))).toBe(true);
+  });
+
+  it("active feature shows acceptance criteria details", () => {
+    const mission = missionFixture();
+    mission.milestones[0].features[0]!.acceptance = [
+      { id: "AC001", description: "Tests pass", checkType: "manual", verified: false },
+      { id: "AC002", description: "Builds clean", checkType: "bash", checkCommand: "npm run build", verified: false },
+    ];
+    const rows = dashboardRows(mission);
+    // Active feature should expand with acceptance criteria
+    expect(rows.some((r) => r.includes("AC001") && r.includes("Tests pass"))).toBe(true);
+    expect(rows.some((r) => r.includes("npm run build"))).toBe(true);
+  });
+
+  it("milestone auto-complete reflected in dashboard", () => {
+    const mission = missionFixture();
+    mission.milestones[0].features[0]!.status = "done";
+    mission.milestones[0].features[1]!.status = "done";
+    mission.milestones[0].features[2]!.status = "done";
+    autoCompleteMilestones(mission);
+    expect(mission.milestones[0].status).toBe("complete");
+    const rows = dashboardRows(mission);
+    expect(rows.some((r) => r.includes("✅ M01: Plan and execute") && r.includes("all 3 features done"))).toBe(true);
   });
 });
 
