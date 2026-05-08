@@ -352,18 +352,18 @@ describe("autoBlockBlockedFeatures", () => {
   it("blocks features with unresolved dependencies", () => {
     const m = createMission("Deps", "Test deps");
     // F001 active, F002 depends on F001 (not done), F003 depends on F002
-    expect(autoBlockBlockedFeatures(m)).toBe(2); // F002 and F003 blocked
-    expect(m.milestones[0].features[1]!.status).toBe("blocked");
-    expect(m.milestones[0].features[2]!.status).toBe("blocked");
+    expect(autoBlockBlockedFeatures(m)).toBe(2); // F002 and F003 waiting
+    expect(m.milestones[0].features[1]!.status).toBe("waiting");
+    expect(m.milestones[0].features[2]!.status).toBe("waiting");
   });
 
   it("does not block features with done dependencies", () => {
     const m = createMission("DepsDone", "Test");
     m.milestones[0].features[0]!.status = "done";
-    // F001 done → F002 deps resolved → stays pending. F003 depends on F002 (pending) → gets blocked.
+    // F001 done → F002 deps resolved → stays pending. F003 depends on F002 (pending) → gets waiting.
     expect(autoBlockBlockedFeatures(m)).toBe(1);
     expect(m.milestones[0].features[1]!.status).toBe("pending");
-    expect(m.milestones[0].features[2]!.status).toBe("blocked");
+    expect(m.milestones[0].features[2]!.status).toBe("waiting");
   });
 
   it("skips already done features", () => {
@@ -381,7 +381,7 @@ describe("autoBlockBlockedFeatures", () => {
     m.milestones[0].features[1]!.status = "active";
     m.milestones[0].features[1]!.dependsOn = ["F000"]; // nonexistent dep
     autoBlockBlockedFeatures(m);
-    expect(m.milestones[0].features[1]!.status).toBe("blocked");
+    expect(m.milestones[0].features[1]!.status).toBe("waiting");
   });
 });
 
@@ -672,10 +672,10 @@ describe("autoUnblockResolved", () => {
 
   it("unblocks features whose dependencies are now done", () => {
     const m = createMission("Unblock", "Test");
-    // F001 done, F002 blocked (waiting on F001), F003 pending
+    // F001 done, F002 waiting (waiting on F001), F003 pending
     m.milestones[0].features[0]!.status = "done";
-    m.milestones[0].features[1]!.status = "blocked";
-    m.milestones[0].features[1]!.notes = "Blocked: waiting on F001";
+    m.milestones[0].features[1]!.status = "waiting";
+    m.milestones[0].features[1]!.notes = "Waiting on F001";
     expect(autoUnblockResolved(m)).toBe(1);
     expect(m.milestones[0].features[1]!.status).toBe("pending");
     expect(m.milestones[0].features[1]!.notes).toBeUndefined();
@@ -683,8 +683,8 @@ describe("autoUnblockResolved", () => {
 
   it("unblocks features with no deps", () => {
     const m = createMission("Unblock", "Test");
-    // Add a blocked feature with no dependencies
-    m.milestones[0].features[0]!.status = "blocked";
+    // Add a waiting feature with no dependencies
+    m.milestones[0].features[0]!.status = "waiting";
     m.milestones[0].features[0]!.dependsOn = [];
     m.milestones[0].features[0]!.notes = "Stuck";
     expect(autoUnblockResolved(m)).toBe(1);
@@ -693,11 +693,11 @@ describe("autoUnblockResolved", () => {
 
   it("does not unblock when deps still unresolved", () => {
     const m = createMission("Unblock", "Test");
-    m.milestones[0].features[1]!.status = "blocked";
+    m.milestones[0].features[1]!.status = "waiting";
     m.milestones[0].features[1]!.notes = "Waiting";
-    // F001 is not done, so F002 should stay blocked
+    // F001 is not done, so F002 should stay waiting
     expect(autoUnblockResolved(m)).toBe(0);
-    expect(m.milestones[0].features[1]!.status).toBe("blocked");
+    expect(m.milestones[0].features[1]!.status).toBe("waiting");
   });
 
   it("returns 0 when nothing to unblock", () => {

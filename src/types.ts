@@ -1,7 +1,55 @@
 export const CURRENT_SCHEMA_VERSION = 3;
 
-export type MissionStatus = "planning" | "active" | "paused" | "complete" | "budget_limited" | "failed";
-export type FeatureStatus = "pending" | "active" | "done" | "blocked" | "failed";
+export type MissionStatus = "planning" | "active" | "paused" | "blocked" | "complete" | "budget_limited" | "failed";
+export type FeatureStatus = "pending" | "waiting" | "active" | "done" | "blocked" | "failed";
+
+export type AutopilotMode = "manual" | "assisted" | "autopilot";
+
+export type StopReason =
+  | "mission_complete"
+  | "paused_by_user"
+  | "blocked"
+  | "max_iterations"
+  | "max_consecutive_failures"
+  | "context_limit"
+  | "no_active_feature"
+  | "needs_user_decision"
+  | "no_progress"
+  | "validation_failed"
+  | "error";
+
+export interface MissionAutopilot {
+  enabled: boolean;
+  mode: AutopilotMode;
+  iteration: number;
+  maxIterations: number;
+  consecutiveFailures: number;
+  maxConsecutiveFailures: number;
+  noProgressTurns: number;
+  maxNoProgressTurns: number;
+  maxContextPercent: number;
+  startedAt: string;
+  lastContinuationAt?: string;
+  lastStopReason?: StopReason;
+  lastStopMessage?: string;
+  continueAcrossFeatures: boolean;
+  requireEvidenceForDone: boolean;
+}
+
+export const DEFAULT_AUTOPILOT: MissionAutopilot = {
+  enabled: false,
+  mode: "manual",
+  iteration: 0,
+  maxIterations: 25,
+  consecutiveFailures: 0,
+  maxConsecutiveFailures: 3,
+  noProgressTurns: 0,
+  maxNoProgressTurns: 3,
+  maxContextPercent: 85,
+  startedAt: "",
+  continueAcrossFeatures: true,
+  requireEvidenceForDone: true,
+};
 export type MilestoneStatus = "pending" | "active" | "complete";
 export type CheckType = "manual" | "bash" | "test_file";
 
@@ -55,6 +103,7 @@ export interface MissionState {
   tokensUsed: number;
   lastContextTokens: number;
   validationToken: string;
+  autopilot: MissionAutopilot;
   userPreferences?: {
     allowBashInPlanning?: boolean;
   };
