@@ -1,9 +1,8 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import type { TUI } from "@mariozechner/pi-tui";
-import { cloneFeatureForFork, compactionCheckpoint, handleBlock, handleClear, handleDashboard, handleDebug, handleDone, handleEdit, handleExport, handleFork, handleList, handleLoad, handleModels, handleNew, handleNext, handlePause, handleResume, handleStatus, handleTemplates, missionSummaryForTree, saveSessionLink } from "../src/commands.js";
+import { cloneFeatureForFork, compactionCheckpoint, handleBlock, handleClear, handleDashboard, handleDebug, handleDone, handleEdit, handleExport, handleFork, handleList, handleLoad, handleNew, handleNext, handlePause, handleResume, handleStatus, handleTemplates, missionSummaryForTree, saveSessionLink } from "../src/commands.js";
 import { missionControlOverlay } from "../src/dashboard.js";
 import { appendHistory, autoBlockBlockedFeatures, createMission, exportMarkdown, loadMissionFromDisk, saveEvidence, saveMissionSafe } from "../src/state.js";
-import { clearModelConfigCache, formatAgentModelLine, formatModelConfig, loadModelConfig, type ModelsConfig } from "../src/models.js";
 import type { MissionState, RuntimeState } from "../src/types.js";
 import * as fs from "node:fs";
 import * as os from "node:os";
@@ -65,54 +64,6 @@ describe("compactionCheckpoint", () => {
     expect(calls).toHaveLength(1);
     expect(calls[0]![0]).toBe("pi-mission-compaction-checkpoint");
     expect(calls[0]![1].missionId).toBe(rt.activeMission!.id);
-  });
-});
-
-describe("handleModels logic", () => {
-  const origHome = process.env.HOME;
-
-  beforeAll(() => {
-    process.env.HOME = tmpRoot;
-    fs.mkdirSync(tmpRoot, { recursive: true });
-  });
-
-  afterAll(() => {
-    process.env.HOME = origHome;
-    if (fs.existsSync(tmpRoot)) fs.rmSync(tmpRoot, { recursive: true, force: true });
-  });
-
-  it("loadModelConfig returns valid config", () => {
-    clearModelConfigCache();
-    const cfg = loadModelConfig();
-    expect(cfg.version).toBe(1);
-    expect(Object.keys(cfg.presets).length).toBeGreaterThanOrEqual(3);
-    expect(cfg.agents["mission-scout"]).toBeDefined();
-    expect(cfg.orchestrator).toBeDefined();
-  });
-
-  it("formatModelConfig produces readable output", () => {
-    const out = formatModelConfig();
-    expect(out).toContain("## Model Configuration");
-    expect(out).toContain("### Presets");
-    expect(out).toContain("### Agent Assignments");
-    expect(out).toContain("mission-scout");
-    expect(out).toContain("### Orchestrator");
-  });
-
-  it("formatAgentModelLine returns one-line summary", () => {
-    const line = formatAgentModelLine("mission-worker");
-    expect(line).toContain("mission-worker:");
-    expect(line).toContain("fallbacks:");
-  });
-
-  it("clearModelConfigCache forces reload on next call", () => {
-    clearModelConfigCache();
-    const cfg1 = loadModelConfig();
-    clearModelConfigCache();
-    const cfg2 = loadModelConfig();
-    // Both should return valid configs
-    expect(cfg1.version).toBe(1);
-    expect(cfg2.version).toBe(1);
   });
 });
 
@@ -639,102 +590,6 @@ describe("handleDashboard", () => {
     const ctx = mkCtx();
     await handleDashboard(ctx, { activeMission: null, autoSaveInterval: null });
     expect(ctx.getCalls()[0]!.msg).toContain("No active mission");
-  });
-});
-
-describe("handleModels subcommands", () => {
-  const origHome = process.env.HOME;
-
-  beforeAll(() => {
-    process.env.HOME = tmpRoot;
-    fs.mkdirSync(tmpRoot, { recursive: true });
-  });
-
-  afterAll(() => {
-    process.env.HOME = origHome;
-  });
-
-  it("shows config by default (show)", async () => {
-    const ctx = mkCtx();
-    const rt = runtimeFixture();
-    await handleModels(undefined, undefined, ctx, rt);
-    expect(ctx.getCalls()[0]!.msg).toContain("## Model Configuration");
-  });
-
-  it("shows config for 'show' sub", async () => {
-    const ctx = mkCtx();
-    const rt = runtimeFixture();
-    await handleModels("show", undefined, ctx, rt);
-    expect(ctx.getCalls()[0]!.msg).toContain("## Model Configuration");
-  });
-
-  it("'agent' sub resolves a specific agent", async () => {
-    const ctx = mkCtx();
-    const rt = runtimeFixture();
-    await handleModels("agent", "mission-scout", ctx, rt);
-    expect(ctx.getCalls()[0]!.msg).toContain("mission-scout");
-  });
-
-  it("'reload' sub clears cache", async () => {
-    const ctx = mkCtx();
-    const rt = runtimeFixture();
-    await handleModels("reload", undefined, ctx, rt);
-    expect(ctx.getCalls()[0]!.msg).toContain("cache cleared");
-  });
-
-  it("'set' sub updates agent preset", async () => {
-    const ctx = mkCtx();
-    const rt = runtimeFixture();
-    await handleModels("set", "mission-scout=balanced", ctx, rt);
-    expect(ctx.getCalls()[0]!.msg).toContain("mission-scout");
-    expect(ctx.getCalls()[0]!.msg).toContain("balanced");
-  });
-
-  it("'set' sub warns on unknown agent", async () => {
-    const ctx = mkCtx();
-    const rt = runtimeFixture();
-    await handleModels("set", "nonexistent-agent=balanced", ctx, rt);
-    expect(ctx.getCalls()[0]!.msg).toContain("Unknown agent");
-    expect(ctx.getCalls()[0]!.level).toBe("error");
-  });
-
-  it("'set' sub warns on unknown preset", async () => {
-    const ctx = mkCtx();
-    const rt = runtimeFixture();
-    await handleModels("set", "mission-scout=nonexistent-preset", ctx, rt);
-    expect(ctx.getCalls()[0]!.msg).toContain("Unknown preset");
-    expect(ctx.getCalls()[0]!.level).toBe("error");
-  });
-
-  it("'set' sub warns on malformed arg", async () => {
-    const ctx = mkCtx();
-    const rt = runtimeFixture();
-    await handleModels("set", "no-equals-sign", ctx, rt);
-    expect(ctx.getCalls()[0]!.msg).toContain("Usage");
-    expect(ctx.getCalls()[0]!.level).toBe("warning");
-  });
-
-  it("'preset' sub updates all agents", async () => {
-    const ctx = mkCtx();
-    const rt = runtimeFixture();
-    await handleModels("preset", "balanced", ctx, rt);
-    expect(ctx.getCalls()[0]!.msg).toContain("All agents set");
-    expect(ctx.getCalls()[0]!.msg).toContain("balanced");
-  });
-
-  it("'preset' sub warns on unknown preset", async () => {
-    const ctx = mkCtx();
-    const rt = runtimeFixture();
-    await handleModels("preset", "nonexistent-preset", ctx, rt);
-    expect(ctx.getCalls()[0]!.msg).toContain("Unknown preset");
-    expect(ctx.getCalls()[0]!.level).toBe("error");
-  });
-
-  it("unknown sub shows error", async () => {
-    const ctx = mkCtx();
-    const rt = runtimeFixture();
-    await handleModels("unknownsub", undefined, ctx, rt);
-    expect(ctx.getCalls()[0]!.msg).toContain("Unknown /mission models sub");
   });
 });
 

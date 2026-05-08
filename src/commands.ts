@@ -4,7 +4,6 @@ import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import type { ExtensionAPI, ExtensionCommandContext } from "@mariozechner/pi-coding-agent";
 import { buildCompactionSummary } from "./context.js";
-import { clearModelConfigCache, formatAgentModelLine, formatModelConfig, loadModelConfig, type ModelsConfig } from "./models.js";
 import { appendHistory, autoBlockBlockedFeatures, autoCompleteMilestones, autoVerifyAcceptance, calculateMetricsSummary, computeMissionMetrics, createMission, createMissionFromTemplate, createMissionId, createValidationToken, exportMarkdown, getActiveFeature, getAllFeatures, getFeatureById, getMilestoneById, getNextPendingFeature, isValidMissionId, linkSession, listMissions, loadMissionFromDisk, MISSION_TEMPLATES, progress, readHistory, saveEvidence, saveMissionSafe } from "./state.js";
 import type { Feature, MissionState, RuntimeState } from "./types.js";
 import { missionControlOverlay } from "./dashboard.js";
@@ -19,7 +18,7 @@ export function registerMissionCommand(pi: ExtensionAPI, runtime: RuntimeState):
   pi.registerCommand("mission", {
     description: "Mission management: new|list|load|status|next|done|block|pause|resume|clear|edit|fork|debug|dashboard|metrics",
     getArgumentCompletions: (prefix: string) =>
-      ["new", "list", "load", "status", "next", "done", "block", "pause", "resume", "clear", "edit", "fork", "debug", "dashboard", "metrics", "models", "export", "templates"]
+      ["new", "list", "load", "status", "next", "done", "block", "pause", "resume", "clear", "edit", "fork", "debug", "dashboard", "metrics", "export", "templates"]
         .filter((s) => s.startsWith(prefix))
         .map((s) => ({ value: s, label: s })),
     handler: async (args: string, ctx: ExtensionCommandContext) => {
@@ -40,7 +39,6 @@ export function registerMissionCommand(pi: ExtensionAPI, runtime: RuntimeState):
         case "fork": return handleFork(rest.join(" "), ctx, runtime);
         case "debug": return handleDebug(rest[0], ctx, runtime);
         case "metrics": return handleMetrics(ctx, runtime);
-        case "models": return handleModels(rest[0], rest[1], ctx, runtime);
         case "export": return handleExport(rest[0], ctx, runtime);
         case "templates": return handleTemplates(rest[0], rest[1], rest.slice(2).join(" "), ctx, pi, runtime);
         default: return ctx.ui.notify(`Unknown /mission subcommand: ${sub}`, "warning");
@@ -519,62 +517,6 @@ export function missionSummaryForTree(runtime: RuntimeState): string | null {
   if (!mission) return null;
   const active = getActiveFeature(mission);
   return `Mission: ${mission.title}${active ? ` — Feature: ${active.title}` : ""}`;
-}
-
-export async function handleModels(sub: string | undefined, arg: string | undefined, ctx: ExtensionCommandContext, runtime: RuntimeState): Promise<void> {
-  const cfg = loadModelConfig();
-
-  if (!sub || sub === "show") {
-    ctx.ui.notify(formatModelConfig(cfg), "info");
-    return;
-  }
-
-  if (sub === "set" && arg) {
-    const parts = arg.split("=");
-    if (parts.length === 2) {
-      const agentName = parts[0]!;
-      const presetName = parts[1]!;
-      if (!cfg.agents[agentName]) return ctx.ui.notify(`Unknown agent: ${agentName}`, "error");
-      if (!cfg.presets[presetName]) return ctx.ui.notify(`Unknown preset: ${presetName}. Available: ${Object.keys(cfg.presets).join(", ")}`, "error");
-      cfg.agents[agentName]!.preset = presetName;
-      persistModelConfig(cfg);
-      ctx.ui.notify(`✅ ${agentName} → ${presetName} preset.`, "info");
-    } else {
-      ctx.ui.notify("Usage: /mission models set <agent>=<preset>  (e.g., mission-scout=balanced)", "warning");
-    }
-    return;
-  }
-
-  if (sub === "agent" && arg) {
-    const resolved = formatAgentModelLine(arg, cfg);
-    ctx.ui.notify(resolved, "info");
-    return;
-  }
-
-  if (sub === "reload") {
-    clearModelConfigCache();
-    ctx.ui.notify("Model config cache cleared. Next resolution re-reads models.json.", "info");
-    return;
-  }
-
-  if (sub === "preset" && arg) {
-    if (!cfg.presets[arg]) return ctx.ui.notify(`Unknown preset: ${arg}`, "error");
-    for (const name of Object.keys(cfg.agents)) cfg.agents[name]!.preset = arg;
-    persistModelConfig(cfg);
-    ctx.ui.notify(`✅ All agents set to '${arg}' preset.`, "info");
-    return;
-  }
-
-  ctx.ui.notify(`Unknown /mission models sub: ${sub}. Use: show | set <agent>=<preset> | agent <name> | preset <name> | reload`, "warning");
-}
-
-function persistModelConfig(cfg: ModelsConfig): void {
-  const modelsPath = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "models.json");
-  try {
-    fs.writeFileSync(modelsPath, JSON.stringify(cfg, null, 2) + "\n", "utf-8");
-  } catch {
-    // Non-fatal: config is still valid in-memory for the session.
-  }
 }
 
 // ---------------------------------------------------------------------------

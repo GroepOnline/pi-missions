@@ -1,7 +1,6 @@
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { completionSignal, buildMissionContext } from "./context.js";
 import { compactionCheckpoint, handleDashboard, missionSummaryForTree, registerMissionCommand, saveSessionLink } from "./commands.js";
-import { loadModelConfig } from "./models.js";
 import { appendHistory, autoBlockBlockedFeatures, getActiveFeature, getMissionPhase, isValidMissionId, loadMissionFromDisk, saveEvidence, saveMissionSafe, getNextPendingFeature, getAllFeatures } from "./state.js";
 import type { RuntimeState, ToolPhase } from "./types.js";
 import { TOOL_POLICIES } from "./types.js";
@@ -14,9 +13,6 @@ import { logger } from "./logger.js";
 import { sessionMetrics, SessionMetricsCollector } from "./metrics.js";
 
 export default function piMissions(pi: ExtensionAPI): void {
-  // Load model configuration at extension startup
-  loadModelConfig();
-
   const runtime: RuntimeState = { activeMission: null, autoSaveInterval: null };
 
   registerMissionCommand(pi, runtime);
