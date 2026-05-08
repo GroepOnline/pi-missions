@@ -15,6 +15,14 @@ import { logger } from "./logger.js";
 import { sessionMetrics } from "./metrics.js";
 import { createFeedback, formatError, getErrorSeverity } from "./feedback.js";
 
+/**
+ * Register the `/mission` top-level command, its argument completions, and a handler that parses subcommands and dispatches to the corresponding mission handlers.
+ *
+ * The registered command provides completions for subcommands (e.g., `new`, `list`, `load`, `run`, `pause`, `resume`, `stop`, `status`, `autopilot`, `next`, `done`, `block`, `clear`, `edit`, `fork`, `debug`, `dashboard`, `metrics`, `export`, `templates`) and routes the parsed subcommand and remaining arguments to the appropriate handler functions.
+ *
+ * @param pi - The extension API used to register the command and interact with the host UI/session.
+ * @param runtime - The runtime state object that holds the active mission and related runtime information.
+ */
 export function registerMissionCommand(pi: ExtensionAPI, runtime: RuntimeState): void {
   pi.registerCommand("mission", {
     description: "Mission management: new|list|load|run|pause|resume|stop|status|autopilot|next|done|block|clear|edit|fork|debug|dashboard|metrics",
@@ -109,6 +117,21 @@ Rules:
 - Be specific and actionable — no vague "implement X" without context
 `;
 
+/**
+ * Creates and activates a new mission, optionally using an AI planning wizard to generate milestones and features.
+ *
+ * If a UI is available, prompts the user for a mission goal and constraints. If the extension API exposes a
+ * planning agent, sends a planning prompt and, when the agent returns valid JSON that matches the expected
+ * schema, constructs the mission (including initialized autopilot state) from the agent output. On any failure
+ * (no agent, invalid output, or errors) the function falls back to creating a default mission via createMission.
+ *
+ * The created mission is persisted, set as the active mission in runtime, a history entry is appended, the
+ * session name is updated, the UI footer is refreshed, and a notification is shown indicating whether the
+ * mission was AI-generated or created normally.
+ *
+ * @param titleArg - Optional title for the new mission; when omitted defaults to "Untitled mission"
+ * @param ctx - Command context (used for UI prompts/notifications when available)
+ */
 export async function handleNew(titleArg: string, ctx: ExtensionCommandContext, pi: ExtensionAPI, runtime: RuntimeState): Promise<void> {
   const title = titleArg || "Untitled mission";
   let goal = title;
@@ -228,6 +251,13 @@ export async function handleList(ctx: ExtensionCommandContext, pi: ExtensionAPI,
   await handleLoad(id, ctx, pi, runtime);
 }
 
+/**
+ * Loads a mission by id and activates it in the current runtime.
+ *
+ * Attempts to load the mission with the provided `id` from disk; on success sets the runtime's active mission, records session/history, updates the UI footer and session name, and notifies the user. If `id` is invalid or the mission is not found, notifies the user and logs a warning. Initialization failures are reported to the UI and logged.
+ *
+ * @param id - The mission id to load (expected format: `pim:<timestamp>:<slug>`)
+ */
 export async function handleLoad(id: string | undefined, ctx: ExtensionCommandContext, pi: ExtensionAPI, runtime: RuntimeState): Promise<void> {
   if (!id) return ctx.ui.notify("Usage: /mission load <id>", "warning");
 
@@ -258,6 +288,19 @@ export async function handleLoad(id: string | undefined, ctx: ExtensionCommandCo
   }
 }
 
+/**
+ * Starts autopilot for the current active mission and triggers the next continuation turn.
+ *
+ * Initializes the mission and its autopilot state (enables autopilot, sets mode to "autopilot",
+ * resets iteration and failure counters, and records a start timestamp), ensures there is an active
+ * runnable feature, and then begins a continuation turn for that feature.
+ *
+ * If no active mission exists, notifies the UI with guidance. If no runnable feature is available,
+ * disables autopilot, records a last-stop reason of `"no_active_feature"`, persists the mission,
+ * updates the UI footer, and notifies the user that autopilot cannot run. When a runnable feature
+ * is found, records an `autopilot_started` history entry, saves state, updates the footer, triggers
+ * mission continuation, and notifies the UI with the feature id and title.
+ */
 export async function handleRun(ctx: ExtensionCommandContext, pi: ExtensionAPI, runtime: RuntimeState): Promise<void> {
   const mission = runtime.activeMission;
   if (!mission) return ctx.ui.notify("No active mission. Use /mission new <title> or /mission load <id>.", "warning");
@@ -288,6 +331,16 @@ export async function handleRun(ctx: ExtensionCommandContext, pi: ExtensionAPI, 
   ctx.ui.notify(`Autopilot started for ${feature.id} - ${feature.title}.`, "info");
 }
 
+/**
+ * Displays the active mission's autopilot status and whether it would continue.
+ *
+ * Notifies the UI with autopilot enablement, mode, iteration and limit counters,
+ * failure/no-progress counters, context limit, timestamps for last continuation and stop,
+ * and a final line stating whether the autopilot would continue and why when it would not.
+ *
+ * @param ctx - Extension command context used to notify the UI and interact with the session
+ * @param runtime - Runtime state containing the currently active mission
+ */
 export async function handleAutopilot(ctx: ExtensionCommandContext, runtime: RuntimeState): Promise<void> {
   const mission = runtime.activeMission;
   if (!mission) return ctx.ui.notify("No active mission.", "warning");
@@ -305,6 +358,13 @@ export async function handleAutopilot(ctx: ExtensionCommandContext, runtime: Run
   ].join("\n"), "info");
 }
 
+/**
+ * Stops autopilot for the currently active mission and persists the change.
+ *
+ * Sets the mission's autopilot to disabled/manual, records the last stop reason and message,
+ * appends an `autopilot_stopped` history entry, saves the mission, updates the UI footer,
+ * and notifies the user. If there is no active mission, notifies a warning.
+ */
 export async function handleStop(ctx: ExtensionCommandContext, runtime: RuntimeState): Promise<void> {
   const mission = runtime.activeMission;
   if (!mission) return ctx.ui.notify("No active mission.", "warning");
@@ -318,6 +378,12 @@ export async function handleStop(ctx: ExtensionCommandContext, runtime: RuntimeS
   ctx.ui.notify("Autopilot stopped.", "info");
 }
 
+/**
+ * Shows the current active mission status in the UI.
+ *
+ * If no mission is active, notifies the user with guidance on creating or loading a mission.
+ * When a mission is active, updates the UI footer with the mission summary and posts the mission's formatted status message.
+ */
 export async function handleStatus(ctx: ExtensionCommandContext, runtime: RuntimeState): Promise<void> {
   const mission = runtime.activeMission;
   if (!mission) return ctx.ui.notify("No active mission. Use /mission new <title> or /mission load <id>.", "info");
@@ -474,6 +540,16 @@ export async function handleBlock(reason: string, ctx: ExtensionCommandContext, 
   updateFooter(ctx, mission);
 }
 
+/**
+ * Pauses the currently active mission and records the pause in mission state and history.
+ *
+ * If no active mission exists, notifies the UI with a warning.
+ *
+ * Behavior:
+ * - Sets the mission status to `"paused"`.
+ * - Disables autopilot and sets `autopilot.lastStopReason` to `"paused_by_user"` with a user-facing message.
+ * - Appends a `mission_paused` history entry, saves the mission, and refreshes the UI footer.
+ */
 export async function handlePause(ctx: ExtensionCommandContext, runtime: RuntimeState): Promise<void> {
   if (!runtime.activeMission) return ctx.ui.notify("No active mission.", "warning");
   runtime.activeMission.status = "paused";
@@ -485,6 +561,14 @@ export async function handlePause(ctx: ExtensionCommandContext, runtime: Runtime
   updateFooter(ctx, runtime.activeMission);
 }
 
+/**
+ * Resumes the active mission and re-enables its autopilot.
+ *
+ * Re-activates the mission, enables autopilot in "autopilot" mode, clears any stored last-stop reason and message, ensures there is an active feature, records a `mission_resumed` history entry, persists the mission, updates the UI footer, and notifies the user with guidance to trigger an immediate autopilot turn.
+ *
+ * @param ctx - The command context providing UI and session utilities.
+ * @param runtime - The current runtime state containing the active mission. 
+ */
 export async function handleResume(ctx: ExtensionCommandContext, runtime: RuntimeState): Promise<void> {
   if (!runtime.activeMission) return ctx.ui.notify("No active mission.", "warning");
   runtime.activeMission.status = "active";
@@ -499,6 +583,11 @@ export async function handleResume(ctx: ExtensionCommandContext, runtime: Runtim
   ctx.ui.notify("Mission resumed. Use /mission run to trigger the next autopilot turn immediately.", "info");
 }
 
+/**
+ * Detaches the currently active mission from the current session.
+ *
+ * Clears the runtime's active mission, updates the UI footer, and notifies the user.
+ */
 export async function handleClear(ctx: ExtensionCommandContext, runtime: RuntimeState): Promise<void> {
   runtime.activeMission = null;
   updateFooter(ctx, null);

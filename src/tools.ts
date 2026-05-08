@@ -10,6 +10,17 @@ function allFeaturesDone(mission: MissionState): boolean {
   return getAllFeatures(mission).every((f) => f.status === "done");
 }
 
+/**
+ * Register mission-related tools on the provided ExtensionAPI to operate on mission runtime state.
+ *
+ * The registered tools mutate and persist mission state (including `runtime.activeMission`), append history
+ * events, update the UI footer, and coordinate autopilot stopping/unblocking/advancing. Tools include:
+ * `mission_feature_done`, `mission_next_feature`, `mission_ask_user`, `mission_block_self`,
+ * `mission_fork`, `mission_error_status`, and `mission_retry_error`.
+ *
+ * @param pi - The ExtensionAPI instance used to register tools and interact with the host environment.
+ * @param runtime - The RuntimeState that provides the current mission context (e.g., `activeMission`) manipulated by the tools.
+ */
 export function registerMissionTools(pi: ExtensionAPI, runtime: RuntimeState): void {
   pi.registerTool({
     name: "mission_feature_done",

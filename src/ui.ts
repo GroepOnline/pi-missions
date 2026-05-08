@@ -46,7 +46,16 @@ function activeFeatureDetails(feature: Feature): string[] {
 
 // ────────────────────────────────────────────────────────────────────────────
 // Footer — compact single-line status
-// ────────────────────────────────────────────────────────────────────────────
+/**
+ * Update the UI footer status for the given mission.
+ *
+ * If `mission` is `null`, clears the footer status. Otherwise sets a single-line
+ * status that includes an icon representing mission status, the mission title,
+ * progress totals and percent, the active feature id and title when present,
+ * and a concise autopilot summary (on/off, iteration progress, no-progress and failure counters).
+ *
+ * @param mission - The current mission state, or `null` to clear the footer
+ */
 export function updateFooter(ctx: ExtensionContext, mission: MissionState | null): void {
   if (!mission) {
     ctx.ui.setStatus("pi-mission", "");
@@ -62,7 +71,15 @@ export function updateFooter(ctx: ExtensionContext, mission: MissionState | null
 
 // ────────────────────────────────────────────────────────────────────────────
 // Factory Droid–style mission control dashboard
-// ────────────────────────────────────────────────────────────────────────────
+/**
+ * Builds a multi-line, grouped dashboard representation of the given mission suitable for terminal display.
+ *
+ * The output includes mission header, progress bars, autopilot summary, per-milestone summaries, and per-feature lines;
+ * active features are expanded into multiple detail lines while other features render as single-line summaries.
+ *
+ * @param mission - The mission state to render (including milestones, features, progress, and autopilot data)
+ * @returns An array of strings where each element is one line of the formatted dashboard
+ */
 export function dashboardRows(mission: MissionState): string[] {
   const p = progress(mission);
   const statusIcon = mission.status === "complete" ? "✅" : mission.status === "paused" ? "⏸" : mission.status === "budget_limited" ? "⚠️" : "🎯";
@@ -126,6 +143,16 @@ export function dashboardRows(mission: MissionState): string[] {
   return rows;
 }
 
+/**
+ * Builds a plain-text, newline-separated status report for the given mission.
+ *
+ * Produces a human-readable summary containing mission header information (title, id, status, progress),
+ * autopilot details (enabled state, mode, iteration and failure counters, no-progress counters, last continuation and stop info),
+ * the active feature (if any), and a per-milestone listing with each feature's status and a short blocked-note preview when present.
+ *
+ * @param mission - The mission state to summarize
+ * @returns A newline-separated plain-text status report for `mission`
+ */
 export function statusText(mission: MissionState): string {
   const p = progress(mission);
   const active = getActiveFeature(mission);

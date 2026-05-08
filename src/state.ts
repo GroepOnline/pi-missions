@@ -59,14 +59,33 @@ export function getFeatureById(mission: MissionState, id: string): Feature | und
   return getAllFeatures(mission).find((f) => f.id === id);
 }
 
+/**
+ * Retrieve the feature referenced by the mission's activeFeatureId, if any.
+ *
+ * @param mission - Mission state to inspect
+ * @returns The active Feature when `mission.activeFeatureId` is set and the feature exists, `null` otherwise.
+ */
 export function getActiveFeature(mission: MissionState): Feature | null {
   return mission.activeFeatureId ? getFeatureById(mission, mission.activeFeatureId) ?? null : null;
 }
 
+/**
+ * Determines whether every feature listed in a feature's dependencies has status "done".
+ *
+ * @param mission - The mission containing the features referenced by `feature.dependsOn`
+ * @param feature - The feature whose dependencies will be checked
+ * @returns `true` if every dependency feature's status is `"done"`, `false` otherwise.
+ */
 export function dependenciesDone(mission: MissionState, feature: Feature): boolean {
   return feature.dependsOn.every((id) => getFeatureById(mission, id)?.status === "done");
 }
 
+/**
+ * Selects the next feature that is ready to be worked on based on status, dependencies, and priority.
+ *
+ * @param mission - The mission state to search for the next feature
+ * @returns The feature whose status is `pending` or `waiting`, whose dependencies are all complete, and which has the highest priority (ties broken by `id`); `null` if no such feature exists
+ */
 export function getNextPendingFeature(mission: MissionState): Feature | null {
   return getAllFeatures(mission)
     .filter((f) => (f.status === "pending" || f.status === "waiting") && dependenciesDone(mission, f))
@@ -80,6 +99,14 @@ export function progress(mission: MissionState): { done: number; total: number; 
   return { done, total, pct: total ? Math.round((done / total) * 100) : 0 };
 }
 
+/**
+ * Create a new mission state pre-populated with a default milestone and starter features.
+ *
+ * @param title - The human-readable title for the mission
+ * @param goal - The mission goal or objective
+ * @param constraints - Optional constraints added to the initial milestone description
+ * @returns A fully-initialized `MissionState` with generated `id`, `validationToken`, `autopilot` defaults (including `startedAt`), timestamps, token counters, and an initial milestone `M01` containing three starter features (`F001`–`F003`)
+ */
 export function createMission(title: string, goal: string, constraints = ""): MissionState {
   const id = createMissionId(title);
   const now = Date.now();
@@ -147,6 +174,18 @@ export function createMission(title: string, goal: string, constraints = ""): Mi
   };
 }
 
+/**
+ * Migrate and normalize a raw mission object to the current schema version.
+ *
+ * Converts older mission representations (schema versions 1 and 2) into a
+ * fully populated MissionState using current defaults, and preserves or
+ * merges existing fields when already at the current schema version.
+ *
+ * @returns A MissionState object compliant with CURRENT_SCHEMA_VERSION, with
+ *          missing defaults populated (IDs, timestamps, autopilot defaults,
+ *          validation token, milestones/features normalization, and counters).
+ * @throws Error if the input's schemaVersion is not supported.
+ */
 export function migrateMission(raw: unknown): MissionState {
   const value = raw as Partial<MissionState> & { features?: Feature[]; schemaVersion?: number };
   const version = value.schemaVersion ?? 1;
@@ -310,7 +349,16 @@ export function linkSession(mission: MissionState, sessionFile: string): void {
 // DependsOn auto-blocking
 // ---------------------------------------------------------------------------
 
-/** Mark features as blocked when their dependencies are not all done. */
+/**
+ * Update feature statuses to reflect unmet dependencies.
+ *
+ * Scans all features in the given mission and sets features with any dependencies not marked as `done` to
+ * `status = "waiting"` with `notes` listing the not-done dependency ids; features currently `waiting` whose
+ * dependencies are now satisfied are moved to `status = "pending"` and their `notes` are cleared.
+ *
+ * @param mission - The mission whose features will be inspected and mutated
+ * @returns The number of features that were set to `waiting`
+ */
 export function autoBlockBlockedFeatures(mission: MissionState): number {
   let waiting = 0;
   for (const f of getAllFeatures(mission)) {
@@ -626,7 +674,14 @@ export function detectStaleFeature(mission: MissionState, now?: number): StaleFe
 // Revolutionary: Self-healing — auto-unblock when dependencies resolve
 // ---------------------------------------------------------------------------
 
-/** Move dependency-waiting features back to pending once dependencies are resolved. Returns count of resolved wait states. */
+/**
+ * Transition features in "waiting" to "pending" when all their dependencies are satisfied.
+ *
+ * Clears the feature's notes when transitioning.
+ *
+ * @param mission - The mission whose features will be evaluated and potentially updated
+ * @returns The number of features transitioned from "waiting" to "pending"
+ */
 export function autoUnblockResolved(mission: MissionState): number {
   let unblocked = 0;
   for (const f of getAllFeatures(mission)) {

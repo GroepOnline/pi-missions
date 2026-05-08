@@ -13,6 +13,21 @@ import { cleanupStaleLocks } from "./lock.js";
 import { logger } from "./logger.js";
 import { sessionMetrics, SessionMetricsCollector } from "./metrics.js";
 
+/**
+ * Registers and wires the "pi-missions" integration: initializes runtime state, registers commands and tools,
+ * and attaches session, agent, tool-call, shortcut, persistence, and UI handlers that implement mission lifecycle,
+ * autosave, completion detection, error recovery, policy enforcement, and compaction/shutdown behavior.
+ *
+ * The installed handlers manage:
+ * - session startup: restore and validate an active mission, start autosave, and update UI/footer;
+ * - resource discovery and session tree summary injection;
+ * - before-agent and before-start hooks to supply mission context and reset per-phase counters;
+ * - tool-call recording, error-recovery decisions, and phase-based tool policy enforcement;
+ * - keyboard shortcuts for opening the dashboard and marking features done;
+ * - turn-end bookkeeping (token usage, labels, stuck detection) and persistence;
+ * - agent-end completion detection, auto-complete/auto-advance logic (delegating to autopilot handling when enabled);
+ * - pre-compaction checkpointing and graceful session shutdown (final save and footer cleanup).
+ */
 export default function piMissions(pi: ExtensionAPI): void {
   const runtime: RuntimeState = { activeMission: null, autoSaveInterval: null };
 

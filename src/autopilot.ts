@@ -23,6 +23,12 @@ export interface TurnEvaluation {
 const MIN_CONTINUATION_INTERVAL_MS = 1_000;
 let continuationInFlight = false;
 
+/**
+ * Compute the approximate context usage percentage reported by a runtime context.
+ *
+ * @param ctx - Runtime context that may expose a `getContextUsage()` method returning usage metrics.
+ * @returns The context usage as a rounded integer percent (0–100), or `null` when usage is unavailable or cannot be determined.
+ */
 export function getContextPercent(ctx?: any): number | null {
   try {
     const usage = ctx?.getContextUsage?.();
@@ -42,11 +48,24 @@ export function getContextPercent(ctx?: any): number | null {
   return null;
 }
 
+/**
+ * Determines whether all features in a mission are completed.
+ *
+ * @param mission - The mission state containing features to check
+ * @returns `true` if the mission has at least one feature and every feature's status is `"done"`, `false` otherwise
+ */
 export function isMissionComplete(mission: MissionState): boolean {
   const all = getAllFeatures(mission);
   return all.length > 0 && all.every((f) => f.status === "done");
 }
 
+/**
+ * Determine whether autopilot should proceed with the mission or stop for a specific reason.
+ *
+ * @param mission - The mission state used to evaluate autopilot and mission-level stop conditions.
+ * @param ctx - Optional runtime context used to evaluate context budget (may be passed to `getContextPercent`).
+ * @returns A ContinueDecision where `continue` is `false` and `reason`/`message` indicate why autopilot should stop when a stop condition applies; otherwise `continue` is `true`.
+ */
 export function shouldContinueMission(mission: MissionState, ctx?: any): ContinueDecision {
   if (!mission.autopilot?.enabled) return { continue: false, reason: "paused_by_user", message: "Autopilot is disabled." };
   if (mission.status === "complete") return { continue: false, reason: "mission_complete" };
@@ -70,6 +89,17 @@ export function shouldContinueMission(mission: MissionState, ctx?: any): Continu
   return { continue: true };
 }
 
+/**
+ * Ensure the mission has an active, runnable feature; activate the next pending feature if found.
+ *
+ * This mutates the provided mission state: it may mark features as "waiting" (when dependencies are unmet),
+ * activate a runnable feature (setting feature and mission status, timestamps, active ids, and appending history),
+ * mark the mission "complete" and auto-complete milestones when all features are done, or set the mission to
+ * "blocked" and record an autopilot stop reason when remaining features are only blocked/failed.
+ *
+ * @param mission - The mission state to inspect and update
+ * @returns The feature that is active after this call, or `null` when no active/runnable feature exists
+ */
 export function ensureActiveFeature(mission: MissionState): Feature | null {
   const existing = getActiveFeature(mission);
   if (existing?.status === "active") return existing;
@@ -104,11 +134,23 @@ export function ensureActiveFeature(mission: MissionState): Feature | null {
   return null;
 }
 
+/**
+ * Format a feature's acceptance criteria as a Markdown-style bullet list.
+ *
+ * @param feature - The feature to format; may be `null` or have no acceptance entries.
+ * @returns The formatted acceptance criteria where each item is prefixed with a checkbox (`[x]` if verified or waived, `[ ]` otherwise). Returns `"- No explicit acceptance criteria."` when the feature is `null` or has no acceptance items.
+ */
 function formatAcceptanceCriteria(feature: Feature | null): string {
   if (!feature?.acceptance.length) return "- No explicit acceptance criteria.";
   return feature.acceptance.map((ac) => `- [${ac.verified || ac.waived ? "x" : " "}] ${ac.id}: ${ac.description}${ac.checkCommand ? ` (check: ${ac.checkCommand})` : ""}`).join("\n");
 }
 
+/**
+ * Builds the natural-language continuation prompt describing the mission's current state for the Pi agent.
+ *
+ * @param mission - The mission state used to populate the prompt (title, goal, active feature, milestone, and autopilot counters).
+ * @returns A string prompt instructing the agent how to continue the active mission and feature; if no active feature exists, a short prompt asking the agent to report the blocker.
+ */
 export function buildAutopilotContinuationPrompt(mission: MissionState): string {
   const feature = getActiveFeature(mission);
   if (!feature) return `Continue the active Pi Mission.\nMission: ${mission.title}\nNo active feature is available; report the blocker.`;
@@ -149,11 +191,26 @@ Rules:
 - Stop after this turn; the Pi Missions runtime will decide whether to continue.`.trim();
 }
 
+/**
+ * Checks whether the mission's last autopilot continuation occurred within the minimum continuation interval.
+ *
+ * @returns `true` if the last continuation time is less than MIN_CONTINUATION_INTERVAL_MS ago, `false` otherwise.
+ */
 function recentlyTriggered(mission: MissionState): boolean {
   const last = mission.autopilot.lastContinuationAt ? Date.parse(mission.autopilot.lastContinuationAt) : 0;
   return Boolean(last && Date.now() - last < MIN_CONTINUATION_INTERVAL_MS);
 }
 
+/**
+ * Trigger the autopilot to continue work on the active feature by preparing mission state and sending a follow-up prompt to the agent.
+ *
+ * If there is no active feature or autopilot should stop, the function persists the mission and updates the UI footer and returns. If a continuation is allowed and not throttled, it advances the autopilot iteration, records history, persists state, updates the footer, and sends a follow-up prompt to the agent.
+ *
+ * @param pi - Extension API used to deliver the follow-up prompt to the agent
+ * @param ctx - UI/runtime context used for footer updates and context checks
+ * @param mission - Mission state to read and mutate for autopilot progression
+ * @throws Re-throws any error raised while sending the prompt after incrementing the mission's consecutive failure count, recording an "error" stop reason/message, and persisting the mission state
+ */
 export async function triggerMissionContinuation(pi: ExtensionAPI, ctx: any, mission: MissionState): Promise<void> {
   const feature = ensureActiveFeature(mission);
   if (!feature) {
@@ -191,6 +248,14 @@ export async function triggerMissionContinuation(pi: ExtensionAPI, ctx: any, mis
   }
 }
 
+/**
+ * Extracts and concatenates plain text content from an agent event payload.
+ *
+ * Traverses event.messages and each message's content array, collecting items where `type === "text"` and `text` is a string, then joins them with newlines.
+ *
+ * @param event - Event object expected to contain a `messages` array of message objects with `content` arrays
+ * @returns The concatenated text blocks from the event, or an empty string if none are found
+ */
 function extractAgentText(event: any): string {
   const messages = Array.isArray(event?.messages) ? event.messages : [];
   return messages
@@ -200,6 +265,23 @@ function extractAgentText(event: any): string {
     .join("\n");
 }
 
+/**
+ * Evaluate an agent turn and summarize its outcome for the autopilot state machine.
+ *
+ * Determines, based on the active feature (or the provided feature snapshot) and the agent's event text, whether the feature was completed, the mission or feature is blocked, user input is required, progress was made, or the turn failed. Also returns extracted evidence and a concise message describing the evaluation.
+ *
+ * @param mission - The mission state used to inspect mission/feature statuses and counters.
+ * @param event - The agent event payload from which textual output is extracted and analyzed.
+ * @param featureBefore - Optional feature snapshot to evaluate instead of the current active feature.
+ * @returns A TurnEvaluation describing:
+ *  - `completedFeature`: `true` if the feature was completed (or auto-completed), `false` otherwise.
+ *  - `blocked`: `true` if the mission or feature is blocked or the agent signaled a blocker, `false` otherwise.
+ *  - `needsUser`: `true` if the agent requested or indicated user input is required, `false` otherwise.
+ *  - `madeProgress`: `true` if the agent made observable progress (keywords or detector suggestion), `false` otherwise.
+ *  - `failed`: `true` if the agent reported an error and no progress was detected, `false` otherwise.
+ *  - `evidence`: Optional short evidence string (detector reason or agent text) when available.
+ *  - `message`: A short human-readable message describing the evaluation or the detector reason.
+ */
 export function evaluateAutopilotTurn(mission: MissionState, event: any, featureBefore?: Feature | null): TurnEvaluation {
   const feature = featureBefore ?? getActiveFeature(mission);
   const text = extractAgentText(event);
@@ -222,6 +304,14 @@ export function evaluateAutopilotTurn(mission: MissionState, event: any, feature
   };
 }
 
+/**
+ * Handle an agent turn outcome to update autopilot feature and mission state and decide whether to continue.
+ *
+ * Evaluates the agent's response, applies updates to the active feature and mission (marking features done, blocking, stopping for user input, adjusting failure/progress counters, completing the mission, and recording history), persists state, updates the UI footer, and either triggers the next autopilot continuation or disables autopilot with a recorded stop reason.
+ *
+ * @param event - The agent event payload whose messages are evaluated to determine progress, blocking, or required user input.
+ * @param runtime - The runtime state containing the active mission; the function reads and mutates the mission within this runtime and persists those changes.
+ */
 export async function processAgentEndForAutopilot(pi: ExtensionAPI, ctx: any, event: any, runtime: RuntimeState): Promise<void> {
   const mission = runtime.activeMission;
   if (!mission?.autopilot?.enabled) return;
