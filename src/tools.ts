@@ -242,8 +242,11 @@ export function registerMissionTools(pi: ExtensionAPI, runtime: RuntimeState): v
       const next = getNextPendingFeature(mission);
       if (next) {
         next.status = "active";
+        mission.status = "active";
         mission.activeFeatureId = next.id;
         mission.activeMilestoneId = next.milestoneId;
+        mission.autopilot.lastStopReason = undefined;
+        mission.autopilot.lastStopMessage = undefined;
         appendHistory(mission, { event: "feature_active", featureId: next.id, note: "Auto-advanced after self-block" });
         await saveMissionSafe(mission);
         updateFooter(ctx, mission);

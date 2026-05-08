@@ -46,7 +46,7 @@ export const DEFAULT_AUTOPILOT: MissionAutopilot = {
   noProgressTurns: 0,
   maxNoProgressTurns: 3,
   maxContextPercent: 85,
-  startedAt: new Date().toISOString(),
+  startedAt: "",
   continueAcrossFeatures: true,
   requireEvidenceForDone: true,
 };

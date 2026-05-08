@@ -240,7 +240,9 @@ export async function processAgentEndForAutopilot(pi: ExtensionAPI, ctx: any, ev
     if (current && current.status !== "done") {
       current.status = "done";
       current.completedAt = Date.now();
-      for (const ac of current.acceptance) if (!ac.waived) ac.verified = true;
+      for (const ac of current.acceptance) {
+        if (!ac.waived && (ac.checkType === "manual" || !ac.checkType)) ac.verified = true;
+      }
       const evidenceFile = saveEvidence(mission, current, evaluation.evidence ?? "Autopilot detected feature completion.");
       appendHistory(mission, { event: "feature_done", featureId: current.id, note: "Autopilot completion", details: { evidenceFile, auto: true } });
     }
@@ -280,7 +282,8 @@ export async function processAgentEndForAutopilot(pi: ExtensionAPI, ctx: any, ev
   const decision = shouldContinueMission(mission, ctx);
   if (decision.continue) {
     await triggerMissionContinuation(pi, ctx, mission);
-  } else {
+  } else if (!mission.autopilot.lastStopReason) {
+    // Only overwrite if not already set by evaluation (blocked, needs_user, etc.)
     mission.autopilot.lastStopReason = decision.reason;
     mission.autopilot.lastStopMessage = decision.message;
     mission.autopilot.enabled = false;

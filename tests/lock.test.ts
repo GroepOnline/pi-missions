@@ -15,8 +15,7 @@ describe("Mission Locking", () => {
   });
 
   it("LockOptions interface is exported", () => {
-    const options: LockOptions = { timeout: 1000, stale: 60000 };
-    expect(options.timeout).toBe(1000);
+    const options: LockOptions = { stale: 60000 };
     expect(options.stale).toBe(60000);
   });
 
@@ -24,7 +23,7 @@ describe("Mission Locking", () => {
     // Type checks - these will fail at compile time if types are wrong
     const missionId = "test-mission";
     const callback = async () => "result";
-    const options: LockOptions = { timeout: 1000 };
+    const options: LockOptions = { stale: 60000 };
 
     // These calls are type-checked but not executed
     expect(typeof acquireMissionLock).toBe("function");

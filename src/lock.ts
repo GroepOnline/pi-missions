@@ -6,7 +6,6 @@ const LOCK_TIMEOUT = 5000;
 const LOCK_STALE = 30000;
 
 export interface LockOptions {
-  timeout?: number;
   stale?: number;
 }
 
@@ -35,8 +34,6 @@ export async function withLock<T>(lockPath: string, callback: () => Promise<T> |
     stale: options?.stale ?? LOCK_STALE,
     realpath: false,
   });
-  const timeout = options?.timeout ?? LOCK_TIMEOUT;
-  void timeout;
   try {
     return await callback();
   } finally {
