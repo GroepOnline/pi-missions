@@ -42,19 +42,19 @@ function statusIcon(status: string): string {
   return STATUS_ICONS[status] ?? "•";
 }
 
-function featureLabel(f: Feature): string {
+export function featureLabel(f: Feature): string {
   const acDone = f.acceptance.filter((ac) => ac.verified || ac.waived).length;
   const acBadge = f.acceptance.length ? ` [${acDone}/${f.acceptance.length} AC]` : "";
   return `${statusIcon(f.status)} ${f.id} [P${f.priority}] ${f.title}${acBadge}`;
 }
 
-function featureDescription(f: Feature, milestoneId: string): string {
+export function featureDescription(f: Feature, milestoneId: string): string {
   const deps = f.dependsOn.length ? ` 🔗${f.dependsOn.join(",")}` : "";
   const desc = f.description.slice(0, 70);
   return `${milestoneId}: ${desc}${deps}`;
 }
 
-function buildFeatureItems(mission: MissionState): SelectItem[] {
+export function buildFeatureItems(mission: MissionState): SelectItem[] {
   const items: SelectItem[] = [];
   for (const milestone of mission.milestones) {
     for (const feature of milestone.features) {
@@ -68,7 +68,7 @@ function buildFeatureItems(mission: MissionState): SelectItem[] {
   return items;
 }
 
-function featureDetailLines(feature: Feature, width: number): string[] {
+export function featureDetailLines(feature: Feature, width: number): string[] {
   const barW = Math.min(width - 4, 72);
   const bar = "─".repeat(barW > 0 ? barW : 40);
   const lines: string[] = [];
