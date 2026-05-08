@@ -62,6 +62,7 @@ pi -e ./src/index.ts
 | `/mission pause` / `resume`    | Pause or resume the mission                      |
 | `/mission fork <reason>`       | Fork active feature into a new session           |
 | `/mission debug [id]`          | Inspect recent history and events                |
+| `/mission metrics`             | Show mission metrics and export to JSON           |
 | `/mission clear`               | Detach mission from this session                 |
 
 ## 🤖 Agent Tools
