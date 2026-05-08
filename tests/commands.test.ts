@@ -539,6 +539,29 @@ describe("handleDashboard", () => {
     expect(typeof custom.factory).toBe("function");
   });
 
+  it("factory builds valid component that renders and disposes", async () => {
+    const ctx = mkCtx({ hasUI: true });
+    const rt = runtimeFixture();
+    await handleDashboard(ctx, rt);
+    const custom = ctx.getLastCustom();
+    expect(custom).not.toBeNull();
+    // Call the factory with a minimal mock TUI to verify it builds correctly
+    const mockTui = { hideOverlay: () => {}, requestRender: () => {} };
+    const component = custom.factory(mockTui);
+    expect(component).toBeDefined();
+    expect(typeof component.render).toBe("function");
+    expect(typeof component.handleInput).toBe("function");
+    expect(typeof component.dispose).toBe("function");
+    // Render should produce output lines with mission info
+    const lines = component.render(80);
+    expect(lines.length).toBeGreaterThan(0);
+    expect(lines.some((l: string) => l.includes("Mission Control"))).toBe(true);
+    expect(lines.some((l: string) => l.includes("Tree mission"))).toBe(true);
+    // Handle input forwarding and disposal should not throw
+    component.handleInput("j");
+    component.dispose();
+  });
+
   it("warns when no mission", async () => {
     const ctx = mkCtx();
     await handleDashboard(ctx, { activeMission: null, autoSaveInterval: null });

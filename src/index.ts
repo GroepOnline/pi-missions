@@ -2,7 +2,7 @@ import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { completionSignal, buildMissionContext } from "./context.js";
 import { compactionCheckpoint, missionSummaryForTree, registerMissionCommand, saveSessionLink } from "./commands.js";
 import { loadModelConfig } from "./models.js";
-import { appendHistory, autoBlockBlockedFeatures, getActiveFeature, getMissionPhase, loadMissionFromDisk, saveEvidence, saveMissionSafe } from "./state.js";
+import { appendHistory, autoBlockBlockedFeatures, getActiveFeature, getFeatureById, getMissionPhase, loadMissionFromDisk, saveEvidence, saveMissionSafe } from "./state.js";
 import type { RuntimeState, ToolPhase } from "./types.js";
 import { TOOL_POLICIES } from "./types.js";
 import { registerMissionTools } from "./tools.js";
@@ -81,7 +81,27 @@ export default function piMissions(pi: ExtensionAPI): void {
         ctx.ui.notify(statusText(mission), "info");
         return;
       }
-      await ctx.ui.custom(missionControlOverlay(mission), { overlay: true });
+      let selectedFeatureId: string | null = null;
+      await ctx.ui.custom(
+        missionControlOverlay(mission, (featureId) => { selectedFeatureId = featureId; }),
+        { overlay: true },
+      );
+      if (selectedFeatureId) {
+        const feature = getFeatureById(mission, selectedFeatureId);
+        if (feature && mission.activeFeatureId !== selectedFeatureId) {
+          feature.status = "active";
+          mission.activeFeatureId = selectedFeatureId;
+          mission.activeMilestoneId = feature.milestoneId;
+          mission.status = "active";
+          autoBlockBlockedFeatures(mission);
+          appendHistory(mission, { event: "feature_active", featureId: selectedFeatureId });
+          saveMissionSafe(mission);
+          updateFooter(ctx, mission);
+          ctx.ui.notify(`➡️ Activated: ${selectedFeatureId} — ${feature.title}`, "info");
+        } else if (feature && mission.activeFeatureId === selectedFeatureId) {
+          ctx.ui.notify(`Already active: ${selectedFeatureId} — ${feature.title}`, "info");
+        }
+      }
     },
   });
 

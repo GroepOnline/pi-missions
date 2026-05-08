@@ -100,11 +100,13 @@ class MissionControl implements Component {
   private detailBox: Box;
   private mission: MissionState;
   private tui: TUI;
+  private onAction?: (featureId: string) => void;
   private width = 80;
 
-  constructor(mission: MissionState, tui: TUI) {
+  constructor(mission: MissionState, tui: TUI, onAction?: (featureId: string) => void) {
     this.mission = mission;
     this.tui = tui;
+    this.onAction = onAction;
 
     const p = progress(mission);
     const statusIco =
@@ -124,6 +126,10 @@ class MissionControl implements Component {
     this.list = new SelectList(items, Math.min(items.length, 15), selectTheme);
     this.list.onSelectionChange = (item: SelectItem) => this.updateDetail(item);
     this.list.onCancel = () => this.tui.hideOverlay();
+    this.list.onSelect = (item: SelectItem) => {
+      this.onAction?.(item.value);
+      this.tui.hideOverlay();
+    };
 
     // Detail pane — initially shows first feature if available
     this.detailBox = new Box(0, 0);
@@ -192,6 +198,7 @@ class MissionControl implements Component {
  */
 export function missionControlOverlay(
   mission: MissionState,
+  onAction?: (featureId: string) => void,
 ): (tui: TUI) => Component & { dispose(): void } {
-  return (tui: TUI) => new MissionControl(mission, tui);
+  return (tui: TUI) => new MissionControl(mission, tui, onAction);
 }

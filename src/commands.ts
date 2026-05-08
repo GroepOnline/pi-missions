@@ -231,7 +231,29 @@ export async function handleDashboard(ctx: ExtensionCommandContext, runtime: Run
     return;
   }
   // Full-screen interactive overlay via ctx.ui.custom()
-  await ctx.ui.custom(missionControlOverlay(mission), { overlay: true });
+  // Capture the selected feature via callback when user presses Enter
+  let selectedFeatureId: string | null = null;
+  await ctx.ui.custom(
+    missionControlOverlay(mission, (featureId) => { selectedFeatureId = featureId; }),
+    { overlay: true },
+  );
+  // Activate the selected feature if one was chosen
+  if (selectedFeatureId) {
+    const feature = getFeatureById(mission, selectedFeatureId);
+    if (feature && mission.activeFeatureId !== selectedFeatureId) {
+      feature.status = "active";
+      mission.activeFeatureId = selectedFeatureId;
+      mission.activeMilestoneId = feature.milestoneId;
+      mission.status = "active";
+      autoBlockBlockedFeatures(mission);
+      appendHistory(mission, { event: "feature_active", featureId: selectedFeatureId });
+      saveMissionSafe(mission);
+      updateFooter(ctx, mission);
+      ctx.ui.notify(`➡️ Activated: ${selectedFeatureId} — ${feature.title}`, "info");
+    } else if (feature && mission.activeFeatureId === selectedFeatureId) {
+      ctx.ui.notify(`Already active: ${selectedFeatureId} — ${feature.title}`, "info");
+    }
+  }
 }
 
 export async function handleNext(ctx: ExtensionCommandContext, runtime: RuntimeState): Promise<void> {
