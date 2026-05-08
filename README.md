@@ -1,111 +1,105 @@
-# Pi Missions
+# 🚀 Pi Missions
 
-Persistent mission orchestration for the Pi coding agent.
+**Persistent mission orchestration for the Pi coding agent**
 
-`pi-missions` turns short-lived Pi sessions into long-running execution tracks. It gives an agent a durable mission plan, feature queue, history log, evidence folder, and session handoff layer so multi-step work can survive restarts, context resets, forks, and interruptions.
+<div align="center">
 
-The extension is inspired by Factory Droid Missions and Codex-style goal tracking, but is implemented as a native Pi package with local-first state and simple slash commands.
+![Pi Missions Hero Banner](https://raw.githubusercontent.com/OnlineChef/pi-missions/main/assets/hero-banner.png)
 
-## What this repository provides
+> **Turn short-lived Pi sessions into durable, long-running execution tracks.**
 
-- Long-running missions for Pi coding sessions.
-- Durable task state under `~/.pi/missions/<mission-id>/`.
-- A feature queue with `pending`, `active`, `blocked`, and `done` style progression.
-- Evidence capture for completed work.
-- Mission history in append-friendly JSONL.
-- Session attach/detach support so a mission can move across Pi sessions.
-- Agent-callable tools for advancing or completing work programmatically.
-- EXDEV-safe persistence using temp files next to the target before rename.
+[![Version](https://img.shields.io/badge/version-0.1.0-blue.svg)](https://github.com/OnlineChef/pi-missions)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Pi Extension](https://img.shields.io/badge/Pi-Extension-9b59b6.svg)](https://github.com/OnlineChef/pi-missions)
 
-## Installation
+</div>
 
-### Local development
+## ✨ What is Pi Missions?
 
-```bash
-pi -e ./src/index.ts
-```
+`pi-missions` gives your Pi coding agent a **durable mission plan** that survives restarts, context resets, forks, and interruptions.
 
-### Install from a local checkout
+Inspired by Factory Droid Missions and Codex-style goal tracking, but built as a **native Pi package** with local-first state and simple slash commands.
 
-```bash
-pi install /home/joep/projects/pi-missions
-```
+## 🚀 Key Features
+
+- **Long-running missions** across multiple Pi sessions  
+- **Durable local state** in `~/.pi/missions/<mission-id>/`  
+- **Smart feature queue** (`pending` → `active` → `blocked` → `done`)  
+- **Evidence capture** for completed work  
+- **Append-only history** (JSONL) for full audit trail  
+- **Session handoff** – attach/detach across sessions  
+- **Agent-callable tools** for autonomous progress  
+- **Crash-safe writes** (EXDEV-safe temp + rename)
+
+## 🛠️ Quick Start
 
 ### Install from GitHub
 
 ```bash
-pi install git:github.com/GroepChef/pi-missions
+pi install git:github.com/OnlineChef/pi-missions
 ```
 
-The package exports `./src/index.ts` and declares itself as a Pi extension through the `pi.extensions` field in `package.json`.
+### Local development
 
-## Commands
-
-```text
-/mission new <title>       Create a mission
-/mission list              List and load missions
-/mission load <id>         Load a mission into the current session
-/mission status            Show current mission status
-/mission dashboard         Show dashboard widget
-/mission next              Advance to the next unblocked feature
-/mission done [evidence]   Mark the active feature done
-/mission block <reason>    Block the active feature
-/mission pause             Pause the current mission
-/mission resume            Resume the current mission
-/mission edit <feature>    Edit feature JSON
-/mission fork <reason>     Fork the active feature into a new session
-/mission debug [id]        Show recent history and events
-/mission clear             Detach the mission from this session
+```bash
+git clone https://github.com/OnlineChef/pi-missions.git
+cd pi-missions
+pi -e ./src/index.ts
 ```
 
-## Agent tools
+## 📋 Available Commands
 
-The extension exposes two LLM-facing tools:
+| Command                        | Description                                      |
+|--------------------------------|--------------------------------------------------|
+| `/mission new <title>`         | Create a new mission                             |
+| `/mission list`                | List missions and load one                       |
+| `/mission load <id>`           | Load a mission into the current session          |
+| `/mission status`              | Show current status & active feature             |
+| `/mission dashboard`           | Open the beautiful dashboard widget              |
+| `/mission next`                | Advance to the next unblocked feature            |
+| `/mission done [evidence]`     | Mark active feature done + attach evidence       |
+| `/mission block <reason>`      | Block the current feature                        |
+| `/mission pause` / `resume`    | Pause or resume the mission                      |
+| `/mission fork <reason>`       | Fork active feature into a new session           |
+| `/mission debug [id]`          | Inspect recent history and events                |
+| `/mission clear`               | Detach mission from this session                 |
 
-| Tool | Purpose |
-|---|---|
-| `mission_feature_done` | Mark the active feature complete with evidence. |
-| `mission_next_feature` | Advance to the next pending or unblocked feature. |
+## 🤖 Agent Tools
 
-Use the slash commands for manual control and the tools when an agent should update the mission state as part of its normal workflow.
+| Tool                     | Purpose                                              |
+|--------------------------|------------------------------------------------------|
+| `mission_feature_done`   | Mark the active feature complete with evidence       |
+| `mission_next_feature`   | Automatically advance to the next pending feature    |
 
-## State model
+Use slash commands for manual control. Let the agent call the tools as part of its normal workflow.
 
-Mission state is stored locally:
+## 📁 State Model
 
-```text
+All state is stored locally:
+
+```
 ~/.pi/missions/<mission-id>/
-├── plan.json
-├── plan.json.bak
-├── history.jsonl
-├── evidence/
-└── sessions/
+├── plan.json          # Current plan, features, status & active pointer
+├── plan.json.bak      # Safe backup copy
+├── history.jsonl      # Append-only event log
+├── evidence/          # Proof, diffs, logs, artifacts
+└── sessions/          # Session attachment & handoff metadata
 ```
 
-| File or directory | Role |
-|---|---|
-| `plan.json` | Current mission plan, feature list, status, and active pointer. |
-| `plan.json.bak` | Backup copy for recovery. |
-| `history.jsonl` | Append-style event log for auditing state transitions. |
-| `evidence/` | Proof, notes, diffs, logs, and completion artifacts. |
-| `sessions/` | Session attachment and handoff metadata. |
+![State Model Diagram](https://raw.githubusercontent.com/OnlineChef/pi-missions/main/assets/state-diagram.png)
 
-Writes are designed to be safe across filesystem boundaries: temporary files are written next to the target file and then renamed on the same filesystem.
+## 🔄 Typical Workflow
 
-## Typical workflow
+1. Create mission: `/mission new "Build user authentication system"`
+2. Break it into features
+3. Let the agent work on the active feature
+4. Capture proof: `/mission done "Implemented JWT + tests + coverage"`
+5. Move forward: `/mission next`
+6. Repeat until mission complete!
 
-```text
-1. Create a mission with `/mission new <title>`.
-2. Break the mission into features or load an existing plan.
-3. Use `/mission status` to inspect the active feature.
-4. Let the agent work on the current feature.
-5. Store proof with `/mission done [evidence]`.
-6. Move forward with `/mission next`.
-7. Use `/mission block <reason>` when external input is needed.
-8. Resume later with `/mission load <id>`.
-```
+![Dashboard Mockup](https://raw.githubusercontent.com/OnlineChef/pi-missions/main/assets/dashboard.png)
 
-## Development
+## 🧪 Development
 
 ```bash
 npm install
@@ -113,36 +107,34 @@ npm run check
 npm test
 ```
 
-Available scripts:
+## Design Principles
 
-| Script | Purpose |
-|---|---|
-| `npm run check` | Run TypeScript type checking with `tsc --noEmit`. |
-| `npm test` | Run the Vitest test suite. |
+- **Local-first** — works without any backend  
+- **Crash-tolerant** — survives interrupted sessions  
+- **Evidence-driven** — "done" only with real proof  
+- **Minimal & fast** — optimized for the Pi TUI
 
-## Repository layout
+## 📄 Repository Layout
 
-```text
+```
 pi-missions/
-├── src/             # Pi extension source
-├── README.md        # Project documentation
+├── src/             # Pi extension source (TypeScript)
+├── README.md        # This file
 ├── PLAN.md          # Production implementation plan
-├── RESEARCH.md      # Background research and design notes
-└── package.json     # Package metadata and Pi extension entrypoint
+├── RESEARCH.md      # Background research & design notes
+└── package.json     # Package metadata & Pi extension entrypoint
 ```
 
-## Design principles
+## 📃 License
 
-- Local-first state: missions should work without a hosted backend.
-- Crash-tolerant writes: mission state should survive interrupted sessions.
-- Agent-readable structure: plan and history should be easy for tools and LLMs to inspect.
-- Minimal command surface: common operations should stay fast from the Pi TUI.
-- Evidence-driven completion: features should be marked done with proof, not just intent.
+MIT © OnlineChef
 
-## Status
+---
 
-This package is versioned as `0.1.0`. Treat the state format and command surface as early-stage until the production plan is finalized.
+<div align="center">
 
-## License
+**Made with ❤️ for the Pi coding community**
 
-MIT
+[Report an issue](https://github.com/OnlineChef/pi-missions/issues) • [Contribute](https://github.com/OnlineChef/pi-missions/pulls)
+
+</div>
