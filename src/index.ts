@@ -10,6 +10,7 @@ import { updateFooter } from "./ui.js";
 import { getCompletionDetector, resetCompletionDetector } from "./completion.js";
 import { getErrorRecoveryEngine, resetErrorRecoveryEngine } from "./recovery.js";
 import { cleanupStaleLocks } from "./lock.js";
+import { logger } from "./logger.js";
 
 export default function piMissions(pi: ExtensionAPI): void {
   // Load model configuration at extension startup
@@ -40,6 +41,7 @@ export default function piMissions(pi: ExtensionAPI): void {
     
     // Validate mission ID format
     if (!isValidMissionId(missionId)) {
+      logger.warn("index", "Invalid mission ID format", { missionId });
       console.warn(`[pi-missions] Invalid mission ID format: ${missionId}`);
       ctx.ui?.notify(
         `⚠️ Invalid mission ID format: ${missionId}. Expected pim:<timestamp>:<<slug>.`,
@@ -52,6 +54,7 @@ export default function piMissions(pi: ExtensionAPI): void {
     const mission = loadMissionFromDisk(missionId);
     
     if (!mission) {
+      logger.warn("index", "Mission not found on disk", { missionId });
       console.warn(`[pi-missions] Mission not found on disk: ${missionId}`);
       ctx.ui?.notify(
         `⚠️ Mission '${missionId}' not found on disk. Use /mission new or /mission load.`,
@@ -62,6 +65,7 @@ export default function piMissions(pi: ExtensionAPI): void {
     
     // Validate event token if present
     if (activeEntry.data.validationToken && activeEntry.data.validationToken !== mission.validationToken) {
+      logger.warn("index", "Invalid validation token for mission", { missionId });
       console.warn(`[pi-missions] Invalid validation token for mission: ${missionId}`);
       ctx.ui?.notify(
         `⚠️ Invalid mission event token. Event may be corrupted or tampered with.`,
@@ -146,6 +150,15 @@ export default function piMissions(pi: ExtensionAPI): void {
       const { action, shouldRetry, retryAfter, record } = recovery.handleError(errorContext);
       
       // Log error to mission history
+      logger.error("index", "Tool call failed, error recovery triggered", event.error, {
+        toolName: event.toolName,
+        featureId: feature?.id,
+        missionId: runtime.activeMission.id,
+        recoveryAction: action,
+        errorCategory: record.category,
+        errorSeverity: record.severity,
+      });
+      
       appendHistory(runtime.activeMission, {
         event: "error_detected",
         featureId: feature?.id,

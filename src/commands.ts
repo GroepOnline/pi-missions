@@ -11,6 +11,7 @@ import { missionControlOverlay } from "./dashboard.js";
 import { dashboardRows, statusText, updateFooter } from "./ui.js";
 import { validate, formatValidationErrors } from "./validation.js";
 import { WizardOutputSchema, FeatureSchema } from "./schemas.js";
+import { logger } from "./logger.js";
 
 export function registerMissionCommand(pi: ExtensionAPI, runtime: RuntimeState): void {
   pi.registerCommand("mission", {
@@ -133,6 +134,10 @@ export async function handleNew(titleArg: string, ctx: ExtensionCommandContext, 
         // Validate wizard output against schema
         const validation = validate(WizardOutputSchema, raw);
         if (!validation.valid) {
+          logger.error("commands", "Wizard output validation failed", undefined, { 
+            validationErrors: validation.errors,
+            missionTitle: title 
+          });
           ctx.ui.notify(`Wizard output validation failed:\n${formatValidationErrors(validation.errors)}`, "error");
           ctx.ui.notify("Falling back to default mission structure.", "warning");
           // Fall through to default mission creation
@@ -181,8 +186,12 @@ export async function handleNew(titleArg: string, ctx: ExtensionCommandContext, 
           usedWizard = true;
         }
       }
-    } catch {
+    } catch (error) {
       // Wizard failed — fall through to default mission creation
+      logger.warn("commands", "Wizard failed, falling back to default mission", { 
+        missionTitle: title,
+        error: error instanceof Error ? error.message : String(error)
+      });
     }
   }
 
@@ -427,6 +436,10 @@ export async function handleEdit(featureId: string | undefined, ctx: ExtensionCo
   // Validate against schema
   const validation = validate(FeatureSchema, parsed);
   if (!validation.valid) {
+    logger.error("commands", "Feature edit validation failed", undefined, { 
+      featureId,
+      validationErrors: validation.errors 
+    });
     return ctx.ui.notify(`Invalid feature structure:\n${formatValidationErrors(validation.errors)}`, "error");
   }
 
