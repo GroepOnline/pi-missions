@@ -1,0 +1,105 @@
+name: QA
+
+on:
+  pull_request:
+    branches: [main, update-from-local]
+  workflow_dispatch:
+
+concurrency:
+  group: qa-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  qa:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run unit tests
+        run: npm test
+
+      - name: Install tuistory
+        run: npm install -g tuistory
+
+      - name: Install droid CLI
+        run: curl -fsSL https://app.factory.ai/cli | sh
+
+      - name: Run QA
+        id: qa
+        continue-on-error: true
+        timeout-minutes: 15
+        env:
+          CI: true
+        run: |
+          mkdir -p qa-results
+          droid exec --auto high --skill qa 2>&1 | tee qa-results/qa-output.txt || true
+          
+          # If no report was generated, create one from output
+          if [ ! -f qa-results/report.md ]; then
+            echo '## QA Report' > qa-results/report.md
+            echo '' >> qa-results/report.md
+            echo '| # | Test Case | App | Persona | Result | Notes |' >> qa-results/report.md
+            echo '|---|-----------|-----|---------|--------|-------|' >> qa-results/report.md
+            echo '| 1 | QA execution | pi-extension | - | ❓ INCONCLUSIVE | See output |' >> qa-results/report.md
+            echo '' >> qa-results/report.md
+            echo '<details><summary>Output</summary>' >> qa-results/report.md
+            echo '' >> qa-results/report.md
+            echo '```' >> qa-results/report.md
+            cat qa-results/qa-output.txt >> qa-results/report.md
+            echo '```' >> qa-results/report.md
+            echo '</details>' >> qa-results/report.md
+          fi
+
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qa-results
+          path: qa-results/
+          retention-days: 14
+
+      - name: Post QA report as PR comment
+        if: always() && github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          REPORT_FILE="qa-results/report.md"
+          
+          if [ -f "$REPORT_FILE" ]; then
+            REPORT_CONTENT=$(cat "$REPORT_FILE")
+          else
+            REPORT_CONTENT="## QA Report\n\n❓ INCONCLUSIVE - No report generated"
+          fi
+          
+          # Add footer
+          FOOTER="\n\n---\n\n*QA run: [${{ github.run_id }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})*\n*Artifacts: [Download](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})*"
+          
+          FULL_REPORT="<!-- qa-report -->\n${REPORT_CONTENT}${FOOTER}"
+          
+          # Check for existing comment
+          EXISTING_COMMENT=$(gh api repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments --jq '.[] | select(.body | startswith("<!-- qa-report -->")) | .id' | head -1)
+          
+          if [ -n "$EXISTING_COMMENT" ]; then
+            # Update existing comment
+            gh api repos/${{ github.repository }}/issues/comments/$EXISTING_COMMENT \
+              -X PATCH \
+              -f body="$FULL_REPORT"
+          else
+            # Create new comment
+            gh api repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments \
+              -f body="$FULL_REPORT"
+          fi

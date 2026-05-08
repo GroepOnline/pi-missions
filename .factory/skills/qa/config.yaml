@@ -1,0 +1,36 @@
+project: pi-missions
+imagemagick: false
+
+environments:
+  local:
+    url: "local"
+    restrictions: []
+
+default_target: local
+
+auth:
+  method: none
+  provider: none
+
+personas: []
+
+apps:
+  pi-extension:
+    path_patterns:
+      - "src/**/*.ts"
+      - "tests/**/*.ts"
+    skill: qa-pi-extension
+    test_tool: tuistory
+    build_command: "npm run check && npm test"
+
+feature_flags:
+  provider: none
+
+integrations: {}
+
+cleanup:
+  auto_cleanup: true
+  strategy: none
+  instructions: "Tests are ephemeral - tmux sessions and test missions cleaned automatically"
+
+failure_learning: suggest_in_report
