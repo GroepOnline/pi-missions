@@ -696,4 +696,103 @@ describe("missionControlOverlay", () => {
     })();
     expect(noMatch.some((l: string) => l.includes("No matching"))).toBe(true);
   });
+
+  it("E2E: edge cases — backspace on empty filter, non-ASCII chars, rapid type/backspace, arrow nav in filtered list", () => {
+    const mission = createMission("EdgeCases", "Test edge cases");
+    mission.milestones[0]!.features.push(
+      {
+        id: "F010", milestoneId: "M01", title: "Bonus 10", description: "Tenth",
+        priority: 4, dependsOn: [], acceptance: [], status: "pending", sessions: [], toolCallCount: 0,
+      },
+      {
+        id: "F011", milestoneId: "M01", title: "Bonus 11", description: "Eleventh",
+        priority: 5, dependsOn: [], acceptance: [], status: "pending", sessions: [], toolCallCount: 0,
+      },
+    );
+
+    const mockTui: any = {
+      hideOverlay: () => {},
+      requestRender: () => {},
+    };
+
+    // ── 1. Backspace on empty filter — no-op, all features visible ──
+    const c1: any = missionControlOverlay(mission)(mockTui);
+    expect(() => c1.handleInput("\b")).not.toThrow();
+    expect(() => c1.handleInput("\x7f")).not.toThrow();
+    const afterEmptyBackspace = c1.render(80);
+    expect(afterEmptyBackspace.some((l: string) => l.includes("F001"))).toBe(true);
+    expect(afterEmptyBackspace.some((l: string) => l.includes("F011"))).toBe(true);
+    expect(afterEmptyBackspace.some((l: string) => l.includes("Filter:"))).toBe(false);
+
+    // ── 2. Non-ASCII char (ü, charCode 252) is forwarded to SelectList, not filtered ──
+    const c2: any = missionControlOverlay(mission)(mockTui);
+    c2.handleInput("ü");
+    const afterUnicode = c2.render(80);
+    // No filter bar — ü is outside ASCII 32-126 range
+    expect(afterUnicode.some((l: string) => l.includes("Filter:"))).toBe(false);
+    // All features still visible (SelectList ignores unknown keys)
+    expect(afterUnicode.some((l: string) => l.includes("F001"))).toBe(true);
+    expect(afterUnicode.some((l: string) => l.includes("F011"))).toBe(true);
+
+    // ── 3. Punctuation char (!, charCode 33) IS intercepted as filter ──
+    const c3: any = missionControlOverlay(mission)(mockTui);
+    c3.handleInput("!");
+    const afterPunct = c3.render(80);
+    // Filter bar shows "!"
+    expect(afterPunct.some((l: string) => l.includes("🔍 Filter: !"))).toBe(true);
+    // No features match "!"
+    expect(afterPunct.some((l: string) => l.includes("No matching"))).toBe(true);
+
+    // ── 4. Rapid type then backspace all the way ──
+    const c4: any = missionControlOverlay(mission)(mockTui);
+    c4.handleInput("F");
+    c4.handleInput("0");
+    c4.handleInput("0");
+    // Mid-way: filter active, 3 features visible
+    const mid = c4.render(80);
+    expect(mid.some((l: string) => l.includes("🔍 Filter: F00"))).toBe(true);
+    expect(mid.some((l: string) => l.includes("F001"))).toBe(true);
+    expect(mid.some((l: string) => l.includes("F010"))).toBe(false);
+    // Backspace all the way
+    c4.handleInput("\b");
+    c4.handleInput("\b");
+    c4.handleInput("\b");
+    const fullyCleared = c4.render(80);
+    expect(fullyCleared.some((l: string) => l.includes("Filter:"))).toBe(false);
+    expect(fullyCleared.some((l: string) => l.includes("F001"))).toBe(true);
+    expect(fullyCleared.some((l: string) => l.includes("F002"))).toBe(true);
+    expect(fullyCleared.some((l: string) => l.includes("F003"))).toBe(true);
+    expect(fullyCleared.some((l: string) => l.includes("F010"))).toBe(true);
+    expect(fullyCleared.some((l: string) => l.includes("F011"))).toBe(true);
+
+    // ── 5. Filter then navigate with arrows in reduced list ──
+    const c5: any = missionControlOverlay(mission)(mockTui);
+    c5.handleInput("F");
+    c5.handleInput("0");
+    c5.handleInput("0");
+    // Filtered to F001, F002, F003 — initial selection is F001
+    // Navigate down: F001 → F002
+    c5.handleInput("\x1b[B");
+    const afterOneDown = c5.render(80);
+    // F002 should be in the list AND its detail pane should be visible
+    expect(afterOneDown.some((l: string) => l.includes("F002"))).toBe(true);
+    expect(afterOneDown.some((l: string) => l.includes("📋 F002"))).toBe(true);
+    // Navigate down again: F002 → F003
+    c5.handleInput("\x1b[B");
+    const afterTwoDown = c5.render(80);
+    expect(afterTwoDown.some((l: string) => l.includes("📋 F003"))).toBe(true);
+    // Navigate up: F003 → F002
+    c5.handleInput("\x1b[A");
+    const afterUp = c5.render(80);
+    expect(afterUp.some((l: string) => l.includes("📋 F002"))).toBe(true);
+    // Press Enter on filtered selection — use fresh component with onAction to test activation
+    let captured = "";
+    const c5b: any = missionControlOverlay(mission, (id) => { captured = id; })(mockTui);
+    c5b.handleInput("F");
+    c5b.handleInput("0");
+    c5b.handleInput("0");
+    c5b.handleInput("\x1b[B"); // select F002
+    c5b.handleInput("\r");
+    expect(captured).toBe("F002");
+  });
 });
