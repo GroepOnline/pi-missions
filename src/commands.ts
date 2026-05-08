@@ -377,11 +377,11 @@ export async function handleDone(evidence: string, ctx: ExtensionCommandContext,
     autoVerifyAcceptance(feature, (feature as any)._execFn);
   }
 
-  // Check if all acceptance criteria are unverified (none verified or waived)
-  const unverified = feature.acceptance.filter((ac) => !ac.verified && !ac.waived);
-  if (unverified.length === feature.acceptance.length && feature.acceptance.length > 0) {
-    const names = unverified.map((ac) => `  - ${ac.id}: ${ac.description} [${ac.checkType}${ac.checkCommand ? `: ${ac.checkCommand}` : ""}]`).join("\n");
-    return ctx.ui.notify(`All ${unverified.length} acceptance criteria are unverified. Please verify at least one before marking done.\n${names}`, "warning");
+  // Check for unverified bash criteria - these need to be verified or waived
+  const unverifiedBash = feature.acceptance.filter((ac) => !ac.verified && !ac.waived && ac.checkType === "bash");
+  if (unverifiedBash.length > 0) {
+    const names = unverifiedBash.map((ac) => `  - ${ac.id}: ${ac.description} [bash: ${ac.checkCommand}]`).join("\n");
+    return ctx.ui.notify(`Cannot mark feature done: ${unverifiedBash.length} bash acceptance criteria need to be verified.\n${names}\n\nUse /mission edit to waive or verify them, or ensure bash checks pass.`, "warning");
   }
 
   feature.status = "done";

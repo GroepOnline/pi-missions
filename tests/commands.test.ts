@@ -360,7 +360,11 @@ describe("handleNext", () => {
   it("warns when no unblocked features remain", async () => {
     const ctx = mkCtx();
     const rt = runtimeFixture();
+    // F001 is done, F002 is blocked but F2 depends on F1 (done), so F2 gets auto-unblocked
+    // To test the "no unblocked" scenario, we need F2 to depend on something not done
     rt.activeMission!.milestones[0].features[0]!.status = "done";
+    // Add a dependency on a non-existent feature to prevent auto-unblock
+    rt.activeMission!.milestones[0].features[1]!.dependsOn = ["F000"]; // F000 doesn't exist, won't be done
     rt.activeMission!.milestones[0].features[1]!.status = "blocked";
     await handleNext(ctx, rt);
     expect(ctx.getCalls()[0]!.msg).toContain("No unblocked pending feature");
@@ -408,9 +412,12 @@ describe("handleDone", () => {
     const ctx = mkCtx();
     const rt = runtimeFixture();
     await saveMissionSafe(rt.activeMission!);
+    // Set up feature with bash acceptance criteria and mock execFn
     rt.activeMission!.milestones[0].features[0]!.acceptance = [
       { id: "AC001", description: "Bash check", checkType: "bash", checkCommand: "echo ok", verified: false },
     ];
+    // Add mock execFn that returns success
+    (rt.activeMission!.milestones[0].features[0] as any)._execFn = () => ({ code: 0, stdout: "ok" });
     await handleDone("done", ctx, rt);
     const f = rt.activeMission!.milestones[0].features[0]!;
     expect(f.acceptance[0]!.verified).toBe(true);
@@ -1006,9 +1013,12 @@ describe("handleDone auto-verifies acceptance criteria", () => {
     const ctx = mkCtx();
     const rt = runtimeFixture();
     await saveMissionSafe(rt.activeMission!);
+    // Set up feature with bash acceptance criteria and mock execFn
     rt.activeMission!.milestones[0].features[0]!.acceptance = [
       { id: "AC001", description: "Bash check", checkType: "bash", checkCommand: "echo ok", verified: false },
     ];
+    // Add mock execFn that returns success
+    (rt.activeMission!.milestones[0].features[0] as any)._execFn = () => ({ code: 0, stdout: "ok" });
     await handleDone("done", ctx, rt);
     const f = rt.activeMission!.milestones[0].features[0]!;
     expect(f.status).toBe("done");

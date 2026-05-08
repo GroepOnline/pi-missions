@@ -350,9 +350,11 @@ describe("registerMissionTools — tool registration", () => {
   it("mission_next_feature execute warns when no unblocked pending features remain", async () => {
     const m = createMission("Blocked", "No next");
     // F001 done, F002 blocked, F003 depends on F002 so also effectively blocked
+    // To prevent auto-unblock of F2, add dependency on non-existent feature
     m.milestones[0].features[0]!.status = "done";
     m.milestones[0].features[0]!.completedAt = Date.now();
     m.milestones[0].features[1]!.status = "blocked";
+    m.milestones[0].features[1]!.dependsOn = ["F000"]; // F000 doesn't exist, won't be done
     m.milestones[0].features[2]!.status = "pending";
     // F003 depends on F002 which is blocked → no unblocked pending
     await saveMissionSafe(m);

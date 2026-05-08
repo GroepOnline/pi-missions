@@ -1,6 +1,6 @@
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { Type } from "typebox";
-import { appendHistory, autoUnblockResolved, getActiveFeature, getAllFeatures, getNextPendingFeature, saveEvidence, saveMissionSafe } from "./state.js";
+import { appendHistory, autoUnblockResolved, autoVerifyAcceptance, getActiveFeature, getAllFeatures, getNextPendingFeature, saveEvidence, saveMissionSafe } from "./state.js";
 import type { MissionState, RuntimeState } from "./types.js";
 import { updateFooter } from "./ui.js";
 import { getCompletionDetector } from "./completion.js";
@@ -24,12 +24,12 @@ export function registerMissionTools(pi: ExtensionAPI, runtime: RuntimeState): v
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
       const mission = runtime.activeMission;
       const feature = mission ? getActiveFeature(mission) : null;
-      if (!mission || !feature) throw new Error("No active mission feature.");
+      if (!mission || !feature) return { isError: true, content: [{ type: "text" as const, text: "No active mission feature." }], details: {} };
       
-      // Check for unverified acceptance criteria before marking done.
-      const unverified = feature.acceptance.filter((ac) => !ac.verified && !ac.waived);
-      if (unverified.length > 0) {
-        throw new Error(`Cannot mark feature done: ${unverified.length} acceptance criteria are still unverified. Use /mission edit to waive or verify them first.`);
+      // Check for unverified bash criteria - these need to be verified or waived
+      const unverifiedBash = feature.acceptance.filter((ac) => !ac.verified && !ac.waived && ac.checkType === "bash");
+      if (unverifiedBash.length > 0) {
+        return { isError: true, content: [{ type: "text" as const, text: `Cannot mark feature done: ${unverifiedBash.length} bash acceptance criteria need to be verified. Use /mission edit to waive or verify them, or ensure bash checks pass.` }], details: {} };
       }
       
       feature.status = "done";
@@ -53,10 +53,10 @@ export function registerMissionTools(pi: ExtensionAPI, runtime: RuntimeState): v
     parameters: Type.Object({}),
     async execute(_toolCallId, _params, _signal, _onUpdate, ctx) {
       const mission = runtime.activeMission;
-      if (!mission) throw new Error("No active mission.");
+      if (!mission) return { isError: true, content: [{ type: "text" as const, text: "No active mission." }], details: {} };
       const current = getActiveFeature(mission);
       if (current?.status === "active") {
-        throw new Error(`Active feature is not done yet: ${current.id} — ${current.title}. Use mission_feature_done when complete, or /mission block <reason> if it cannot continue.`);
+        return { isError: true, content: [{ type: "text" as const, text: `Active feature is not done yet: ${current.id} — ${current.title}. Use mission_feature_done when complete, or /mission block <reason> if it cannot continue.` }], details: {} };
       }
 
       autoUnblockResolved(mission);
@@ -68,7 +68,7 @@ export function registerMissionTools(pi: ExtensionAPI, runtime: RuntimeState): v
           updateFooter(ctx, mission);
           return { content: [{ type: "text", text: "🎉 Mission complete." }], details: { missionId: mission.id }, isError: false };
         }
-        throw new Error("No unblocked pending feature found. Check blocked features and dependencies with /mission status.");
+        return { isError: true, content: [{ type: "text" as const, text: "No unblocked pending feature found. Check blocked features and dependencies with /mission status." }], details: {} };
       }
       next.status = "active";
       mission.status = "active";
