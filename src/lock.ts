@@ -2,9 +2,6 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import * as lockfile from "proper-lockfile";
 
-const LOCK_TIMEOUT = 5000;
-const LOCK_STALE = 30000;
-
 export interface LockOptions {
   stale?: number;
 }
@@ -22,7 +19,7 @@ export async function acquireMissionLock(missionId: string, options: LockOptions
   fs.mkdirSync(dir, { recursive: true });
   return lockfile.lock(path.join(dir, ".lock"), {
     retries: { retries: 10, minTimeout: 100, maxTimeout: 500 },
-    stale: options.stale ?? LOCK_STALE,
+    stale: options.stale ?? 30000,
     realpath: false,
   });
 }
@@ -31,7 +28,7 @@ export async function withLock<T>(lockPath: string, callback: () => Promise<T> |
   fs.mkdirSync(path.dirname(lockPath), { recursive: true });
   const release = await lockfile.lock(lockPath, {
     retries: { retries: 10, minTimeout: 100, maxTimeout: 500 },
-    stale: options?.stale ?? LOCK_STALE,
+    stale: options?.stale ?? 30000,
     realpath: false,
   });
   try {
