@@ -1,6 +1,6 @@
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { Type } from "typebox";
-import { appendHistory, getActiveFeature, getAllFeatures, getNextPendingFeature, saveEvidence, saveMissionSafe } from "./state.js";
+import { appendHistory, autoUnblockResolved, getActiveFeature, getAllFeatures, getNextPendingFeature, saveEvidence, saveMissionSafe } from "./state.js";
 import type { MissionState, RuntimeState } from "./types.js";
 import { updateFooter } from "./ui.js";
 import { getCompletionDetector } from "./completion.js";
@@ -24,13 +24,20 @@ export function registerMissionTools(pi: ExtensionAPI, runtime: RuntimeState): v
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
       const mission = runtime.activeMission;
       const feature = mission ? getActiveFeature(mission) : null;
-      if (!mission || !feature) return { content: [{ type: "text", text: "No active mission feature." }], details: {}, isError: true };
+      if (!mission || !feature) throw new Error("No active mission feature.");
+      
+      // Check for unverified acceptance criteria before marking done.
+      const unverified = feature.acceptance.filter((ac) => !ac.verified && !ac.waived);
+      if (unverified.length > 0) {
+        throw new Error(`Cannot mark feature done: ${unverified.length} acceptance criteria are still unverified. Use /mission edit to waive or verify them first.`);
+      }
+      
       feature.status = "done";
       feature.completedAt = Date.now();
       feature.notes = params.notes;
-      for (const ac of feature.acceptance) if (!ac.waived) ac.verified = true;
       const evidenceFile = saveEvidence(mission, feature, params.evidence);
       appendHistory(mission, { event: "feature_done", featureId: feature.id, note: params.notes, details: { evidenceFile } });
+      autoUnblockResolved(mission);
       const next = getNextPendingFeature(mission);
       if (!next && allFeaturesDone(mission)) mission.status = "complete";
       await saveMissionSafe(mission);
@@ -46,16 +53,13 @@ export function registerMissionTools(pi: ExtensionAPI, runtime: RuntimeState): v
     parameters: Type.Object({}),
     async execute(_toolCallId, _params, _signal, _onUpdate, ctx) {
       const mission = runtime.activeMission;
-      if (!mission) return { content: [{ type: "text", text: "No active mission." }], details: {}, isError: true };
+      if (!mission) throw new Error("No active mission.");
       const current = getActiveFeature(mission);
       if (current?.status === "active") {
-        return {
-          content: [{ type: "text", text: `Active feature is not done yet: ${current.id} — ${current.title}. Use mission_feature_done when complete, or /mission block <reason> if it cannot continue.` }],
-          details: { featureId: current.id },
-          isError: true,
-        };
+        throw new Error(`Active feature is not done yet: ${current.id} — ${current.title}. Use mission_feature_done when complete, or /mission block <reason> if it cannot continue.`);
       }
 
+      autoUnblockResolved(mission);
       const next = getNextPendingFeature(mission);
       if (!next) {
         if (allFeaturesDone(mission)) {
@@ -64,11 +68,7 @@ export function registerMissionTools(pi: ExtensionAPI, runtime: RuntimeState): v
           updateFooter(ctx, mission);
           return { content: [{ type: "text", text: "🎉 Mission complete." }], details: { missionId: mission.id }, isError: false };
         }
-        return {
-          content: [{ type: "text", text: "No unblocked pending feature found. Check blocked features and dependencies with /mission status." }],
-          details: { missionId: mission.id },
-          isError: true,
-        };
+        throw new Error("No unblocked pending feature found. Check blocked features and dependencies with /mission status.");
       }
       next.status = "active";
       mission.status = "active";
@@ -114,13 +114,7 @@ export function registerMissionTools(pi: ExtensionAPI, runtime: RuntimeState): v
     }),
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
       const mission = runtime.activeMission;
-      if (!mission) {
-        return { 
-          content: [{ type: "text", text: "No active mission. Cannot ask user." }], 
-          details: {}, 
-          isError: true 
-        };
-      }
+      if (!mission) throw new Error("No active mission. Cannot ask user.");
       
       const feature = getActiveFeature(mission);
       const questionType = params.questionType || "input";
@@ -150,7 +144,7 @@ export function registerMissionTools(pi: ExtensionAPI, runtime: RuntimeState): v
               
             case "select":
               if (!params.options || params.options.length === 0) {
-                return { content: [{ type: "text", text: "Select questions require options." }], details: {}, isError: true };
+                throw new Error("Select questions require options.");
               }
               const choice = await ctx.ui.select(params.question, params.options);
               answer = choice || defaultValue || null;
@@ -226,13 +220,14 @@ export function registerMissionTools(pi: ExtensionAPI, runtime: RuntimeState): v
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
       const mission = runtime.activeMission;
       const feature = mission ? getActiveFeature(mission) : null;
-      if (!mission || !feature) return { content: [{ type: "text", text: "No active mission feature." }], details: {}, isError: true };
+      if (!mission || !feature) throw new Error("No active mission feature.");
       
       feature.status = "blocked";
       feature.notes = `Self-blocked: ${params.reason}${params.context ? `\n\nContext: ${params.context}` : ""}`;
       appendHistory(mission, { event: "feature_blocked", featureId: feature.id, note: params.reason, details: { context: params.context, self: true } });
       
       // Try to advance to next feature
+      autoUnblockResolved(mission);
       const next = getNextPendingFeature(mission);
       if (next) {
         next.status = "active";
@@ -249,11 +244,7 @@ export function registerMissionTools(pi: ExtensionAPI, runtime: RuntimeState): v
       } else {
         await saveMissionSafe(mission);
         updateFooter(ctx, mission);
-        return { 
-          content: [{ type: "text", text: `🚫 Self-blocked feature ${feature.id}: ${params.reason}\n⚠️ No pending features available` }], 
-          details: { featureId: feature.id }, 
-          isError: true 
-        };
+        throw new Error(`Self-blocked feature ${feature.id}: ${params.reason}. No pending features available.`);
       }
     },
   });
@@ -275,7 +266,7 @@ export function registerMissionTools(pi: ExtensionAPI, runtime: RuntimeState): v
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
       const mission = runtime.activeMission;
       const feature = mission ? getActiveFeature(mission) : null;
-      if (!mission || !feature) return { content: [{ type: "text", text: "No active mission feature." }], details: {}, isError: true };
+      if (!mission || !feature) throw new Error("No active mission feature.");
       
       appendHistory(mission, { 
         event: "feature_forked", 
@@ -320,7 +311,7 @@ export function registerMissionTools(pi: ExtensionAPI, runtime: RuntimeState): v
     }),
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
       const mission = runtime.activeMission;
-      if (!mission) return { content: [{ type: "text", text: "No active mission." }], details: {}, isError: true };
+      if (!mission) throw new Error("No active mission.");
       
       const feature = getActiveFeature(mission);
       const scope = params.scope || "feature";
@@ -391,7 +382,7 @@ export function registerMissionTools(pi: ExtensionAPI, runtime: RuntimeState): v
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
       const mission = runtime.activeMission;
       const feature = mission ? getActiveFeature(mission) : null;
-      if (!mission || !feature) return { content: [{ type: "text", text: "No active mission feature." }], details: {}, isError: true };
+      if (!mission || !feature) throw new Error("No active mission feature.");
       
       const recovery = getErrorRecoveryEngine();
       

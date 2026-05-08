@@ -1,10 +1,9 @@
-import { execSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import type { ExtensionAPI, ExtensionCommandContext } from "@mariozechner/pi-coding-agent";
 import { buildCompactionSummary } from "./context.js";
-import { appendHistory, autoBlockBlockedFeatures, autoCompleteMilestones, autoVerifyAcceptance, calculateMetricsSummary, computeMissionMetrics, createMission, createMissionFromTemplate, createMissionId, createValidationToken, exportMarkdown, getActiveFeature, getAllFeatures, getFeatureById, getMilestoneById, getNextPendingFeature, isValidMissionId, linkSession, listMissions, loadMissionFromDisk, MISSION_TEMPLATES, progress, readHistory, saveEvidence, saveMissionSafe } from "./state.js";
+import { appendHistory, autoBlockBlockedFeatures, autoCompleteMilestones, autoUnblockResolved, autoVerifyAcceptance, calculateMetricsSummary, computeMissionMetrics, createMission, createMissionFromTemplate, createMissionId, createValidationToken, exportMarkdown, getActiveFeature, getAllFeatures, getFeatureById, getMilestoneById, getNextPendingFeature, isValidMissionId, linkSession, listMissions, loadMissionFromDisk, MISSION_TEMPLATES, progress, readHistory, saveEvidence, saveMissionSafe } from "./state.js";
 import type { Feature, MissionState, RuntimeState } from "./types.js";
 import { missionControlOverlay } from "./dashboard.js";
 import { dashboardRows, statusText, updateFooter } from "./ui.js";
@@ -343,6 +342,7 @@ export async function handleNext(ctx: ExtensionCommandContext, runtime: RuntimeS
     return ctx.ui.notify(`Active feature is not done yet: ${active.id} — ${active.title}\nUse /mission done when complete, or /mission block <reason> if it cannot continue.`, "warning");
   }
 
+  autoUnblockResolved(mission);
   const next = getNextPendingFeature(mission);
   if (!next) {
     if (allFeaturesDone(mission)) {
@@ -372,26 +372,23 @@ export async function handleDone(evidence: string, ctx: ExtensionCommandContext,
   if (!mission || !feature) return ctx.ui.notify("No active feature.", "warning");
   if (!evidence && ctx.hasUI) evidence = (await ctx.ui.input("Evidence", "Why is this feature done?")) || "Marked done manually.";
 
-  // Auto-verify bash-check acceptance criteria before marking done.
-  let autoVerified = 0;
-  try {
-    autoVerified = autoVerifyAcceptance(feature, (cmd: string) => {
-      try {
-        const out = execSync(cmd, { timeout: 30_000, encoding: "utf-8" });
-        return { code: 0, stdout: out };
-      } catch (e: any) {
-        return { code: e.status ?? 1, stdout: e.stdout ?? "" };
-      }
-    });
-  } catch {
-    // execSync entirely unavailable — continue with manual verification.
+  // Auto-verify bash acceptance criteria (if execFn is available, otherwise skip)
+  if ((feature as any)._execFn) {
+    autoVerifyAcceptance(feature, (feature as any)._execFn);
+  }
+
+  // Check if all acceptance criteria are unverified (none verified or waived)
+  const unverified = feature.acceptance.filter((ac) => !ac.verified && !ac.waived);
+  if (unverified.length === feature.acceptance.length && feature.acceptance.length > 0) {
+    const names = unverified.map((ac) => `  - ${ac.id}: ${ac.description} [${ac.checkType}${ac.checkCommand ? `: ${ac.checkCommand}` : ""}]`).join("\n");
+    return ctx.ui.notify(`All ${unverified.length} acceptance criteria are unverified. Please verify at least one before marking done.\n${names}`, "warning");
   }
 
   feature.status = "done";
   feature.completedAt = Date.now();
-  for (const ac of feature.acceptance) if (!ac.waived) ac.verified = true;
   const evidenceFile = saveEvidence(mission, feature, evidence || "Marked done.");
-  appendHistory(mission, { event: "feature_done", featureId: feature.id, details: { evidenceFile, autoVerified } });
+  appendHistory(mission, { event: "feature_done", featureId: feature.id, details: { evidenceFile } });
+  autoUnblockResolved(mission);
   const next = getNextPendingFeature(mission);
   if (!next && allFeaturesDone(mission)) mission.status = "complete";
   autoCompleteMilestones(mission);

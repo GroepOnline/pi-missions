@@ -5,11 +5,6 @@ import {
   saveSessionLink,
 } from "../src/commands.js";
 import { createMission, exportMarkdown } from "../src/state.js";
-import {
-  formatAgentModelLine,
-  formatModelConfig,
-  loadModelConfig,
-} from "../src/models.js";
 import type { RuntimeState } from "../src/types.js";
 
 function createLargeMission(): import("../src/types.js").MissionState {
@@ -63,18 +58,4 @@ describe("command helpers", () => {
   });
 });
 
-describe("model formatting", () => {
-  const cfg = loadModelConfig();
 
-  bench("formatModelConfig", () => {
-    formatModelConfig(cfg);
-  });
-
-  bench("formatAgentModelLine (known agent)", () => {
-    formatAgentModelLine("mission-scout", cfg);
-  });
-
-  bench("formatAgentModelLine (unknown agent)", () => {
-    formatAgentModelLine("nonexistent-agent", cfg);
-  });
-});

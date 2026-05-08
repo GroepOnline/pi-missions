@@ -49,19 +49,19 @@ describe("dashboard helpers", () => {
   const m = createLargeMission();
 
   bench("featureLabel (done feature)", () => {
-    featureLabel(m.milestones[0].features[0]!, 0, true);
+    featureLabel(m.milestones[0].features[0]!);
   });
 
   bench("featureLabel (active feature)", () => {
-    featureLabel(m.milestones[0].features[1]!, 1, false);
+    featureLabel(m.milestones[0].features[1]!);
   });
 
   bench("featureLabel (blocked feature)", () => {
-    featureLabel(m.milestones[0].features[2]!, 2, false);
+    featureLabel(m.milestones[0].features[2]!);
   });
 
   bench("buildFeatureItems (15 features)", () => {
-    buildFeatureItems(m.milestones[0]);
+    buildFeatureItems(m);
   });
 
   bench("featureDetailLines (active feature with deps)", () => {
@@ -77,17 +77,17 @@ describe("mission control overlay", () => {
   const m = createLargeMission();
 
   bench("missionControlOverlay render (15 features, 80 cols)", () => {
-    const comp: any = missionControlOverlay(m, () => {})({ hideOverlay: () => {}, requestRender: () => {} });
+    const comp: any = missionControlOverlay(m, () => {})({ hideOverlay: () => {}, requestRender: () => {} } as any);
     comp.render(80);
   });
 
   bench("missionControlOverlay render (15 features, 120 cols)", () => {
-    const comp: any = missionControlOverlay(m, () => {})({ hideOverlay: () => {}, requestRender: () => {} });
+    const comp: any = missionControlOverlay(m, () => {})({ hideOverlay: () => {}, requestRender: () => {} } as any);
     comp.render(120);
   });
 
   bench("missionControlOverlay handleInput navigation", () => {
-    const comp: any = missionControlOverlay(m, () => {})({ hideOverlay: () => {}, requestRender: () => {} });
+    const comp: any = missionControlOverlay(m, () => {})({ hideOverlay: () => {}, requestRender: () => {} } as any);
     for (let i = 0; i < 10; i++) {
       comp.handleInput("\x1b[B"); // down arrow
     }

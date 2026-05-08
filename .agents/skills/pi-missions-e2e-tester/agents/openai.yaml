@@ -1,0 +1,3 @@
+interface:
+  display_name: "Pi-Missions E2E Tester"
+  short_description: "Run tmux-based end-to-end tests for pi-missions."
