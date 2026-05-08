@@ -3,8 +3,12 @@ import * as fs from "node:fs";
 import * as fsAsync from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
-import { CURRENT_SCHEMA_VERSION, DEFAULT_FEATURE_MAX_TOOL_CALLS, DEFAULT_FEATURE_MAX_WALL_CLOCK_MS, STALE_FEATURE_WARN_CLOCK_MS, type Feature, type Milestone, type MissionHistoryEntry, type MissionMetrics, type MissionState, type ToolPhase } from "./types.js";
+import { CURRENT_SCHEMA_VERSION, DEFAULT_FEATURE_MAX_TOOL_CALLS, DEFAULT_FEATURE_MAX_WALL_CLOCK_MS, STALE_FEATURE_WARN_CLOCK_MS, type Feature, type Milestone, type MissionHistoryEntry, type MissionMetrics, type MissionMetricsSummary, type MissionState, type ToolPhase } from "./types.js";
 import { withLock } from "./lock.js";
+
+export function createValidationToken(): string {
+  return crypto.randomBytes(32).toString('hex');
+}
 
 export function missionsRoot(): string {
   return path.join(os.homedir(), ".pi", "missions");
@@ -22,7 +26,12 @@ export function slugify(input: string): string {
 export function createMissionId(title: string, now = Date.now()): string {
   const date = new Date(now).toISOString().replace(/[-:T.Z]/g, "");
   const stamp = date.slice(0, 17);
-  return `mission-${stamp}-${slugify(title)}`;
+  const slug = slugify(title);
+  return `pim:${stamp}:${slug}`;  // pim = pi-missions namespace
+}
+
+export function isValidMissionId(id: string): boolean {
+  return id.startsWith("pim:") && id.split(":").length === 3;
 }
 
 export function missionDirSafe(id: string): string {
@@ -79,6 +88,7 @@ export function createMission(title: string, goal: string, constraints = ""): Mi
     activeFeatureId: "F001",
     tokensUsed: 0,
     lastContextTokens: 0,
+    validationToken: createValidationToken(),
     createdAt: now,
     updatedAt: now,
     milestones: [
@@ -135,7 +145,7 @@ export function migrateMission(raw: unknown): MissionState {
   const value = raw as Partial<MissionState> & { features?: Feature[]; schemaVersion?: number };
   const version = value.schemaVersion ?? 1;
   if (version === CURRENT_SCHEMA_VERSION) return value as MissionState;
-  if (version === 1) {
+  if (version === 1 || version === 2) {
     const v1Features = (value.features ?? []).map((f: any) => ({ ...f, toolCallCount: f.toolCallCount ?? 0 }));
     return {
       schemaVersion: CURRENT_SCHEMA_VERSION,
@@ -148,6 +158,8 @@ export function migrateMission(raw: unknown): MissionState {
       tokensBudget: value.tokensBudget,
       tokensUsed: value.tokensUsed ?? 0,
       lastContextTokens: value.lastContextTokens ?? 0,
+      validationToken: (value as MissionState).validationToken || createValidationToken(),
+      userPreferences: (value as MissionState).userPreferences,
       createdAt: value.createdAt ?? Date.now(),
       updatedAt: Date.now(),
       milestones: value.milestones ?? [{ id: "M01", title: "Migrated", description: "Migrated flat feature list", status: "active", features: v1Features }],
@@ -206,6 +218,46 @@ export function listMissions(): MissionState[] {
     .map((e) => loadMissionFromDisk(e.name))
     .filter((m): m is MissionState => Boolean(m))
     .sort((a, b) => b.updatedAt - a.updatedAt);
+}
+
+/**
+ * Calculate summary metrics across all missions.
+ */
+export function calculateMetricsSummary(): MissionMetricsSummary {
+  const missions = listMissions();
+  const metrics = missions.map(computeMissionMetrics);
+  
+  if (metrics.length === 0) {
+    return {
+      totalMissions: 0,
+      completedMissions: 0,
+      successRate: 0,
+      averageTokensPerMission: 0,
+      averageFeaturesPerMission: 0,
+      averageCompletionTimeMs: 0,
+    };
+  }
+  
+  const completedMissions = metrics.filter((m) => m.completed !== undefined);
+  const totalTokens = metrics.reduce((sum, m) => sum + m.totalTokensUsed, 0);
+  const totalFeatures = metrics.reduce((sum, m) => sum + m.totalFeatures, 0);
+  const totalCompletionTime = completedMissions.reduce((sum, m) => {
+    if (m.completed) {
+      return sum + (m.completed - m.created);
+    }
+    return sum;
+  }, 0);
+  
+  return {
+    totalMissions: metrics.length,
+    completedMissions: completedMissions.length,
+    successRate: completedMissions.length / metrics.length,
+    averageTokensPerMission: totalTokens / metrics.length,
+    averageFeaturesPerMission: totalFeatures / metrics.length,
+    averageCompletionTimeMs: completedMissions.length > 0 
+      ? totalCompletionTime / completedMissions.length 
+      : 0,
+  };
 }
 
 export function appendHistory(mission: MissionState, entry: Omit<MissionHistoryEntry, "ts" | "missionId">): void {

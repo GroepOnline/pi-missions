@@ -1,4 +1,4 @@
-export const CURRENT_SCHEMA_VERSION = 2;
+export const CURRENT_SCHEMA_VERSION = 3;
 
 export type MissionStatus = "planning" | "active" | "paused" | "complete" | "budget_limited" | "failed";
 export type FeatureStatus = "pending" | "active" | "done" | "blocked" | "failed";
@@ -54,6 +54,10 @@ export interface MissionState {
   tokensBudget?: number;
   tokensUsed: number;
   lastContextTokens: number;
+  validationToken: string;
+  userPreferences?: {
+    allowBashInPlanning?: boolean;
+  };
   createdAt: number;
   updatedAt: number;
 }
@@ -69,6 +73,15 @@ export interface MissionMetrics {
   totalWallClockMs: number;
   acceptanceFailures: number;
   evidenceHashErrors: number;
+}
+
+export interface MissionMetricsSummary {
+  totalMissions: number;
+  completedMissions: number;
+  successRate: number;
+  averageTokensPerMission: number;
+  averageFeaturesPerMission: number;
+  averageCompletionTimeMs: number;
 }
 
 export interface MissionHistoryEntry {
@@ -97,9 +110,9 @@ export interface ToolPolicy {
 }
 
 export const TOOL_POLICIES: Record<ToolPhase, ToolPolicy> = {
-  planning: { phase: "planning", allowedTools: ["read", "grep", "find", "ls"], maxToolCalls: 30 },
-  execution: { phase: "execution", allowedTools: ["read", "write", "edit", "bash", "grep", "find", "ls"], maxToolCalls: 120 },
-  verification: { phase: "verification", allowedTools: ["read", "bash", "grep", "find", "ls"], maxToolCalls: 60 },
+  planning: { phase: "planning", allowedTools: ["read", "grep", "find", "ls", "mission_next_feature", "mission_feature_done", "mission_ask_user"], maxToolCalls: 30 },
+  execution: { phase: "execution", allowedTools: ["read", "write", "edit", "bash", "grep", "find", "ls", "mission_next_feature", "mission_feature_done", "mission_ask_user"], maxToolCalls: 120 },
+  verification: { phase: "verification", allowedTools: ["read", "bash", "grep", "find", "ls", "mission_next_feature", "mission_feature_done", "mission_ask_user"], maxToolCalls: 60 },
 };
 
 export const DEFAULT_FEATURE_MAX_WALL_CLOCK_MS = 30 * 60 * 1000; // 30 minutes

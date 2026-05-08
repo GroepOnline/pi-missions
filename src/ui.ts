@@ -118,7 +118,7 @@ export function dashboardRows(mission: MissionState): string[] {
 
   // Quick reference footer
   rows.push("  " + "─".repeat(76));
-  rows.push(`  Commands: /mission next | done | block | pause | resume | status | dashboard | export`);
+  rows.push(`  Commands: /mission next | done | block | pause | resume | status | dashboard | metrics | export`);
   rows.push("");
   return rows;
 }

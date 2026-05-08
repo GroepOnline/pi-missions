@@ -2,7 +2,7 @@ import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { completionSignal, buildMissionContext } from "./context.js";
 import { compactionCheckpoint, handleDashboard, missionSummaryForTree, registerMissionCommand, saveSessionLink } from "./commands.js";
 import { loadModelConfig } from "./models.js";
-import { appendHistory, autoBlockBlockedFeatures, getActiveFeature, getMissionPhase, loadMissionFromDisk, saveEvidence, saveMissionSafe } from "./state.js";
+import { appendHistory, autoBlockBlockedFeatures, getActiveFeature, getMissionPhase, isValidMissionId, loadMissionFromDisk, saveEvidence, saveMissionSafe } from "./state.js";
 import type { RuntimeState, ToolPhase } from "./types.js";
 import { TOOL_POLICIES } from "./types.js";
 import { registerMissionTools } from "./tools.js";
@@ -20,13 +20,52 @@ export default function piMissions(pi: ExtensionAPI): void {
   pi.on("session_start", async (event, ctx) => {
     const entries = ctx.sessionManager.getEntries() as Array<Record<string, any>>;
     const activeEntry = [...entries].reverse().find((e) => e.type === "custom" && e.customType === "pi-mission-active");
-    const missionId = activeEntry?.data?.missionId;
-    if (typeof missionId === "string") runtime.activeMission = loadMissionFromDisk(missionId);
-    if (runtime.activeMission) {
-      autoBlockBlockedFeatures(runtime.activeMission);
-      updateFooter(ctx, runtime.activeMission);
-      pi.setSessionName(`🎯 ${runtime.activeMission.title}`);
+    
+    if (!activeEntry?.data?.missionId) {
+      // No mission event - nothing to do
+      return;
     }
+    
+    const missionId = activeEntry.data.missionId;
+    
+    // Validate mission ID format
+    if (!isValidMissionId(missionId)) {
+      console.warn(`[pi-missions] Invalid mission ID format: ${missionId}`);
+      ctx.ui?.notify(
+        `⚠️ Invalid mission ID format: ${missionId}. Expected pim:<timestamp>:<<slug>.`,
+        "warning"
+      );
+      return;
+    }
+    
+    // Load mission from disk
+    const mission = loadMissionFromDisk(missionId);
+    
+    if (!mission) {
+      console.warn(`[pi-missions] Mission not found on disk: ${missionId}`);
+      ctx.ui?.notify(
+        `⚠️ Mission '${missionId}' not found on disk. Use /mission new or /mission load.`,
+        "warning"
+      );
+      return;
+    }
+    
+    // Validate event token if present
+    if (activeEntry.data.validationToken && activeEntry.data.validationToken !== mission.validationToken) {
+      console.warn(`[pi-missions] Invalid validation token for mission: ${missionId}`);
+      ctx.ui?.notify(
+        `⚠️ Invalid mission event token. Event may be corrupted or tampered with.`,
+        "warning"
+      );
+      return;
+    }
+    
+    // Mission is valid - activate it
+    runtime.activeMission = mission;
+    autoBlockBlockedFeatures(runtime.activeMission);
+    updateFooter(ctx, runtime.activeMission);
+    pi.setSessionName(`🎯 ${runtime.activeMission.title}`);
+    
     if (!runtime.autoSaveInterval) {
       runtime.autoSaveInterval = setInterval(async () => {
         if (runtime.activeMission && runtime.activeMission.status === "active") await saveMissionSafe(runtime.activeMission);

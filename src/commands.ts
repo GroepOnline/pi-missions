@@ -5,16 +5,16 @@ import { fileURLToPath } from "node:url";
 import type { ExtensionAPI, ExtensionCommandContext } from "@mariozechner/pi-coding-agent";
 import { buildCompactionSummary } from "./context.js";
 import { clearModelConfigCache, formatAgentModelLine, formatModelConfig, loadModelConfig, type ModelsConfig } from "./models.js";
-import { appendHistory, autoBlockBlockedFeatures, autoCompleteMilestones, autoVerifyAcceptance, createMission, createMissionFromTemplate, createMissionId, exportMarkdown, getActiveFeature, getAllFeatures, getFeatureById, getMilestoneById, getNextPendingFeature, linkSession, listMissions, loadMissionFromDisk, MISSION_TEMPLATES, progress, readHistory, saveEvidence, saveMissionSafe } from "./state.js";
+import { appendHistory, autoBlockBlockedFeatures, autoCompleteMilestones, autoVerifyAcceptance, calculateMetricsSummary, computeMissionMetrics, createMission, createMissionFromTemplate, createMissionId, createValidationToken, exportMarkdown, getActiveFeature, getAllFeatures, getFeatureById, getMilestoneById, getNextPendingFeature, isValidMissionId, linkSession, listMissions, loadMissionFromDisk, MISSION_TEMPLATES, progress, readHistory, saveEvidence, saveMissionSafe } from "./state.js";
 import type { Feature, MissionState, RuntimeState } from "./types.js";
 import { missionControlOverlay } from "./dashboard.js";
 import { dashboardRows, statusText, updateFooter } from "./ui.js";
 
 export function registerMissionCommand(pi: ExtensionAPI, runtime: RuntimeState): void {
   pi.registerCommand("mission", {
-    description: "Mission management: new|list|load|status|next|done|block|pause|resume|clear|edit|fork|debug|dashboard",
+    description: "Mission management: new|list|load|status|next|done|block|pause|resume|clear|edit|fork|debug|dashboard|metrics",
     getArgumentCompletions: (prefix: string) =>
-      ["new", "list", "load", "status", "next", "done", "block", "pause", "resume", "clear", "edit", "fork", "debug", "dashboard", "models", "export", "templates"]
+      ["new", "list", "load", "status", "next", "done", "block", "pause", "resume", "clear", "edit", "fork", "debug", "dashboard", "metrics", "models", "export", "templates"]
         .filter((s) => s.startsWith(prefix))
         .map((s) => ({ value: s, label: s })),
     handler: async (args: string, ctx: ExtensionCommandContext) => {
@@ -34,6 +34,7 @@ export function registerMissionCommand(pi: ExtensionAPI, runtime: RuntimeState):
         case "edit": return handleEdit(rest[0], ctx, runtime);
         case "fork": return handleFork(rest.join(" "), ctx, runtime);
         case "debug": return handleDebug(rest[0], ctx, runtime);
+        case "metrics": return handleMetrics(ctx, runtime);
         case "models": return handleModels(rest[0], rest[1], ctx, runtime);
         case "export": return handleExport(rest[0], ctx, runtime);
         case "templates": return handleTemplates(rest[0], rest[1], rest.slice(2).join(" "), ctx, pi, runtime);
@@ -130,7 +131,7 @@ export async function handleNew(titleArg: string, ctx: ExtensionCommandContext, 
           // Build mission from wizard output
           const now = Date.now();
           parsedMission = {
-            schemaVersion: 2,
+            schemaVersion: 3,
             id: createMissionId(title, now),
             title: raw.title || title,
             goal,
@@ -139,6 +140,7 @@ export async function handleNew(titleArg: string, ctx: ExtensionCommandContext, 
             activeFeatureId: raw.milestones[0]?.features?.[0]?.id ?? "F001",
             tokensUsed: 0,
             lastContextTokens: 0,
+            validationToken: createValidationToken(),
             createdAt: now,
             updatedAt: now,
             milestones: raw.milestones.map((m: any, mi: number) => ({
@@ -179,7 +181,7 @@ export async function handleNew(titleArg: string, ctx: ExtensionCommandContext, 
   runtime.activeMission = mission;
   await saveMissionSafe(mission);
   appendHistory(mission, { event: "mission_created", note: goal, details: { usedWizard } });
-  pi.appendEntry("pi-mission-active", { missionId: mission.id });
+  pi.appendEntry("pi-mission-active", { missionId: mission.id, validationToken: mission.validationToken });
   pi.setSessionName(`🎯 ${mission.title}`);
   updateFooter(ctx, mission);
   const featureCount = mission.milestones.reduce((acc, m) => acc + m.features.length, 0);
@@ -205,11 +207,17 @@ export async function handleList(ctx: ExtensionCommandContext, pi: ExtensionAPI,
 
 export async function handleLoad(id: string | undefined, ctx: ExtensionCommandContext, pi: ExtensionAPI, runtime: RuntimeState): Promise<void> {
   if (!id) return ctx.ui.notify("Usage: /mission load <id>", "warning");
+  
+  // Validate ID format
+  if (!isValidMissionId(id)) {
+    return ctx.ui.notify(`Invalid mission ID format: ${id}. Expected pim:<timestamp>:<<slug>.`, "error");
+  }
+  
   const mission = loadMissionFromDisk(id);
   if (!mission) return ctx.ui.notify(`Mission not found: ${id}`, "error");
   autoBlockBlockedFeatures(mission);
   runtime.activeMission = mission;
-  pi.appendEntry("pi-mission-active", { missionId: mission.id });
+  pi.appendEntry("pi-mission-active", { missionId: mission.id, validationToken: mission.validationToken });
   pi.setSessionName(`🎯 ${mission.title}`);
   updateFooter(ctx, mission);
   ctx.ui.notify(`Loaded mission: ${mission.title}`, "info");
@@ -220,6 +228,41 @@ export async function handleStatus(ctx: ExtensionCommandContext, runtime: Runtim
   if (!mission) return ctx.ui.notify("No active mission. Use /mission new <title> or /mission load <id>.", "info");
   updateFooter(ctx, mission);
   ctx.ui.notify(statusText(mission), "info");
+}
+
+export async function handleMetrics(ctx: ExtensionCommandContext, runtime: RuntimeState): Promise<void> {
+  const summary = calculateMetricsSummary();
+  
+  if (summary.totalMissions === 0) {
+    return ctx.ui.notify("No missions found. Create a mission with /mission new <title>.", "info");
+  }
+  
+  const lines = [
+    "📊 Mission Metrics Summary",
+    "=".repeat(40),
+    `Total Missions: ${summary.totalMissions}`,
+    `Completed Missions: ${summary.completedMissions}`,
+    `Success Rate: ${(summary.successRate * 100).toFixed(1)}%`,
+    `Average Tokens/Mission: ${summary.averageTokensPerMission.toFixed(0)}`,
+    `Average Features/Mission: ${summary.averageFeaturesPerMission.toFixed(1)}`,
+    `Avg Completion Time: ${(summary.averageCompletionTimeMs / 1000 / 60).toFixed(1)} min`,
+  ];
+  
+  ctx.ui.notify(lines.join("\n"), "info");
+  
+  // Export metrics to JSON file
+  const missions = listMissions();
+  const allMetrics = missions.map(computeMissionMetrics);
+  const metricsDir = path.join(process.env.HOME || process.env.USERPROFILE || "", ".pi", "missions");
+  const metricsFile = path.join(metricsDir, "metrics-export.json");
+  
+  try {
+    fs.mkdirSync(metricsDir, { recursive: true });
+    fs.writeFileSync(metricsFile, JSON.stringify(allMetrics, null, 2), "utf-8");
+    ctx.ui.notify(`📁 Metrics exported to: ${metricsFile}`, "info");
+  } catch (error) {
+    ctx.ui.notify(`Failed to export metrics: ${error instanceof Error ? error.message : String(error)}`, "warning");
+  }
 }
 
 export async function handleDashboard(ctx: ExtensionCommandContext, runtime: RuntimeState): Promise<void> {
@@ -522,7 +565,7 @@ export async function handleTemplates(sub: string | undefined, arg: string | und
     runtime.activeMission = mission;
     await saveMissionSafe(mission);
     appendHistory(mission, { event: "mission_created", note: `From template: ${arg}` });
-    pi.appendEntry("pi-mission-active", { missionId: mission.id });
+    pi.appendEntry("pi-mission-active", { missionId: mission.id, validationToken: mission.validationToken });
     pi.setSessionName(`🎯 ${mission.title}`);
     updateFooter(ctx, mission);
     ctx.ui.notify(`✅ Mission created from '${arg}' template: ${mission.id}`, "info");

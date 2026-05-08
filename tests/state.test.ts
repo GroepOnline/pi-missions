@@ -6,6 +6,7 @@ import {
   autoUnblockResolved,
   autoVerifyAcceptance,
   buildWorkerPrompt,
+  calculateMetricsSummary,
   computeMissionMetrics,
   createMission,
   createMissionFromTemplate,
@@ -873,5 +874,30 @@ describe("computeMissionMetrics", () => {
     // No evidence saved → evidenceHashErrors should be 1
     const metrics = computeMissionMetrics(m);
     expect(metrics.evidenceHashErrors).toBeGreaterThanOrEqual(1);
+  });
+});
+
+describe("calculateMetricsSummary", () => {
+  it("calculates summary across all missions", async () => {
+    const m1 = createMission("Mission 1", "Test 1");
+    const m2 = createMission("Mission 2", "Test 2");
+    
+    // Mark first mission as complete
+    m1.status = "complete";
+    m1.milestones[0].features[0]!.status = "done";
+    m1.milestones[0].features[1]!.status = "done";
+    m1.milestones[0].features[2]!.status = "done";
+    await saveMissionSafe(m1);
+    appendHistory(m1, { event: "mission_complete" });
+    
+    // Mark second mission as still active
+    m2.milestones[0].features[0]!.status = "done";
+    await saveMissionSafe(m2);
+    
+    const summary = calculateMetricsSummary();
+    expect(summary.totalMissions).toBeGreaterThanOrEqual(2); // At least our 2 new missions
+    expect(summary.completedMissions).toBeGreaterThanOrEqual(1); // At least our 1 completed mission
+    expect(summary.averageTokensPerMission).toBeGreaterThanOrEqual(0);
+    expect(summary.averageFeaturesPerMission).toBeGreaterThan(0);
   });
 });
