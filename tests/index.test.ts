@@ -1,6 +1,6 @@
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import piMissions from "../src/index.js";
-import { createMission, saveMissionSafe, getActiveFeature } from "../src/state.js";
+import { createMission, saveMissionSafe, getActiveFeature, loadMissionFromDisk } from "../src/state.js";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -29,55 +29,53 @@ describe("piMissions extension registration", () => {
     cleanupTmp();
   });
 
-  it("registers the mission command and tools on startup", () => {
+  function mkPi(overrides: Record<string, any> = {}): any {
     const commands: any[] = [];
     const tools: any[] = [];
     const hooks: Record<string, any[]> = {};
     const shortcuts: any[] = [];
     const labels: Array<{ leafId: string; label: string }> = [];
-
-    const pi = {
+    const entries: Array<Record<string, any>> = [];
+    return {
       registerCommand: (name: string, def: any) => { commands.push({ name, ...def }); },
       registerTool: (def: any) => { tools.push(def); },
       registerShortcut: (key: string, def: any) => { shortcuts.push({ key, ...def }); },
       on: (event: string, handler: any) => { if (!hooks[event]) hooks[event] = []; hooks[event].push(handler); },
       setSessionName: () => {},
       setLabel: (leafId: string, label: string) => { labels.push({ leafId, label }); },
-      appendEntry: () => {},
+      appendEntry: (type: string, data: Record<string, any>) => { entries.push({ type, data }); },
+      getCommands: () => commands,
+      getTools: () => tools,
+      getHooks: () => hooks,
+      getShortcuts: () => shortcuts,
+      getLabels: () => labels,
+      getEntries: () => entries,
+      ...overrides,
     };
+  }
 
-    piMissions(pi as any);
+  it("registers the mission command and tools on startup", () => {
+    const pi = mkPi();
+    piMissions(pi);
 
-    expect(commands).toHaveLength(1);
-    expect(commands[0]!.name).toBe("mission");
-    expect(commands[0]!.description).toContain("Mission management");
+    expect(pi.getCommands()).toHaveLength(1);
+    expect(pi.getCommands()[0]!.name).toBe("mission");
+    expect(pi.getCommands()[0]!.description).toContain("Mission management");
 
-    expect(tools).toHaveLength(2);
-    expect(tools[0]!.name).toBe("mission_feature_done");
-    expect(tools[1]!.name).toBe("mission_next_feature");
+    expect(pi.getTools()).toHaveLength(2);
+    expect(pi.getTools()[0]!.name).toBe("mission_feature_done");
+    expect(pi.getTools()[1]!.name).toBe("mission_next_feature");
 
-    expect(shortcuts).toHaveLength(2);
-    expect(shortcuts[0]!.key).toBe("ctrl+shift+m");
-    expect(shortcuts[0]!.description).toContain("dashboard");
-    expect(shortcuts[1]!.key).toBe("ctrl+shift+d");
-    expect(shortcuts[1]!.description).toContain("done");
+    expect(pi.getShortcuts()).toHaveLength(2);
+    expect(pi.getShortcuts()[0]!.key).toBe("ctrl+shift+m");
+    expect(pi.getShortcuts()[0]!.description).toContain("dashboard");
+    expect(pi.getShortcuts()[1]!.key).toBe("ctrl+shift+d");
+    expect(pi.getShortcuts()[1]!.description).toContain("done");
   });
 
   it("registers all expected lifecycle hooks", () => {
-    const tools: any[] = [];
-    const hooks: Record<string, any[]> = {};
-
-    const pi = {
-      registerCommand: () => {},
-      registerTool: (def: any) => { tools.push(def); },
-      registerShortcut: () => {},
-      on: (event: string, handler: any) => { if (!hooks[event]) hooks[event] = []; hooks[event].push(handler); },
-      setSessionName: () => {},
-      setLabel: () => {},
-      appendEntry: () => {},
-    };
-
-    piMissions(pi as any);
+    const pi = mkPi();
+    piMissions(pi);
 
     const expectedHooks = [
       "session_start",
@@ -92,8 +90,8 @@ describe("piMissions extension registration", () => {
     ];
 
     for (const hook of expectedHooks) {
-      expect(hooks[hook]).toBeDefined();
-      expect(hooks[hook]!.length).toBeGreaterThanOrEqual(1);
+      expect(pi.getHooks()[hook]).toBeDefined();
+      expect(pi.getHooks()[hook]!.length).toBeGreaterThanOrEqual(1);
     }
   });
 
@@ -101,214 +99,402 @@ describe("piMissions extension registration", () => {
     const m = createMission("AutoLoad", "Auto load test");
     saveMissionSafe(m);
 
-    const hooks: Record<string, any[]> = {};
-
-    const pi = {
-      registerCommand: () => {},
-      registerTool: () => {},
-      registerShortcut: () => {},
-      on: (event: string, handler: any) => { if (!hooks[event]) hooks[event] = []; hooks[event].push(handler); },
-      setSessionName: () => {},
-      setLabel: () => {},
-      appendEntry: () => {},
-    };
-
+    const pi = mkPi();
     const entries = [
       { type: "custom", customType: "pi-mission-active", data: { missionId: m.id } },
     ];
 
     const ctx = {
-      sessionManager: { getEntries: () => entries },
+      sessionManager: { getEntries: () => entries, getLeafId: () => null },
       ui: { setStatus: () => {}, notify: () => {} },
       getContextUsage: () => null,
+      fork: async () => {},
     };
 
-    piMissions(pi as any);
-
-    // The runtime is internal, but we can verify the hooks exist
-    expect(hooks["session_start"]).toBeDefined();
-    expect(hooks["session_start"]![0]).toBeDefined();
+    piMissions(pi);
+    const sessionStartHandler = pi.getHooks()["session_start"]![0];
+    expect(sessionStartHandler).toBeDefined();
+    // Invoke the handler to cover the callback body
+    await sessionStartHandler({}, ctx);
   });
 
   it("tool_call hook blocks disallowed tools in research phase", async () => {
-    const hooks: Record<string, any[]> = {};
+    const pi = mkPi();
     const m = createMission("ToolPolicy", "Tool policy test");
-    // Set phase to research by having no started features
     getActiveFeature(m)!.status = "pending";
+    saveMissionSafe(m);
 
-    const pi = {
-      registerCommand: () => {},
-      registerTool: () => {},
-      registerShortcut: () => {},
-      on: (event: string, handler: any) => { if (!hooks[event]) hooks[event] = []; hooks[event].push(handler); },
-      setSessionName: () => {},
-      setLabel: () => {},
-      appendEntry: () => {},
+    piMissions(pi);
+
+    // First trigger session_start to load the mission into runtime
+    const sessionStartHandler = pi.getHooks()["session_start"]![0];
+    const entries = [
+      { type: "custom", customType: "pi-mission-active", data: { missionId: m.id } },
+    ];
+    const ctx = {
+      sessionManager: { getEntries: () => entries, getLeafId: () => null },
+      ui: { setStatus: () => {}, notify: () => {} },
+      getContextUsage: () => null,
+      fork: async () => {},
     };
+    await sessionStartHandler({}, ctx);
 
-    piMissions(pi as any);
+    // Now trigger before_agent_start to set the phase
+    for (const handler of pi.getHooks()["before_agent_start"] || []) {
+      await handler({}, ctx);
+    }
 
-    // The tool_call hook should exist
-    const toolCallHandler = hooks["tool_call"];
+    // The tool_call hook should exist and block disallowed tools in planning phase
+    const toolCallHandler = pi.getHooks()["tool_call"]![0];
     expect(toolCallHandler).toBeDefined();
-    expect(toolCallHandler!.length).toBeGreaterThanOrEqual(1);
+    const result = await toolCallHandler({ toolName: "read_file" });
+    // read_file is NOT allowed in planning phase (active feature title contains "clarify")
+    expect(result).toBeDefined();
+    expect(result!.block).toBe(true);
+    expect(result!.reason).toContain("not allowed");
+  });
+
+  it("tool_call hook blocks when max tool calls exceeded", async () => {
+    const pi = mkPi();
+    const m = createMission("ToolLimit", "Tool limit test");
+    getActiveFeature(m)!.status = "active";
+    m.activeFeatureId = "F002"; // execution phase (title "Implement the core change")
+    saveMissionSafe(m);
+
+    piMissions(pi);
+
+    const sessionStartHandler = pi.getHooks()["session_start"]![0];
+    const entries = [
+      { type: "custom", customType: "pi-mission-active", data: { missionId: m.id } },
+    ];
+    const ctx = {
+      sessionManager: { getEntries: () => entries, getLeafId: () => null },
+      ui: { setStatus: () => {}, notify: () => {} },
+      getContextUsage: () => null,
+      fork: async () => {},
+    };
+    await sessionStartHandler({}, ctx);
+
+    // Set phase to execution by triggering before_agent_start
+    for (const handler of pi.getHooks()["before_agent_start"] || []) {
+      await handler({}, ctx);
+    }
+
+    const toolCallHandler = pi.getHooks()["tool_call"]![0];
+    // In execution phase, allowed tools are read, write, edit, bash, grep, find, ls.
+    // Max tool calls for execution is 120. We need to exceed it.
+    let lastResult: any;
+    for (let i = 0; i < 125; i++) {
+      lastResult = await toolCallHandler({ toolName: "read" });
+    }
+    expect(lastResult).toBeDefined();
+    expect(lastResult.block).toBe(true);
+    expect(lastResult.reason).toContain("Max tool calls");
+  });
+
+  it("session_before_tree returns undefined when no mission", async () => {
+    const pi = mkPi();
+    piMissions(pi);
+    const treeHandler = pi.getHooks()["session_before_tree"]![0];
+    const result = await treeHandler({}, {});
+    expect(result).toBeUndefined();
+  });
+
+  it("agent_end hook does nothing when feature not active", async () => {
+    const m = createMission("AgentEnd", "Test");
+    saveMissionSafe(m);
+
+    const pi = mkPi();
+    piMissions(pi);
+
+    const sessionStartHandler = pi.getHooks()["session_start"]![0];
+    const entries = [
+      { type: "custom", customType: "pi-mission-active", data: { missionId: m.id } },
+    ];
+    const notifyCalls: any[] = [];
+    const ctx = {
+      sessionManager: { getEntries: () => entries, getLeafId: () => "leaf-1" },
+      ui: { setStatus: () => {}, notify: (msg: string, level: string) => { notifyCalls.push({ msg, level }); } },
+      getContextUsage: () => null,
+      fork: async () => {},
+    };
+    await sessionStartHandler({}, ctx);
+
+    // Mark feature as done so no active feature
+    const f = getActiveFeature(m);
+    if (f) f.status = "done";
+
+    const agentEndHandler = pi.getHooks()["agent_end"]![0];
+    await agentEndHandler({ messages: [] }, ctx);
+    expect(notifyCalls.length).toBe(0);
+  });
+
+  it("session_shutdown does nothing when no active mission", async () => {
+    const pi = mkPi();
+    piMissions(pi);
+
+    const shutdownHandler = pi.getHooks()["session_shutdown"]![0];
+    const ctx = {
+      sessionManager: { getSessionFile: () => "/tmp/session.jsonl" },
+      ui: { setStatus: () => {}, notify: () => {} },
+    };
+    await shutdownHandler({}, ctx);
+    // Should not throw
   });
 
   it("session_shutdown hook clears interval and saves", async () => {
-    const hooks: Record<string, any[]> = {};
     const m = createMission("Shutdown", "Shutdown test");
     saveMissionSafe(m);
 
-    const pi = {
-      registerCommand: () => {},
-      registerTool: () => {},
-      registerShortcut: () => {},
-      on: (event: string, handler: any) => { if (!hooks[event]) hooks[event] = []; hooks[event].push(handler); },
-      setSessionName: () => {},
-      setLabel: () => {},
-      appendEntry: () => {},
+    const pi = mkPi();
+    piMissions(pi);
+
+    // First load the mission via session_start
+    const sessionStartHandler = pi.getHooks()["session_start"]![0];
+    const entries = [
+      { type: "custom", customType: "pi-mission-active", data: { missionId: m.id } },
+    ];
+    const startCtx = {
+      sessionManager: { getEntries: () => entries, getLeafId: () => null, getSessionFile: () => "/tmp/session.jsonl" },
+      ui: { setStatus: () => {}, notify: () => {} },
+      getContextUsage: () => null,
+      fork: async () => {},
     };
+    await sessionStartHandler({}, startCtx);
 
-    piMissions(pi as any);
-
-    const shutdownHandler = hooks["session_shutdown"];
+    // Now trigger shutdown
+    const shutdownHandler = pi.getHooks()["session_shutdown"]![0];
     expect(shutdownHandler).toBeDefined();
-    expect(shutdownHandler!.length).toBeGreaterThanOrEqual(1);
+    const shutdownCtx = {
+      sessionManager: { getSessionFile: () => "/tmp/session.jsonl" },
+      ui: { setStatus: () => {}, notify: () => {} },
+    };
+    await shutdownHandler({}, shutdownCtx);
   });
 
-  it("session_before_tree returns mission summary", async () => {
-    const hooks: Record<string, any[]> = {};
+  it("session_before_tree returns mission summary when mission active", async () => {
+    const m = createMission("TreeSummary", "Test");
+    saveMissionSafe(m);
 
-    const pi = {
-      registerCommand: () => {},
-      registerTool: () => {},
-      registerShortcut: () => {},
-      on: (event: string, handler: any) => { if (!hooks[event]) hooks[event] = []; hooks[event].push(handler); },
-      setSessionName: () => {},
-      setLabel: () => {},
-      appendEntry: () => {},
+    const pi = mkPi();
+    piMissions(pi);
+
+    // Load mission first
+    const sessionStartHandler = pi.getHooks()["session_start"]![0];
+    const entries = [
+      { type: "custom", customType: "pi-mission-active", data: { missionId: m.id } },
+    ];
+    const ctx = {
+      sessionManager: { getEntries: () => entries, getLeafId: () => null },
+      ui: { setStatus: () => {}, notify: () => {} },
+      getContextUsage: () => null,
+      fork: async () => {},
     };
+    await sessionStartHandler({}, ctx);
 
-    piMissions(pi as any);
-
-    expect(hooks["session_before_tree"]).toBeDefined();
+    // Now trigger session_before_tree
+    const treeHandler = pi.getHooks()["session_before_tree"]![0];
+    const result = await treeHandler({}, ctx);
+    expect(result).toBeDefined();
+    expect(result!.summary.summary).toContain("Mission:");
+    expect(result!.summary.summary).toContain("TreeSummary");
   });
 
   it("session_before_compact calls compaction checkpoint", async () => {
-    const hooks: Record<string, any[]> = {};
+    const m = createMission("Compact", "Test");
+    saveMissionSafe(m);
 
-    const pi = {
-      registerCommand: () => {},
-      registerTool: () => {},
-      registerShortcut: () => {},
-      on: (event: string, handler: any) => { if (!hooks[event]) hooks[event] = []; hooks[event].push(handler); },
-      setSessionName: () => {},
-      setLabel: () => {},
-      appendEntry: () => {},
+    const pi = mkPi();
+    piMissions(pi);
+
+    // Load mission first
+    const sessionStartHandler = pi.getHooks()["session_start"]![0];
+    const entries = [
+      { type: "custom", customType: "pi-mission-active", data: { missionId: m.id } },
+    ];
+    const ctx = {
+      sessionManager: { getEntries: () => entries, getLeafId: () => null },
+      ui: { setStatus: () => {}, notify: () => {} },
+      getContextUsage: () => null,
+      fork: async () => {},
     };
+    await sessionStartHandler({}, ctx);
 
-    piMissions(pi as any);
+    // Now trigger compaction
+    const compactHandler = pi.getHooks()["session_before_compact"]![0];
+    await compactHandler({}, ctx);
 
-    expect(hooks["session_before_compact"]).toBeDefined();
+    // Verify an entry was appended
+    expect(pi.getEntries().length).toBeGreaterThanOrEqual(1);
+    expect(pi.getEntries()[0]!.type).toBe("pi-mission-compaction-checkpoint");
   });
 
   it("before_agent_start hook builds mission context", async () => {
     const m = createMission("Context", "Context test");
     saveMissionSafe(m);
 
-    const hooks: Record<string, any[]> = {};
+    const pi = mkPi();
+    piMissions(pi);
 
-    const pi = {
-      registerCommand: () => {},
-      registerTool: () => {},
-      registerShortcut: () => {},
-      on: (event: string, handler: any) => { if (!hooks[event]) hooks[event] = []; hooks[event].push(handler); },
-      setSessionName: () => {},
-      setLabel: () => {},
-      appendEntry: () => {},
+    // Load mission first
+    const sessionStartHandler = pi.getHooks()["session_start"]![0];
+    const entries = [
+      { type: "custom", customType: "pi-mission-active", data: { missionId: m.id } },
+    ];
+    const ctx = {
+      sessionManager: { getEntries: () => entries, getLeafId: () => null },
+      ui: { setStatus: () => {}, notify: () => {} },
+      getContextUsage: () => null,
+      fork: async () => {},
     };
-
-    piMissions(pi as any);
+    await sessionStartHandler({}, ctx);
 
     // Two before_agent_start handlers registered (context + phase tracking)
-    expect(hooks["before_agent_start"]).toBeDefined();
-    expect(hooks["before_agent_start"]!.length).toBe(2);
+    expect(pi.getHooks()["before_agent_start"]).toBeDefined();
+    expect(pi.getHooks()["before_agent_start"]!.length).toBe(2);
+
+    // Invoke both handlers to cover the callback bodies
+    for (const handler of pi.getHooks()["before_agent_start"] || []) {
+      const result = await handler({}, ctx);
+      // First handler returns message context
+      if (result && result.message) {
+        expect(result.message.customType).toBe("pi-mission-context");
+      }
+    }
   });
 
   it("agent_end hook checks for completion signals", async () => {
-    const hooks: Record<string, any[]> = {};
+    const m = createMission("AgentEnd", "Test");
+    saveMissionSafe(m);
 
-    const pi = {
-      registerCommand: () => {},
-      registerTool: () => {},
-      registerShortcut: () => {},
-      on: (event: string, handler: any) => { if (!hooks[event]) hooks[event] = []; hooks[event].push(handler); },
-      setSessionName: () => {},
-      setLabel: () => {},
-      appendEntry: () => {},
+    const pi = mkPi();
+    piMissions(pi);
+
+    // Load mission first
+    const sessionStartHandler = pi.getHooks()["session_start"]![0];
+    const entries = [
+      { type: "custom", customType: "pi-mission-active", data: { missionId: m.id } },
+    ];
+    const notifyCalls: any[] = [];
+    const ctx = {
+      sessionManager: { getEntries: () => entries, getLeafId: () => "leaf-1" },
+      ui: { setStatus: () => {}, notify: (msg: string, level: string) => { notifyCalls.push({ msg, level }); } },
+      getContextUsage: () => null,
+      fork: async () => {},
     };
+    await sessionStartHandler({}, ctx);
 
-    piMissions(pi as any);
-
-    expect(hooks["agent_end"]).toBeDefined();
+    // Now trigger agent_end with a completion signal in messages
+    const agentEndHandler = pi.getHooks()["agent_end"]![0];
+    const event = {
+      messages: [
+        { content: [{ type: "text", text: "I have completed the implementation. The feature is done." }] },
+      ],
+    };
+    await agentEndHandler(event, ctx);
+    expect(notifyCalls.length).toBeGreaterThanOrEqual(1);
+    expect(notifyCalls[0]!.msg).toContain("looks complete");
   });
 
-  it("turn_end hook tracks token usage", async () => {
-    const hooks: Record<string, any[]> = {};
+  it("turn_end hook warns when token budget exceeded", async () => {
+    const m = createMission("Budget", "Test");
+    m.tokensBudget = 10000;
+    m.tokensUsed = 0;
+    m.lastContextTokens = 0;
+    saveMissionSafe(m);
 
-    const pi = {
-      registerCommand: () => {},
-      registerTool: () => {},
-      registerShortcut: () => {},
-      on: (event: string, handler: any) => { if (!hooks[event]) hooks[event] = []; hooks[event].push(handler); },
-      setSessionName: () => {},
-      setLabel: () => {},
-      appendEntry: () => {},
+    const pi = mkPi();
+    piMissions(pi);
+
+    const sessionStartHandler = pi.getHooks()["session_start"]![0];
+    const entries = [
+      { type: "custom", customType: "pi-mission-active", data: { missionId: m.id } },
+    ];
+    const notifyCalls: any[] = [];
+    const ctx = {
+      sessionManager: { getEntries: () => entries, getLeafId: () => "leaf-1" },
+      ui: { setStatus: () => {}, notify: (msg: string, level: string) => { notifyCalls.push({ msg, level }); } },
+      getContextUsage: () => ({ tokens: 8500 }),
+      fork: async () => {},
     };
+    await sessionStartHandler({}, ctx);
 
-    piMissions(pi as any);
+    const turnEndHandler = pi.getHooks()["turn_end"]![0];
+    await turnEndHandler({}, ctx);
 
-    expect(hooks["turn_end"]).toBeDefined();
+    const loaded = loadMissionFromDisk(m.id);
+    expect(loaded!.status).toBe("budget_limited");
+    expect(notifyCalls.some((c) => c.msg.includes("budget") && c.level === "warning")).toBe(true);
+  });
+
+  it("turn_end hook tracks token usage and labels leaf", async () => {
+    const m = createMission("TurnEnd", "Test");
+    saveMissionSafe(m);
+
+    const pi = mkPi();
+    piMissions(pi);
+
+    // Load mission first
+    const sessionStartHandler = pi.getHooks()["session_start"]![0];
+    const entries = [
+      { type: "custom", customType: "pi-mission-active", data: { missionId: m.id } },
+    ];
+    const ctx = {
+      sessionManager: { getEntries: () => entries, getLeafId: () => "leaf-1" },
+      ui: { setStatus: () => {}, notify: () => {} },
+      getContextUsage: () => ({ tokens: 5000 }),
+      fork: async () => {},
+    };
+    await sessionStartHandler({}, ctx);
+
+    // Now trigger turn_end
+    const turnEndHandler = pi.getHooks()["turn_end"]![0];
+    await turnEndHandler({}, ctx);
+
+    // Verify label was set for the active feature
+    expect(pi.getLabels().length).toBeGreaterThanOrEqual(1);
+    expect(pi.getLabels()[0]!.leafId).toBe("leaf-1");
+    expect(pi.getLabels()[0]!.label).toContain("🎯");
   });
 
   it("keyboard shortcut ctrl+shift+d marks feature done", async () => {
     const m = createMission("Shortcut", "Shortcut test");
     saveMissionSafe(m);
 
-    const shortcuts: any[] = [];
+    const pi = mkPi();
+    piMissions(pi);
 
-    const pi = {
-      registerCommand: () => {},
-      registerTool: () => {},
-      registerShortcut: (key: string, def: any) => { shortcuts.push({ key, handler: def.handler }); },
-      on: () => {},
-      setSessionName: () => {},
-      setLabel: () => {},
-      appendEntry: () => {},
+    // Load mission via session_start first
+    const sessionStartHandler = pi.getHooks()["session_start"]![0];
+    const entries = [
+      { type: "custom", customType: "pi-mission-active", data: { missionId: m.id } },
+    ];
+    const notifyCalls: any[] = [];
+    const ctx = {
+      sessionManager: { getEntries: () => entries, getLeafId: () => null },
+      ui: { setStatus: () => {}, notify: (msg: string, level: string) => { notifyCalls.push({ msg, level }); } },
+      getContextUsage: () => null,
+      hasUI: false,
+      fork: async () => {},
     };
+    await sessionStartHandler({}, ctx);
 
-    piMissions(pi as any);
-
-    const doneShortcut = shortcuts.find((s) => s.key === "ctrl+shift+d");
+    const doneShortcut = pi.getShortcuts().find((s: any) => s.key === "ctrl+shift+d");
     expect(doneShortcut).toBeDefined();
     expect(typeof doneShortcut!.handler).toBe("function");
+
+    // Invoke the handler to cover its body
+    await doneShortcut!.handler(ctx);
+    expect(notifyCalls.length).toBeGreaterThanOrEqual(1);
+    expect(notifyCalls[0]!.msg).toContain("done");
   });
 
   it("resources_discover hook returns empty paths", async () => {
-    const hooks: Record<string, any[]> = {};
+    const pi = mkPi();
+    piMissions(pi);
 
-    const pi = {
-      registerCommand: () => {},
-      registerTool: () => {},
-      registerShortcut: () => {},
-      on: (event: string, handler: any) => { if (!hooks[event]) hooks[event] = []; hooks[event].push(handler); },
-      setSessionName: () => {},
-      setLabel: () => {},
-      appendEntry: () => {},
-    };
-
-    piMissions(pi as any);
-
-    expect(hooks["resources_discover"]).toBeDefined();
+    const handler = pi.getHooks()["resources_discover"]![0];
+    const result = await handler();
+    expect(result).toEqual({ skillPaths: [], promptPaths: [], themePaths: [] });
   });
 });

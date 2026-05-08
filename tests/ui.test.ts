@@ -131,6 +131,26 @@ describe("dashboardRows", () => {
     expect(rows.some((r) => r.includes("➡️ M02: Second"))).toBe(true);
   });
 
+  it("shows elapsed time and tool call warnings for stale active feature", () => {
+    const mission = missionFixture();
+    const af = mission.milestones[0].features[0]!;
+    af.status = "active";
+    af.startedAt = Date.now() - 20 * 60 * 1000; // 20 min ago
+    af.toolCallCount = 150;
+    const rows = dashboardRows(mission);
+    expect(rows.some((r) => r.includes("Active 20min") || r.includes("Active ") && r.includes("min"))).toBe(true);
+    expect(rows.some((r) => r.includes("150 tool calls"))).toBe(true);
+  });
+
+  it("shows dependency links for active feature", () => {
+    const mission = missionFixture();
+    const af = mission.milestones[0].features[0]!;
+    af.status = "active";
+    af.dependsOn = ["F010", "F020"];
+    const rows = dashboardRows(mission);
+    expect(rows.some((r) => r.includes("Depends on: F010, F020"))).toBe(true);
+  });
+
   it("active feature shows acceptance criteria details", () => {
     const mission = missionFixture();
     mission.milestones[0].features[0]!.acceptance = [
@@ -169,6 +189,11 @@ describe("statusText", () => {
     expect(text).toContain("F003:");
   });
 
+  it("shows budget_limited status icon", () => {
+    const mission = missionFixture({ status: "budget_limited" });
+    expect(dashboardRows(mission).some((r) => r.includes("⚠️"))).toBe(true);
+  });
+
   it("shows 'Active: none' when no feature is active", () => {
     const text = statusText(missionFixture({ activeFeatureId: undefined }));
     expect(text).toContain("Active: none");
@@ -184,6 +209,14 @@ describe("statusText", () => {
     const mission = missionFixture();
     expect(statusText(mission)).toContain("M01");
     expect(statusText(mission)).toContain("[0/3]");
+  });
+
+  it("handles empty feature description", () => {
+    const mission = missionFixture();
+    mission.milestones[0].features[0]!.description = "";
+    // No crash and rows still render
+    const rows = dashboardRows(mission);
+    expect(rows.some((r) => r.includes("F001"))).toBe(true);
   });
 
   it("shows blocked feature reason", () => {

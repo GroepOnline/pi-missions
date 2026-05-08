@@ -355,7 +355,7 @@ export async function handleClear(ctx: ExtensionCommandContext, runtime: Runtime
   ctx.ui.notify("Mission detached from this session.", "info");
 }
 
-async function handleEdit(featureId: string | undefined, ctx: ExtensionCommandContext, runtime: RuntimeState): Promise<void> {
+export async function handleEdit(featureId: string | undefined, ctx: ExtensionCommandContext, runtime: RuntimeState): Promise<void> {
   const mission = runtime.activeMission;
   if (!mission || !featureId) return ctx.ui.notify("Usage: /mission edit <feature-id>", "warning");
   const feature = getFeatureById(mission, featureId);

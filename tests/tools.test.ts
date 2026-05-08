@@ -327,4 +327,37 @@ describe("registerMissionTools — tool registration", () => {
     expect(result.content[0].text).toContain("🎉 Mission complete");
     expect(m.status).toBe("complete");
   });
+
+  it("mission_feature_done sets feature notes from params", async () => {
+    const m = createMission("NotesTest", "Test");
+    saveMissionSafe(m);
+    const tools: any[] = [];
+    const pi = { registerTool: (t: any) => { tools.push(t); } };
+    const rt: RuntimeState = { activeMission: m, autoSaveInterval: null };
+    registerMissionTools(pi as any, rt);
+    const ctx = { ui: { setStatus: () => {}, notify: () => {} } };
+    const result = await tools[0]!.execute("call1", { evidence: "Done!", notes: "with notes" }, null as any, () => {}, ctx);
+    expect(result.isError).toBe(false);
+    const f = m.milestones[0].features[0]!;
+    expect(f.notes).toBe("with notes");
+  });
+
+  it("mission_next_feature execute warns when no unblocked pending features remain", async () => {
+    const m = createMission("Blocked", "No next");
+    // F001 done, F002 blocked, F003 depends on F002 so also effectively blocked
+    m.milestones[0].features[0]!.status = "done";
+    m.milestones[0].features[0]!.completedAt = Date.now();
+    m.milestones[0].features[1]!.status = "blocked";
+    m.milestones[0].features[2]!.status = "pending";
+    // F003 depends on F002 which is blocked → no unblocked pending
+    saveMissionSafe(m);
+    const tools: any[] = [];
+    const pi = { registerTool: (t: any) => { tools.push(t); } };
+    const rt: RuntimeState = { activeMission: m, autoSaveInterval: null };
+    registerMissionTools(pi as any, rt);
+    const ctx = { ui: { setStatus: () => {}, notify: () => {} } };
+    const result = await tools[1]!.execute("call2", {}, null as any, () => {}, ctx);
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toContain("No unblocked pending feature");
+  });
 });

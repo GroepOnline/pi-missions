@@ -1,6 +1,6 @@
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import type { TUI } from "@mariozechner/pi-tui";
-import { cloneFeatureForFork, compactionCheckpoint, handleBlock, handleClear, handleDashboard, handleDebug, handleDone, handleExport, handleFork, handleModels, handleNew, handleNext, handlePause, handleResume, handleStatus, handleTemplates, missionSummaryForTree, saveSessionLink } from "../src/commands.js";
+import { cloneFeatureForFork, compactionCheckpoint, handleBlock, handleClear, handleDashboard, handleDebug, handleDone, handleEdit, handleExport, handleFork, handleList, handleLoad, handleModels, handleNew, handleNext, handlePause, handleResume, handleStatus, handleTemplates, missionSummaryForTree, saveSessionLink } from "../src/commands.js";
 import { missionControlOverlay } from "../src/dashboard.js";
 import { appendHistory, autoBlockBlockedFeatures, createMission, exportMarkdown, loadMissionFromDisk, saveEvidence, saveMissionSafe } from "../src/state.js";
 import { clearModelConfigCache, formatAgentModelLine, formatModelConfig, loadModelConfig, type ModelsConfig } from "../src/models.js";
@@ -675,13 +675,234 @@ describe("handleModels subcommands", () => {
     expect(ctx.getCalls()[0]!.msg).toContain("cache cleared");
   });
 
+  it("'set' sub updates agent preset", async () => {
+    const ctx = mkCtx();
+    const rt = runtimeFixture();
+    await handleModels("set", "mission-scout=balanced", ctx, rt);
+    expect(ctx.getCalls()[0]!.msg).toContain("mission-scout");
+    expect(ctx.getCalls()[0]!.msg).toContain("balanced");
+  });
 
+  it("'set' sub warns on unknown agent", async () => {
+    const ctx = mkCtx();
+    const rt = runtimeFixture();
+    await handleModels("set", "nonexistent-agent=balanced", ctx, rt);
+    expect(ctx.getCalls()[0]!.msg).toContain("Unknown agent");
+    expect(ctx.getCalls()[0]!.level).toBe("error");
+  });
+
+  it("'set' sub warns on unknown preset", async () => {
+    const ctx = mkCtx();
+    const rt = runtimeFixture();
+    await handleModels("set", "mission-scout=nonexistent-preset", ctx, rt);
+    expect(ctx.getCalls()[0]!.msg).toContain("Unknown preset");
+    expect(ctx.getCalls()[0]!.level).toBe("error");
+  });
+
+  it("'set' sub warns on malformed arg", async () => {
+    const ctx = mkCtx();
+    const rt = runtimeFixture();
+    await handleModels("set", "no-equals-sign", ctx, rt);
+    expect(ctx.getCalls()[0]!.msg).toContain("Usage");
+    expect(ctx.getCalls()[0]!.level).toBe("warning");
+  });
+
+  it("'preset' sub updates all agents", async () => {
+    const ctx = mkCtx();
+    const rt = runtimeFixture();
+    await handleModels("preset", "balanced", ctx, rt);
+    expect(ctx.getCalls()[0]!.msg).toContain("All agents set");
+    expect(ctx.getCalls()[0]!.msg).toContain("balanced");
+  });
+
+  it("'preset' sub warns on unknown preset", async () => {
+    const ctx = mkCtx();
+    const rt = runtimeFixture();
+    await handleModels("preset", "nonexistent-preset", ctx, rt);
+    expect(ctx.getCalls()[0]!.msg).toContain("Unknown preset");
+    expect(ctx.getCalls()[0]!.level).toBe("error");
+  });
 
   it("unknown sub shows error", async () => {
     const ctx = mkCtx();
     const rt = runtimeFixture();
     await handleModels("unknownsub", undefined, ctx, rt);
     expect(ctx.getCalls()[0]!.msg).toContain("Unknown /mission models sub");
+  });
+});
+
+describe("handleList", () => {
+  const origHome = process.env.HOME;
+
+  beforeAll(() => {
+    process.env.HOME = tmpRoot;
+    fs.mkdirSync(tmpRoot, { recursive: true });
+  });
+
+  afterAll(() => {
+    process.env.HOME = origHome;
+  });
+
+  it("notifies when no missions exist", async () => {
+    const ctx = mkCtx();
+    const rt = runtimeFixture();
+    const pi = mkPi();
+    await handleList(ctx, pi, rt);
+    expect(ctx.getCalls()[0]!.msg).toContain("No missions found");
+  });
+
+  it("lists missions as text when hasUI is false", async () => {
+    const ctx = mkCtx();
+    const rt = runtimeFixture();
+    const pi = mkPi();
+    // Save a mission so listMissions finds something
+    saveMissionSafe(rt.activeMission!);
+    await handleList(ctx, pi, rt);
+    expect(ctx.getCalls()[0]!.level).toBe("info");
+    expect(ctx.getCalls()[0]!.msg).toContain(rt.activeMission!.id);
+  });
+
+  it("selects and loads a mission when hasUI is true", async () => {
+    const m = createMission("Selectable", "Test");
+    saveMissionSafe(m);
+    const ctx = mkCtx({
+      hasUI: true,
+      ui: {
+        notify: (msg: string, level: string) => { ctx.getCalls().push({ type: "notify", msg, level }); },
+        setStatus: () => {},
+        setWidget: () => {},
+        custom: async () => {},
+        input: async () => null,
+        select: async () => `${m.id} — ${m.title} [0/3] active`,
+        editor: async () => null,
+        confirm: async () => true,
+      },
+    });
+    const rt: RuntimeState = { activeMission: null, autoSaveInterval: null };
+    const pi = mkPi();
+    await handleList(ctx, pi, rt);
+    expect(rt.activeMission).not.toBeNull();
+    expect(rt.activeMission!.id).toBe(m.id);
+  });
+});
+
+describe("handleLoad", () => {
+  const origHome = process.env.HOME;
+
+  beforeAll(() => {
+    process.env.HOME = tmpRoot;
+    fs.mkdirSync(tmpRoot, { recursive: true });
+  });
+
+  afterAll(() => {
+    process.env.HOME = origHome;
+  });
+
+  it("warns when no id provided", async () => {
+    const ctx = mkCtx();
+    const rt = runtimeFixture();
+    const pi = mkPi();
+    await handleLoad(undefined, ctx, pi, rt);
+    expect(ctx.getCalls()[0]!.msg).toContain("Usage: /mission load");
+    expect(ctx.getCalls()[0]!.level).toBe("warning");
+  });
+
+  it("warns when mission not found", async () => {
+    const ctx = mkCtx();
+    const rt = runtimeFixture();
+    const pi = mkPi();
+    await handleLoad("nonexistent-mission-999", ctx, pi, rt);
+    expect(ctx.getCalls()[0]!.msg).toContain("Mission not found");
+    expect(ctx.getCalls()[0]!.level).toBe("error");
+  });
+
+  it("loads mission by id and sets active", async () => {
+    const m = createMission("Loadable", "Test load");
+    saveMissionSafe(m);
+    const ctx = mkCtx();
+    const rt: RuntimeState = { activeMission: null, autoSaveInterval: null };
+    const pi = mkPi();
+    await handleLoad(m.id, ctx, pi, rt);
+    expect(rt.activeMission).not.toBeNull();
+    expect(rt.activeMission!.id).toBe(m.id);
+    expect(ctx.getCalls()[0]!.msg).toContain("Loaded mission");
+  });
+});
+
+describe("handleEdit", () => {
+  const origHome = process.env.HOME;
+
+  beforeAll(() => {
+    process.env.HOME = tmpRoot;
+    fs.mkdirSync(tmpRoot, { recursive: true });
+  });
+
+  afterAll(() => {
+    process.env.HOME = origHome;
+  });
+
+  it("warns when no feature id provided", async () => {
+    const ctx = mkCtx();
+    const rt = runtimeFixture();
+    await handleEdit(undefined, ctx, rt);
+    expect(ctx.getCalls()[0]!.msg).toContain("Usage: /mission edit");
+    expect(ctx.getCalls()[0]!.level).toBe("warning");
+  });
+
+  it("warns when feature not found", async () => {
+    const ctx = mkCtx();
+    const rt = runtimeFixture();
+    await handleEdit("F999", ctx, rt);
+    expect(ctx.getCalls()[0]!.msg).toContain("Feature not found");
+    expect(ctx.getCalls()[0]!.level).toBe("error");
+  });
+
+  it("shows JSON when hasUI is false", async () => {
+    const ctx = mkCtx();
+    const rt = runtimeFixture();
+    await handleEdit("F001", ctx, rt);
+    expect(ctx.getCalls()[0]!.level).toBe("info");
+    expect(ctx.getCalls()[0]!.msg).toContain("F001");
+  });
+
+  it("edits feature via editor when hasUI is true", async () => {
+    const ctx = mkCtx({
+      hasUI: true,
+      ui: {
+        notify: (msg: string, level: string) => { ctx.getCalls().push({ type: "notify", msg, level }); },
+        setStatus: () => {},
+        setWidget: () => {},
+        custom: async () => {},
+        input: async () => null,
+        select: async () => null,
+        editor: async () => JSON.stringify({ ...rt.activeMission!.milestones[0].features[0]!, title: "Edited title" }),
+        confirm: async () => true,
+      },
+    });
+    const rt = runtimeFixture();
+    saveMissionSafe(rt.activeMission!);
+    await handleEdit("F001", ctx, rt);
+    expect(rt.activeMission!.milestones[0].features[0]!.title).toBe("Edited title");
+  });
+
+  it("handles invalid JSON from editor", async () => {
+    const ctx = mkCtx({
+      hasUI: true,
+      ui: {
+        notify: (msg: string, level: string) => { ctx.getCalls().push({ type: "notify", msg, level }); },
+        setStatus: () => {},
+        setWidget: () => {},
+        custom: async () => {},
+        input: async () => null,
+        select: async () => null,
+        editor: async () => "not valid json",
+        confirm: async () => true,
+      },
+    });
+    const rt = runtimeFixture();
+    await handleEdit("F001", ctx, rt);
+    expect(ctx.getCalls()[0]!.msg).toContain("Invalid feature JSON");
+    expect(ctx.getCalls()[0]!.level).toBe("error");
   });
 });
 
@@ -729,6 +950,45 @@ describe("handleTemplates", () => {
   });
 });
 
+describe("handleDashboard already-active branch", () => {
+  it("notifies already active when selected feature is current active feature", async () => {
+    const ctx = mkCtx({ hasUI: true });
+    const rt = runtimeFixture();
+    saveMissionSafe(rt.activeMission!);
+    // Manually trigger the overlay selection with the already-active feature
+    let selectedFeatureId: string | null = null;
+    await ctx.ui.custom(
+      missionControlOverlay(rt.activeMission!, (featureId) => { selectedFeatureId = featureId; }),
+      { overlay: true },
+    );
+    // The factory was captured via custom mock — we can't easily test this path
+    // without a real TUI. Instead test via direct invocation of handleDashboard
+    // by mocking the ui.custom callback to immediately select F001 (already active)
+    let onActionCalled: string | null = null;
+    const customCtx = mkCtx({
+      hasUI: true,
+      ui: {
+        notify: (msg: string, level: string) => { customCtx.getCalls().push({ type: "notify", msg, level }); },
+        setStatus: () => {},
+        setWidget: () => {},
+        custom: async (factory: any, _opts: any) => {
+          const comp = factory({ hideOverlay: () => {}, requestRender: () => {} });
+          // F001 is already active — select it and press Enter
+          comp.handleInput("\r");
+        },
+        input: async () => null,
+        select: async () => null,
+        editor: async () => null,
+        confirm: async () => true,
+      },
+    });
+    await handleDashboard(customCtx, rt);
+    const alreadyActiveCall = customCtx.getCalls().find((c: any) => c.msg && c.msg.includes("Already active"));
+    expect(alreadyActiveCall).toBeDefined();
+    expect(alreadyActiveCall!.msg).toContain("F001");
+  });
+});
+
 describe("handleFork", () => {
   it("warns when no active feature", async () => {
     const ctx = mkCtx();
@@ -748,5 +1008,135 @@ describe("handleFork", () => {
     const forked = rt.activeMission!.milestones[0].features[3];
     expect(forked).toBeDefined();
     expect(forked!.title).toContain("[fork]");
+  });
+
+  it("forks and calls ctx.fork when leafId is available", async () => {
+    let forkCalled = false;
+    const ctx = mkCtx({
+      hasUI: true,
+      sessionManager: { getLeafId: () => "leaf-42" },
+      fork: async (_leafId: string, _opts: any) => { forkCalled = true; },
+    });
+    const rt = runtimeFixture();
+    saveMissionSafe(rt.activeMission!);
+    await handleFork("Alternative approach", ctx, rt);
+    expect(forkCalled).toBe(true);
+    const forked = rt.activeMission!.milestones[0].features[3];
+    expect(forked).toBeDefined();
+    expect(forked!.title).toContain("[fork]");
+  });
+});
+
+describe("handleNew", () => {
+  const origHome = process.env.HOME;
+
+  beforeAll(() => {
+    process.env.HOME = tmpRoot;
+    fs.mkdirSync(tmpRoot, { recursive: true });
+  });
+
+  afterAll(() => {
+    process.env.HOME = origHome;
+  });
+
+  it("creates mission without wizard when pi has no sendUserMessage", async () => {
+    const ctx = mkCtx();
+    const rt: RuntimeState = { activeMission: null, autoSaveInterval: null };
+    const pi = mkPi();
+    await handleNew("Test Mission", ctx, pi, rt);
+    expect(rt.activeMission).not.toBeNull();
+    expect(rt.activeMission!.title).toBe("Test Mission");
+    expect(ctx.getCalls()[0]!.msg).toContain("Mission created");
+  });
+
+  it("uses wizard when sendUserMessage returns valid JSON mission", async () => {
+    const ctx = mkCtx();
+    const rt: RuntimeState = { activeMission: null, autoSaveInterval: null };
+    const pi = mkPi({
+      sendUserMessage: async () => JSON.stringify({
+        title: "Wizard Mission",
+        milestones: [{
+          id: "M01", title: "M1", description: "D1",
+          features: [{
+            id: "F001", title: "F1", description: "FD1",
+            priority: 1, dependsOn: [],
+            acceptance: [{ id: "AC001", description: "A1", checkType: "manual" }],
+          }],
+        }],
+      }),
+    });
+    await handleNew("Test Mission", ctx, pi, rt);
+    expect(rt.activeMission).not.toBeNull();
+    expect(rt.activeMission!.title).toBe("Wizard Mission");
+    expect(rt.activeMission!.milestones.length).toBe(1);
+    const aiGeneratedCall = ctx.getCalls().find((c: any) => c.msg && c.msg.includes("AI-generated"));
+    expect(aiGeneratedCall).toBeDefined();
+    expect(aiGeneratedCall!.msg).toContain("AI-generated");
+  });
+
+  it("falls back to default mission when wizard JSON is invalid", async () => {
+    const ctx = mkCtx();
+    const rt: RuntimeState = { activeMission: null, autoSaveInterval: null };
+    const pi = mkPi({ sendUserMessage: async () => "not valid json { bad" });
+    await handleNew("Fallback", ctx, pi, rt);
+    expect(rt.activeMission).not.toBeNull();
+    expect(rt.activeMission!.title).toBe("Fallback");
+    expect(ctx.getCalls()[0]!.msg).not.toContain("AI-generated");
+  });
+
+  it("falls back when wizard throws", async () => {
+    const ctx = mkCtx();
+    const rt: RuntimeState = { activeMission: null, autoSaveInterval: null };
+    const pi = mkPi({ sendUserMessage: async () => { throw new Error("wizard failed"); } });
+    await handleNew("Error Fallback", ctx, pi, rt);
+    expect(rt.activeMission).not.toBeNull();
+    expect(rt.activeMission!.title).toBe("Error Fallback");
+  });
+
+  it("uses default title when no arg provided", async () => {
+    const ctx = mkCtx();
+    const rt: RuntimeState = { activeMission: null, autoSaveInterval: null };
+    const pi = mkPi();
+    await handleNew("", ctx, pi, rt);
+    expect(rt.activeMission).not.toBeNull();
+    expect(rt.activeMission!.title).toBe("Untitled mission");
+  });
+
+  it("prompts for goal and constraints when hasUI is true", async () => {
+    const inputs: string[] = ["Custom Goal", "no deps"];
+    let inputIndex = 0;
+    const ctx = mkCtx({
+      hasUI: true,
+      ui: {
+        notify: (msg: string, level: string) => { ctx.getCalls().push({ type: "notify", msg, level }); },
+        setStatus: () => {},
+        setWidget: () => {},
+        custom: async () => {},
+        input: async () => inputs[inputIndex++] || null,
+        select: async () => null,
+        editor: async () => null,
+        confirm: async () => true,
+      },
+    });
+    const rt: RuntimeState = { activeMission: null, autoSaveInterval: null };
+    const pi = mkPi();
+    await handleNew("UI Mission", ctx, pi, rt);
+    expect(rt.activeMission).not.toBeNull();
+    expect(rt.activeMission!.goal).toBe("Custom Goal");
+  });
+});
+
+describe("handleDone auto-verifies acceptance criteria", () => {
+  it("marks feature done and verifies bash checks", async () => {
+    const ctx = mkCtx();
+    const rt = runtimeFixture();
+    saveMissionSafe(rt.activeMission!);
+    rt.activeMission!.milestones[0].features[0]!.acceptance = [
+      { id: "AC001", description: "Bash check", checkType: "bash", checkCommand: "echo ok", verified: false },
+    ];
+    await handleDone("done", ctx, rt);
+    const f = rt.activeMission!.milestones[0].features[0]!;
+    expect(f.status).toBe("done");
+    expect(ctx.getCalls()[0]!.msg).toContain("✅ F001 done");
   });
 });

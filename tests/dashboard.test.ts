@@ -948,5 +948,27 @@ describe("missionControlOverlay", () => {
     expect(afterNoMatchClear.some((l: string) => l.includes("F001"))).toBe(true);
     expect(afterNoMatchClear.some((l: string) => l.includes("F011"))).toBe(true);
     expect(afterNoMatchClear.some((l: string) => l.includes("5 features") && !l.includes("/"))).toBe(true);
+
+    // 5. Ctrl+W with trailing spaces — strips spaces then deletes word
+    const c4: any = missionControlOverlay(mission)(tuiWithSpy);
+    c4.handleInput("h");
+    c4.handleInput("e");
+    c4.handleInput("l");
+    c4.handleInput("l");
+    c4.handleInput("o");
+    c4.handleInput(" "); // space
+    c4.handleInput("w");
+    c4.handleInput("o");
+    c4.handleInput("r");
+    c4.handleInput("l");
+    c4.handleInput("d");
+    c4.handleInput(" "); // trailing space
+    const withTrailing = c4.render(80);
+    expect(withTrailing.some((l: string) => l.includes("🔍 Filter: hello world "))).toBe(true);
+
+    c4.handleInput("\x17"); // Ctrl+W — should strip trailing space, then delete "world"
+    const afterCtrlWTrailing = c4.render(80);
+    expect(afterCtrlWTrailing.some((l: string) => l.includes("🔍 Filter: hello"))).toBe(true);
+    expect(afterCtrlWTrailing.some((l: string) => l.includes("world"))).toBe(false);
   });
 });
