@@ -213,9 +213,12 @@ describe("registerMissionTools — tool registration", () => {
     const pi = { registerTool: (t: any) => { tools.push(t); } };
     const rt: RuntimeState = { activeMission: null, autoSaveInterval: null };
     registerMissionTools(pi as any, rt);
-    expect(tools).toHaveLength(2);
+    expect(tools).toHaveLength(5);
     expect(tools[0]!.name).toBe("mission_feature_done");
     expect(tools[1]!.name).toBe("mission_next_feature");
+    expect(tools[2]!.name).toBe("mission_ask_user");
+    expect(tools[3]!.name).toBe("mission_block_self");
+    expect(tools[4]!.name).toBe("mission_fork");
   });
 
   it("mission_feature_done tool has correct metadata", () => {

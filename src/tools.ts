@@ -3,6 +3,7 @@ import { Type } from "typebox";
 import { appendHistory, getActiveFeature, getAllFeatures, getNextPendingFeature, saveEvidence, saveMissionSafe } from "./state.js";
 import type { MissionState, RuntimeState } from "./types.js";
 import { updateFooter } from "./ui.js";
+import { getCompletionDetector } from "./completion.js";
 
 function allFeaturesDone(mission: MissionState): boolean {
   return getAllFeatures(mission).every((f) => f.status === "done");
@@ -202,6 +203,99 @@ export function registerMissionTools(pi: ExtensionAPI, runtime: RuntimeState): v
           answerSource,
           questionType 
         },
+        isError: false 
+      };
+    },
+  });
+
+  pi.registerTool({
+    name: "mission_block_self",
+    label: "Mission Block Self",
+    description: "Block the current feature when stuck or unable to proceed. Use this when you detect a deadlock, repeated failures, or need external input.",
+    promptSnippet: "Block the current feature",
+    promptGuidelines: [
+      "Use mission_block_self when you're stuck and cannot proceed with the current feature.",
+      "Provide a clear reason for blocking (e.g., missing dependencies, unclear requirements, repeated failures).",
+      "This will mark the feature as blocked and allow moving to other features if possible."
+    ],
+    parameters: Type.Object({
+      reason: Type.String({ description: "Reason for blocking the feature" }),
+      context: Type.Optional(Type.String({ description: "Additional context about the block" })),
+    }),
+    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+      const mission = runtime.activeMission;
+      const feature = mission ? getActiveFeature(mission) : null;
+      if (!mission || !feature) return { content: [{ type: "text", text: "No active mission feature." }], details: {}, isError: true };
+      
+      feature.status = "blocked";
+      feature.notes = `Self-blocked: ${params.reason}${params.context ? `\n\nContext: ${params.context}` : ""}`;
+      appendHistory(mission, { event: "feature_blocked", featureId: feature.id, note: params.reason, details: { context: params.context, self: true } });
+      
+      // Try to advance to next feature
+      const next = getNextPendingFeature(mission);
+      if (next) {
+        next.status = "active";
+        mission.activeFeatureId = next.id;
+        mission.activeMilestoneId = next.milestoneId;
+        appendHistory(mission, { event: "feature_active", featureId: next.id, note: "Auto-advanced after self-block" });
+        await saveMissionSafe(mission);
+        updateFooter(ctx, mission);
+        return { 
+          content: [{ type: "text", text: `🚫 Self-blocked feature ${feature.id}: ${params.reason}\n➡️ Auto-advanced to ${next.id} — ${next.title}` }], 
+          details: { featureId: feature.id, nextFeatureId: next.id }, 
+          isError: false 
+        };
+      } else {
+        await saveMissionSafe(mission);
+        updateFooter(ctx, mission);
+        return { 
+          content: [{ type: "text", text: `🚫 Self-blocked feature ${feature.id}: ${params.reason}\n⚠️ No pending features available` }], 
+          details: { featureId: feature.id }, 
+          isError: true 
+        };
+      }
+    },
+  });
+
+  pi.registerTool({
+    name: "mission_fork",
+    label: "Mission Fork",
+    description: "Fork the current feature into a separate session for parallel work or isolation.",
+    promptSnippet: "Fork the current feature",
+    promptGuidelines: [
+      "Use mission_fork when you need to work on a subtask in isolation or parallel.",
+      "Provide a clear reason for forking (e.g., complex subtask, need for separate context).",
+      "This creates a new session with the current feature context."
+    ],
+    parameters: Type.Object({
+      reason: Type.String({ description: "Reason for forking" }),
+      subtask: Type.Optional(Type.String({ description: "Specific subtask to focus on in the forked session" })),
+    }),
+    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+      const mission = runtime.activeMission;
+      const feature = mission ? getActiveFeature(mission) : null;
+      if (!mission || !feature) return { content: [{ type: "text", text: "No active mission feature." }], details: {}, isError: true };
+      
+      appendHistory(mission, { 
+        event: "feature_forked", 
+        featureId: feature.id, 
+        note: params.reason, 
+        details: { 
+          subtask: params.subtask, 
+          self: true 
+        } 
+      });
+      
+      // Note: Actual forking would require Pi session management API
+      // For now, we log the intent and provide guidance
+      await saveMissionSafe(mission);
+      
+      return { 
+        content: [{ 
+          type: "text", 
+          text: `🔀 Fork intent logged for feature ${feature.id}: ${params.reason}${params.subtask ? `\nSubtask: ${params.subtask}` : ""}\n\nTo complete the fork, use /mission fork in the Pi CLI.` 
+        }], 
+        details: { featureId: feature.id, reason: params.reason }, 
         isError: false 
       };
     },

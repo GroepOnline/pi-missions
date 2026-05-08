@@ -65,20 +65,22 @@ describe("slugify", () => {
 
 describe("createMissionId", () => {
   it("includes millisecond precision", () => {
-    expect(createMissionId("Test", Date.UTC(2026, 4, 6, 12, 34, 56, 1))).toBe("mission-20260506123456001-test");
-    expect(createMissionId("Test", Date.UTC(2026, 4, 6, 12, 34, 56, 999))).toBe("mission-20260506123456999-test");
+    expect(createMissionId("Test", Date.UTC(2026, 4, 6, 12, 34, 56, 1))).toBe("pim:20260506123456001:test");
+    expect(createMissionId("Test", Date.UTC(2026, 4, 6, 12, 34, 56, 999))).toBe("pim:20260506123456999:test");
   });
 });
 
 describe("createMission", () => {
-  it("sets schemaVersion 2, active first feature, 0% progress", () => {
+  it("sets schemaVersion 3, active first feature, 0% progress", () => {
     const m = createMission("Test", "Goal");
-    expect(m.schemaVersion).toBe(2);
+    expect(m.schemaVersion).toBe(3);
     expect(m.activeFeatureId).toBe("F001");
     expect(m.activeMilestoneId).toBe("M01");
     expect(progress(m)).toEqual({ done: 0, total: 3, pct: 0 });
     expect(m.status).toBe("active");
     expect(m.tokensUsed).toBe(0);
+    expect(m.validationToken).toBeDefined();
+    expect(m.validationToken).toHaveLength(64); // 32 bytes = 64 hex chars
   });
 
   it("includes constraints in milestone description", () => {
@@ -121,9 +123,9 @@ describe("missionDirSafe", () => {
 });
 
 describe("migrateMission", () => {
-  it("passes through v2 unchanged", () => {
+  it("passes through v3 unchanged", () => {
     const m = createMission("T", "G");
-    expect(migrateMission(m).schemaVersion).toBe(2);
+    expect(migrateMission(m).schemaVersion).toBe(3);
   });
 
   it("migrates v1 flat features into a milestone", () => {
@@ -139,7 +141,7 @@ describe("migrateMission", () => {
       tokensUsed: 50,
     };
     const m = migrateMission(v1);
-    expect(m.schemaVersion).toBe(2);
+    expect(m.schemaVersion).toBe(3);
     expect(m.milestones).toHaveLength(1);
     expect(m.milestones[0]!.features).toHaveLength(1);
     expect(m.milestones[0]!.features[0]!.id).toBe("F1");
@@ -171,7 +173,8 @@ describe("save / load roundtrip", () => {
     expect(loaded).not.toBeNull();
     expect(loaded!.id).toBe(m.id);
     expect(loaded!.title).toBe("Roundtrip");
-    expect(loaded!.schemaVersion).toBe(2);
+    expect(loaded!.schemaVersion).toBe(3);
+    expect(loaded!.validationToken).toBe(m.validationToken);
   });
 
   it("falls back to plan.json.bak when plan.json is corrupted", async () => {

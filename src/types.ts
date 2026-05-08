@@ -110,11 +110,32 @@ export interface ToolPolicy {
 }
 
 export const TOOL_POLICIES: Record<ToolPhase, ToolPolicy> = {
-  planning: { phase: "planning", allowedTools: ["read", "grep", "find", "ls", "mission_next_feature", "mission_feature_done", "mission_ask_user"], maxToolCalls: 30 },
-  execution: { phase: "execution", allowedTools: ["read", "write", "edit", "bash", "grep", "find", "ls", "mission_next_feature", "mission_feature_done", "mission_ask_user"], maxToolCalls: 120 },
-  verification: { phase: "verification", allowedTools: ["read", "bash", "grep", "find", "ls", "mission_next_feature", "mission_feature_done", "mission_ask_user"], maxToolCalls: 60 },
+  planning: { phase: "planning", allowedTools: ["read", "grep", "find", "ls", "mission_next_feature", "mission_feature_done", "mission_ask_user", "mission_block_self", "mission_fork"], maxToolCalls: 30 },
+  execution: { phase: "execution", allowedTools: ["read", "write", "edit", "bash", "grep", "find", "ls", "mission_next_feature", "mission_feature_done", "mission_ask_user", "mission_block_self", "mission_fork"], maxToolCalls: 120 },
+  verification: { phase: "verification", allowedTools: ["read", "bash", "grep", "find", "ls", "mission_next_feature", "mission_feature_done", "mission_ask_user", "mission_block_self", "mission_fork"], maxToolCalls: 60 },
 };
 
 export const DEFAULT_FEATURE_MAX_WALL_CLOCK_MS = 30 * 60 * 1000; // 30 minutes
 export const DEFAULT_FEATURE_MAX_TOOL_CALLS = 150;
 export const STALE_FEATURE_WARN_CLOCK_MS = 20 * 60 * 1000; // 20 min — warn before hard limit
+
+// ---------------------------------------------------------------------------
+// Completion Detection Engine Types
+// ---------------------------------------------------------------------------
+
+export type CompletionConfidence = "low" | "medium" | "high";
+
+export interface CompletionSignal {
+  type: "keyword" | "acceptance" | "tool_pattern" | "error_free_streak" | "user_confirmation";
+  confidence: CompletionConfidence;
+  evidence: string;
+  timestamp: number;
+}
+
+export interface CompletionDetectionResult {
+  isComplete: boolean;
+  confidence: CompletionConfidence;
+  signals: CompletionSignal[];
+  suggestedAction: "auto_done" | "suggest_done" | "continue" | "ask_user";
+  reason: string;
+}

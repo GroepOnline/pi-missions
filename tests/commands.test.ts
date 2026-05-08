@@ -811,7 +811,7 @@ describe("handleLoad", () => {
     const ctx = mkCtx();
     const rt = runtimeFixture();
     const pi = mkPi();
-    await handleLoad("nonexistent-mission-999", ctx, pi, rt);
+    await handleLoad("pim:20260508120000000:nonexistent-mission-999", ctx, pi, rt);
     expect(ctx.getCalls()[0]!.msg).toContain("Mission not found");
     expect(ctx.getCalls()[0]!.level).toBe("error");
   });

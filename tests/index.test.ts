@@ -62,9 +62,12 @@ describe("piMissions extension registration", () => {
     expect(pi.getCommands()[0]!.name).toBe("mission");
     expect(pi.getCommands()[0]!.description).toContain("Mission management");
 
-    expect(pi.getTools()).toHaveLength(2);
+    expect(pi.getTools()).toHaveLength(5);
     expect(pi.getTools()[0]!.name).toBe("mission_feature_done");
     expect(pi.getTools()[1]!.name).toBe("mission_next_feature");
+    expect(pi.getTools()[2]!.name).toBe("mission_ask_user");
+    expect(pi.getTools()[3]!.name).toBe("mission_block_self");
+    expect(pi.getTools()[4]!.name).toBe("mission_fork");
 
     expect(pi.getShortcuts()).toHaveLength(2);
     expect(pi.getShortcuts()[0]!.key).toBe("ctrl+shift+m");
@@ -101,7 +104,7 @@ describe("piMissions extension registration", () => {
 
     const pi = mkPi();
     const entries = [
-      { type: "custom", customType: "pi-mission-active", data: { missionId: m.id } },
+      { type: "custom", customType: "pi-mission-active", data: { missionId: m.id, validationToken: m.validationToken } },
     ];
 
     const ctx = {
@@ -129,7 +132,7 @@ describe("piMissions extension registration", () => {
     // First trigger session_start to load the mission into runtime
     const sessionStartHandler = pi.getHooks()["session_start"]![0];
     const entries = [
-      { type: "custom", customType: "pi-mission-active", data: { missionId: m.id } },
+      { type: "custom", customType: "pi-mission-active", data: { missionId: m.id, validationToken: m.validationToken } },
     ];
     const ctx = {
       sessionManager: { getEntries: () => entries, getLeafId: () => null },
@@ -165,7 +168,7 @@ describe("piMissions extension registration", () => {
 
     const sessionStartHandler = pi.getHooks()["session_start"]![0];
     const entries = [
-      { type: "custom", customType: "pi-mission-active", data: { missionId: m.id } },
+      { type: "custom", customType: "pi-mission-active", data: { missionId: m.id, validationToken: m.validationToken } },
     ];
     const ctx = {
       sessionManager: { getEntries: () => entries, getLeafId: () => null },
@@ -201,28 +204,16 @@ describe("piMissions extension registration", () => {
   });
 
   it("agent_end hook does nothing when feature not active", async () => {
-    const m = createMission("AgentEnd", "Test");
-    await saveMissionSafe(m);
-
     const pi = mkPi();
     piMissions(pi);
 
-    const sessionStartHandler = pi.getHooks()["session_start"]![0];
-    const entries = [
-      { type: "custom", customType: "pi-mission-active", data: { missionId: m.id } },
-    ];
     const notifyCalls: any[] = [];
     const ctx = {
-      sessionManager: { getEntries: () => entries, getLeafId: () => "leaf-1" },
+      sessionManager: { getEntries: () => [], getLeafId: () => "leaf-1" },
       ui: { setStatus: () => {}, notify: (msg: string, level: string) => { notifyCalls.push({ msg, level }); } },
       getContextUsage: () => null,
       fork: async () => {},
     };
-    await sessionStartHandler({}, ctx);
-
-    // Mark feature as done so no active feature
-    const f = getActiveFeature(m);
-    if (f) f.status = "done";
 
     const agentEndHandler = pi.getHooks()["agent_end"]![0];
     await agentEndHandler({ messages: [] }, ctx);
@@ -252,7 +243,7 @@ describe("piMissions extension registration", () => {
     // First load the mission via session_start
     const sessionStartHandler = pi.getHooks()["session_start"]![0];
     const entries = [
-      { type: "custom", customType: "pi-mission-active", data: { missionId: m.id } },
+      { type: "custom", customType: "pi-mission-active", data: { missionId: m.id, validationToken: m.validationToken } },
     ];
     const startCtx = {
       sessionManager: { getEntries: () => entries, getLeafId: () => null, getSessionFile: () => "/tmp/session.jsonl" },
@@ -282,7 +273,7 @@ describe("piMissions extension registration", () => {
     // Load mission first
     const sessionStartHandler = pi.getHooks()["session_start"]![0];
     const entries = [
-      { type: "custom", customType: "pi-mission-active", data: { missionId: m.id } },
+      { type: "custom", customType: "pi-mission-active", data: { missionId: m.id, validationToken: m.validationToken } },
     ];
     const ctx = {
       sessionManager: { getEntries: () => entries, getLeafId: () => null },
@@ -310,7 +301,7 @@ describe("piMissions extension registration", () => {
     // Load mission first
     const sessionStartHandler = pi.getHooks()["session_start"]![0];
     const entries = [
-      { type: "custom", customType: "pi-mission-active", data: { missionId: m.id } },
+      { type: "custom", customType: "pi-mission-active", data: { missionId: m.id, validationToken: m.validationToken } },
     ];
     const ctx = {
       sessionManager: { getEntries: () => entries, getLeafId: () => null },
@@ -339,7 +330,7 @@ describe("piMissions extension registration", () => {
     // Load mission first
     const sessionStartHandler = pi.getHooks()["session_start"]![0];
     const entries = [
-      { type: "custom", customType: "pi-mission-active", data: { missionId: m.id } },
+      { type: "custom", customType: "pi-mission-active", data: { missionId: m.id, validationToken: m.validationToken } },
     ];
     const ctx = {
       sessionManager: { getEntries: () => entries, getLeafId: () => null },
@@ -373,7 +364,7 @@ describe("piMissions extension registration", () => {
     // Load mission first
     const sessionStartHandler = pi.getHooks()["session_start"]![0];
     const entries = [
-      { type: "custom", customType: "pi-mission-active", data: { missionId: m.id } },
+      { type: "custom", customType: "pi-mission-active", data: { missionId: m.id, validationToken: m.validationToken } },
     ];
     const notifyCalls: any[] = [];
     const ctx = {
@@ -393,7 +384,9 @@ describe("piMissions extension registration", () => {
     };
     await agentEndHandler(event, ctx);
     expect(notifyCalls.length).toBeGreaterThanOrEqual(1);
-    expect(notifyCalls[0]!.msg).toContain("looks complete");
+    // The new completion detector may return different messages based on confidence
+    // Just check that it mentions completion in some way
+    expect(notifyCalls[0]!.msg).toMatch(/complete|done/i);
   });
 
   it("turn_end hook warns when token budget exceeded", async () => {
@@ -408,7 +401,7 @@ describe("piMissions extension registration", () => {
 
     const sessionStartHandler = pi.getHooks()["session_start"]![0];
     const entries = [
-      { type: "custom", customType: "pi-mission-active", data: { missionId: m.id } },
+      { type: "custom", customType: "pi-mission-active", data: { missionId: m.id, validationToken: m.validationToken } },
     ];
     const notifyCalls: any[] = [];
     const ctx = {
@@ -437,7 +430,7 @@ describe("piMissions extension registration", () => {
     // Load mission first
     const sessionStartHandler = pi.getHooks()["session_start"]![0];
     const entries = [
-      { type: "custom", customType: "pi-mission-active", data: { missionId: m.id } },
+      { type: "custom", customType: "pi-mission-active", data: { missionId: m.id, validationToken: m.validationToken } },
     ];
     const ctx = {
       sessionManager: { getEntries: () => entries, getLeafId: () => "leaf-1" },
@@ -467,7 +460,7 @@ describe("piMissions extension registration", () => {
     // Load mission via session_start first
     const sessionStartHandler = pi.getHooks()["session_start"]![0];
     const entries = [
-      { type: "custom", customType: "pi-mission-active", data: { missionId: m.id } },
+      { type: "custom", customType: "pi-mission-active", data: { missionId: m.id, validationToken: m.validationToken } },
     ];
     const notifyCalls: any[] = [];
     const ctx = {

@@ -2,11 +2,12 @@ import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { completionSignal, buildMissionContext } from "./context.js";
 import { compactionCheckpoint, handleDashboard, missionSummaryForTree, registerMissionCommand, saveSessionLink } from "./commands.js";
 import { loadModelConfig } from "./models.js";
-import { appendHistory, autoBlockBlockedFeatures, getActiveFeature, getMissionPhase, isValidMissionId, loadMissionFromDisk, saveEvidence, saveMissionSafe } from "./state.js";
+import { appendHistory, autoBlockBlockedFeatures, getActiveFeature, getMissionPhase, isValidMissionId, loadMissionFromDisk, saveEvidence, saveMissionSafe, getNextPendingFeature, getAllFeatures } from "./state.js";
 import type { RuntimeState, ToolPhase } from "./types.js";
 import { TOOL_POLICIES } from "./types.js";
 import { registerMissionTools } from "./tools.js";
 import { updateFooter } from "./ui.js";
+import { getCompletionDetector, resetCompletionDetector } from "./completion.js";
 
 export default function piMissions(pi: ExtensionAPI): void {
   // Load model configuration at extension startup
@@ -94,11 +95,26 @@ export default function piMissions(pi: ExtensionAPI): void {
 
   pi.on("before_agent_start", async () => {
     phaseToolCallCount = 0;
-    if (runtime.activeMission) currentPhase = getMissionPhase(runtime.activeMission);
+    if (runtime.activeMission) {
+      currentPhase = getMissionPhase(runtime.activeMission);
+      
+      // Reset completion detector when starting a new feature
+      const feature = getActiveFeature(runtime.activeMission);
+      if (feature && feature.status === "active") {
+        const detector = getCompletionDetector();
+        detector.clearToolCallHistory();
+      }
+    }
   });
 
-  pi.on("tool_call", async (event: { toolName: string }) => {
+  pi.on("tool_call", async (event: { toolName: string; success?: boolean }) => {
     if (!runtime.activeMission) return;
+    
+    // Record tool call for completion detection
+    const detector = getCompletionDetector();
+    detector.recordToolCall(event.toolName, event.success !== false);
+    
+    // Enforce tool policy
     const policy = TOOL_POLICIES[currentPhase];
     if (!policy.allowedTools.includes(event.toolName)) {
       return { block: true, reason: `Tool '${event.toolName}' not allowed in ${currentPhase} phase. Allowed: ${policy.allowedTools.join(", ")}` };
@@ -153,6 +169,24 @@ export default function piMissions(pi: ExtensionAPI): void {
     const leafId = ctx.sessionManager.getLeafId();
     const active = getActiveFeature(mission);
     if (leafId && active) pi.setLabel(leafId, `🎯 ${active.title}`);
+    
+    // Check if agent is stuck
+    if (active && active.status === "active") {
+      const detector = getCompletionDetector();
+      const stuckDetection = detector.detectStuck();
+      if (stuckDetection.isStuck && stuckDetection.suggestedAction === "block_self") {
+        appendHistory(mission, { 
+          event: "stuck_detected", 
+          featureId: active.id, 
+          note: stuckDetection.reason, 
+          details: { 
+            suggestedAction: stuckDetection.suggestedAction 
+          } 
+        });
+        ctx.ui.notify(`⚠️ Stuck pattern detected: ${stuckDetection.reason}. Consider using mission_block_self if you cannot proceed.`, "warning");
+      }
+    }
+    
     await saveMissionSafe(mission);
     updateFooter(ctx, mission);
   });
@@ -161,12 +195,70 @@ export default function piMissions(pi: ExtensionAPI): void {
     const mission = runtime.activeMission;
     const feature = mission ? getActiveFeature(mission) : null;
     if (!mission || !feature || feature.status !== "active") return;
+    
     const text = event.messages
       .flatMap((m: any) => Array.isArray(m.content) ? m.content : [])
       .filter((c: any) => c?.type === "text" && typeof c.text === "string")
       .map((c: any) => c.text)
       .join("\n");
-    if (completionSignal(text)) ctx.ui.notify(`Feature '${feature.title}' looks complete. Use /mission done or mission_feature_done.`, "info");
+    
+    // Use completion detector for multi-factor analysis
+    const detector = getCompletionDetector();
+    const detectionResult = detector.detectCompletion(feature, text);
+    
+    // Log detection result for debugging
+    appendHistory(mission, { 
+      event: "completion_detection", 
+      featureId: feature.id, 
+      note: detectionResult.reason, 
+      details: { 
+        isComplete: detectionResult.isComplete, 
+        confidence: detectionResult.confidence, 
+        suggestedAction: detectionResult.suggestedAction,
+        signals: detectionResult.signals 
+      } 
+    });
+    
+    // Handle auto-advance based on detection result
+    if (detectionResult.suggestedAction === "auto_done") {
+      // Auto-complete the feature
+      feature.status = "done";
+      feature.completedAt = Date.now();
+      for (const ac of feature.acceptance) if (!ac.waived) ac.verified = true;
+      const evidenceFile = saveEvidence(mission, feature, `Auto-completed: ${detectionResult.reason}\n\nSignals:\n${detectionResult.signals.map(s => `- ${s.type}: ${s.evidence}`).join("\n")}`);
+      appendHistory(mission, { event: "feature_done", featureId: feature.id, note: "Auto-completed", details: { evidenceFile, auto: true } });
+      
+      // Auto-advance to next feature
+      const next = getNextPendingFeature(mission);
+      if (next) {
+        next.status = "active";
+        mission.activeFeatureId = next.id;
+        mission.activeMilestoneId = next.milestoneId;
+        autoBlockBlockedFeatures(mission);
+        appendHistory(mission, { event: "feature_active", featureId: next.id, note: "Auto-advanced" });
+        ctx.ui.notify(`✅ Auto-completed feature ${feature.id}. Auto-advanced to ${next.id} — ${next.title}`, "success");
+      } else if (getAllFeatures(mission).every(f => f.status === "done")) {
+        mission.status = "complete";
+        appendHistory(mission, { event: "mission_complete", note: "Auto-completed all features" });
+        ctx.ui.notify(`🎉 Mission complete! All features auto-completed.`, "success");
+      } else {
+        autoBlockBlockedFeatures(mission);
+        ctx.ui.notify(`✅ Auto-completed feature ${feature.id}. No pending features - check blocked features.`, "info");
+      }
+      
+      await saveMissionSafe(mission);
+      updateFooter(ctx, mission);
+    } else if (detectionResult.suggestedAction === "suggest_done") {
+      // Suggest completion to user (legacy behavior)
+      if (completionSignal(text)) {
+        ctx.ui.notify(`Feature '${feature.title}' looks complete. Use /mission done or mission_feature_done.`, "info");
+      } else {
+        ctx.ui.notify(`Feature '${feature.title}' may be complete (${detectionResult.confidence} confidence). ${detectionResult.reason}`, "info");
+      }
+    } else if (detectionResult.suggestedAction === "ask_user") {
+      ctx.ui.notify(`Feature '${feature.title}' completion unclear (${detectionResult.confidence} confidence). ${detectionResult.reason}`, "info");
+    }
+    // If suggestedAction is "continue", do nothing
   });
 
   pi.on("session_before_compact", async () => compactionCheckpoint(pi, runtime));
