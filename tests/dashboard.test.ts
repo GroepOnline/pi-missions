@@ -856,5 +856,21 @@ describe("missionControlOverlay", () => {
 
     // 3. Footer hint mentions Ctrl+U
     expect(afterEmptyCtrlU.some((l: string) => l.includes("Ctrl+U clear filter"))).toBe(true);
+
+    // 4. Ctrl+U from no-match state — clears filter, restores all features
+    const c3: any = missionControlOverlay(mission)(tuiWithSpy);
+    c3.handleInput("Z"); // no features match "Z"
+    const noMatch = c3.render(80);
+    expect(noMatch.some((l: string) => l.includes("No matching"))).toBe(true);
+    expect(noMatch.some((l: string) => l.includes("0/5 features"))).toBe(true);
+
+    c3.handleInput("\x15"); // Ctrl+U
+    expect(overlayHidden).toBe(false); // overlay stays open
+    const afterNoMatchClear = c3.render(80);
+    expect(afterNoMatchClear.some((l: string) => l.includes("Filter:"))).toBe(false);
+    expect(afterNoMatchClear.some((l: string) => l.includes("No matching"))).toBe(false);
+    expect(afterNoMatchClear.some((l: string) => l.includes("F001"))).toBe(true);
+    expect(afterNoMatchClear.some((l: string) => l.includes("F011"))).toBe(true);
+    expect(afterNoMatchClear.some((l: string) => l.includes("5 features") && !l.includes("/"))).toBe(true);
   });
 });
