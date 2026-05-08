@@ -6,9 +6,20 @@ SESSION_NAME="${SESSION_NAME:-pi-missions-e2e}"
 PI_CMD="${PI_CMD:-pi -e ./src/index.ts}"
 MODE="smoke"
 CLEANUP="yes"
-WAIT_START="${WAIT_START:-5}"
-WAIT_CMD="${WAIT_CMD:-2}"
+CI="${CI:-false}"
 LOG_DIR="${LOG_DIR:-/tmp/pi-missions-e2e-$(date +%Y%m%d-%H%M%S)}"
+
+# CI mode uses more conservative timeouts
+if [ "$CI" = "true" ]; then
+  WAIT_START="${WAIT_START:-10}"
+  WAIT_CMD="${WAIT_CMD:-3}"
+else
+  WAIT_START="${WAIT_START:-5}"
+  WAIT_CMD="${WAIT_CMD:-2}"
+fi
+
+# Track failures for exit code
+FAILED=0
 
 usage() {
   cat <<USAGE
@@ -19,8 +30,9 @@ Environment overrides:
   SESSION_NAME  default: pi-missions-e2e
   PI_CMD        default: pi -e ./src/index.ts
   LOG_DIR       default: /tmp/pi-missions-e2e-<timestamp>
-  WAIT_START    default: 5
-  WAIT_CMD      default: 2
+  CI            default: false (set to true for CI mode with conservative timeouts)
+  WAIT_START    default: 5 (10 in CI mode)
+  WAIT_CMD      default: 2 (3 in CI mode)
 USAGE
 }
 
@@ -86,6 +98,7 @@ check_contains() {
     return 0
   fi
   printf '[ ] %s\n' "$3" >> "$SUMMARY"
+  FAILED=$((FAILED + 1))
   return 1
 }
 
@@ -190,3 +203,10 @@ capture "final"
 
 log "Runner completed. Summary: $SUMMARY"
 cat "$SUMMARY"
+
+# Exit with failure code if any checks failed
+if [ "$FAILED" -gt 0 ]; then
+  log "FAILED: $FAILED checks did not pass"
+  exit 1
+fi
+exit 0

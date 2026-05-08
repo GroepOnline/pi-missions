@@ -32,18 +32,13 @@ The existing `pi-missions-e2e-tester` skill provides these flows:
 
 ## Running Tests
 
-Invoke the existing skill:
+Invoke this skill:
 
 ```
-Use the pi-missions-e2e-tester skill to run e2e tests.
+Use the qa-pi-extension skill to run e2e tests.
 ```
 
-Or run the runner script directly:
-
-```bash
-WAIT_START=2 WAIT_CMD=0.5 \
-bash .agents/skills/pi-missions-e2e-tester/scripts/pi_missions_e2e_runner.sh --mode full
-```
+This skill delegates to `pi-missions-e2e-tester` which handles tmux session management and Pi startup.
 
 ## Known Failure Modes
 

@@ -82,13 +82,13 @@ jobs:
           if [ -f "$REPORT_FILE" ]; then
             REPORT_CONTENT=$(cat "$REPORT_FILE")
           else
-            REPORT_CONTENT="## QA Report\n\n❓ INCONCLUSIVE - No report generated"
+            REPORT_CONTENT=$'## QA Report\n\n❓ INCONCLUSIVE - No report generated'
           fi
           
           # Add footer
-          FOOTER="\n\n---\n\n*QA run: [${{ github.run_id }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})*\n*Artifacts: [Download](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})*"
+          FOOTER=$'\n\n---\n\n*QA run: [${{ github.run_id }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})*\n*Artifacts: [Download](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})*'
           
-          FULL_REPORT="<!-- qa-report -->\n${REPORT_CONTENT}${FOOTER}"
+          FULL_REPORT=$'<!-- qa-report -->\n'"${REPORT_CONTENT}${FOOTER}"
           
           # Check for existing comment
           EXISTING_COMMENT=$(gh api repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments --jq '.[] | select(.body | startswith("<!-- qa-report -->")) | .id' | head -1)

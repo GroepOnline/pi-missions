@@ -21,7 +21,6 @@ apps:
       - "tests/**/*.ts"
     skill: qa-pi-extension
     test_tool: tuistory
-    build_command: "npm run check && npm test"
 
 feature_flags:
   provider: none

@@ -25,15 +25,13 @@ Files NOT matching any path pattern (docs, .factory, .github) = NOT associated w
 
 ## Step 3: Run QA Tests
 
-This project already has a comprehensive e2e testing skill: `pi-missions-e2e-tester`.
-
-Invoke it:
+Invoke the sub-skill for the affected app:
 
 ```
-Use the pi-missions-e2e-tester skill to run end-to-end tests for this PR.
+Use the qa-pi-extension skill to run e2e tests for the pi-extension app.
 ```
 
-The e2e skill will:
+The qa-pi-extension skill delegates to the existing `pi-missions-e2e-tester` infrastructure:
 1. Start Pi in a tmux session
 2. Load the extension from `./src/index.ts`
 3. Exercise all mission commands
