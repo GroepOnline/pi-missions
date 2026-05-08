@@ -1,13 +1,12 @@
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { completionSignal, buildMissionContext } from "./context.js";
-import { compactionCheckpoint, missionSummaryForTree, registerMissionCommand, saveSessionLink } from "./commands.js";
+import { compactionCheckpoint, handleDashboard, missionSummaryForTree, registerMissionCommand, saveSessionLink } from "./commands.js";
 import { loadModelConfig } from "./models.js";
-import { appendHistory, autoBlockBlockedFeatures, getActiveFeature, getFeatureById, getMissionPhase, loadMissionFromDisk, saveEvidence, saveMissionSafe } from "./state.js";
+import { appendHistory, autoBlockBlockedFeatures, getActiveFeature, getMissionPhase, loadMissionFromDisk, saveEvidence, saveMissionSafe } from "./state.js";
 import type { RuntimeState, ToolPhase } from "./types.js";
 import { TOOL_POLICIES } from "./types.js";
 import { registerMissionTools } from "./tools.js";
-import { missionControlOverlay } from "./dashboard.js";
-import { statusText, updateFooter } from "./ui.js";
+import { updateFooter } from "./ui.js";
 
 export default function piMissions(pi: ExtensionAPI): void {
   // Load model configuration at extension startup
@@ -74,35 +73,7 @@ export default function piMissions(pi: ExtensionAPI): void {
   // ── Keyboard shortcuts ──────────────────────────────────────────────────────
   pi.registerShortcut("ctrl+shift+m", {
     description: "Open Mission Control dashboard",
-    handler: async (ctx: any) => {
-      const mission = runtime.activeMission;
-      if (!mission) return ctx.ui.notify("No active mission. Use /mission new <title>.", "info");
-      if (!ctx.hasUI) {
-        ctx.ui.notify(statusText(mission), "info");
-        return;
-      }
-      let selectedFeatureId: string | null = null;
-      await ctx.ui.custom(
-        missionControlOverlay(mission, (featureId) => { selectedFeatureId = featureId; }),
-        { overlay: true },
-      );
-      if (selectedFeatureId) {
-        const feature = getFeatureById(mission, selectedFeatureId);
-        if (feature && mission.activeFeatureId !== selectedFeatureId) {
-          feature.status = "active";
-          mission.activeFeatureId = selectedFeatureId;
-          mission.activeMilestoneId = feature.milestoneId;
-          mission.status = "active";
-          autoBlockBlockedFeatures(mission);
-          appendHistory(mission, { event: "feature_active", featureId: selectedFeatureId });
-          saveMissionSafe(mission);
-          updateFooter(ctx, mission);
-          ctx.ui.notify(`➡️ Activated: ${selectedFeatureId} — ${feature.title}`, "info");
-        } else if (feature && mission.activeFeatureId === selectedFeatureId) {
-          ctx.ui.notify(`Already active: ${selectedFeatureId} — ${feature.title}`, "info");
-        }
-      }
-    },
+    handler: (ctx: any) => handleDashboard(ctx, runtime),
   });
 
   pi.registerShortcut("ctrl+shift+d", {
