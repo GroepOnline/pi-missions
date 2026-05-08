@@ -4,6 +4,7 @@ import { appendHistory, getActiveFeature, getAllFeatures, getNextPendingFeature,
 import type { MissionState, RuntimeState } from "./types.js";
 import { updateFooter } from "./ui.js";
 import { getCompletionDetector } from "./completion.js";
+import { getErrorRecoveryEngine } from "./recovery.js";
 
 function allFeaturesDone(mission: MissionState): boolean {
   return getAllFeatures(mission).every((f) => f.status === "done");
@@ -298,6 +299,129 @@ export function registerMissionTools(pi: ExtensionAPI, runtime: RuntimeState): v
         details: { featureId: feature.id, reason: params.reason }, 
         isError: false 
       };
+    },
+  });
+
+  pi.registerTool({
+    name: "mission_error_status",
+    label: "Mission Error Status",
+    description: "View error recovery statistics and recent errors for the current feature or mission.",
+    promptSnippet: "View error status",
+    promptGuidelines: [
+      "Use mission_error_status to check what errors have occurred and their recovery status.",
+      "This helps understand why certain operations might be failing.",
+      "Shows error categories, severity, and recovery actions taken."
+    ],
+    parameters: Type.Object({
+      scope: Type.Optional(Type.String({ 
+        description: "Scope: 'feature' (current feature) or 'mission' (entire mission). Default: 'feature'",
+        enum: ["feature", "mission"]
+      })),
+    }),
+    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+      const mission = runtime.activeMission;
+      if (!mission) return { content: [{ type: "text", text: "No active mission." }], details: {}, isError: true };
+      
+      const feature = getActiveFeature(mission);
+      const scope = params.scope || "feature";
+      const recovery = getErrorRecoveryEngine();
+      
+      let errors;
+      if (scope === "feature" && feature) {
+        errors = recovery.getErrorsForFeature(feature.id);
+      } else {
+        errors = recovery.getErrorsForMission(mission.id);
+      }
+      
+      const stats = recovery.getStats();
+      
+      if (errors.length === 0) {
+        return { 
+          content: [{ 
+            type: "text", 
+            text: `✅ No errors recorded for ${scope === "feature" ? `feature ${feature?.id}` : "mission"}.\n\nOverall mission stats: ${stats.total} total errors, ${stats.resolved} resolved.` 
+          }], 
+          details: { scope, errorCount: 0, stats }, 
+          isError: false 
+        };
+      }
+      
+      const lines = [
+        `📋 Error Status for ${scope === "feature" ? `feature ${feature?.id}` : "mission"}`,
+        `Total errors: ${errors.length}`,
+        `Resolved: ${errors.filter(e => e.resolved).length}`,
+        "",
+        "Recent errors:",
+        ...errors.slice(-5).map(e => 
+          `- [${e.resolved ? "✓" : "✗"}] ${e.context.toolName || "Unknown"}: ${e.context.errorMessage.slice(0, 50)}...`
+        ),
+        "",
+        "By category:",
+        ...Object.entries(stats.byCategory).map(([cat, count]) => 
+          `- ${cat}: ${count}`
+        ),
+        "",
+        "By severity:",
+        ...Object.entries(stats.bySeverity).map(([sev, count]) => 
+          `- ${sev}: ${count}`
+        ),
+      ];
+      
+      return { 
+        content: [{ type: "text", text: lines.join("\n") }], 
+        details: { scope, errors, stats }, 
+        isError: false 
+      };
+    },
+  });
+
+  pi.registerTool({
+    name: "mission_retry_error",
+    label: "Mission Retry Error",
+    description: "Retry a failed operation or clear error state to allow retry.",
+    promptSnippet: "Retry failed operation",
+    promptGuidelines: [
+      "Use mission_retry_error when you want to retry a failed operation.",
+      "This clears the error state and allows the tool to be called again.",
+      "Use this after fixing the underlying issue that caused the error."
+    ],
+    parameters: Type.Object({
+      errorId: Type.Optional(Type.String({ description: "Specific error ID to retry (from mission_error_status). If not provided, clears all errors for current feature." })),
+    }),
+    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+      const mission = runtime.activeMission;
+      const feature = mission ? getActiveFeature(mission) : null;
+      if (!mission || !feature) return { content: [{ type: "text", text: "No active mission feature." }], details: {}, isError: true };
+      
+      const recovery = getErrorRecoveryEngine();
+      
+      if (params.errorId) {
+        // Mark specific error as resolved
+        recovery.markResolved(params.errorId);
+        appendHistory(mission, { 
+          event: "error_resolved", 
+          featureId: feature.id, 
+          note: `Manually resolved error ${params.errorId}` 
+        });
+        return { 
+          content: [{ type: "text", text: `✅ Error ${params.errorId} marked as resolved. You can now retry the operation.` }], 
+          details: { errorId: params.errorId }, 
+          isError: false 
+        };
+      } else {
+        // Clear all errors for current feature
+        recovery.clearErrorsForFeature(feature.id);
+        appendHistory(mission, { 
+          event: "errors_cleared", 
+          featureId: feature.id, 
+          note: "Cleared all errors for feature to allow retry" 
+        });
+        return { 
+          content: [{ type: "text", text: `✅ Cleared all errors for feature ${feature.id}. You can now retry operations.` }], 
+          details: { featureId: feature.id }, 
+          isError: false 
+        };
+      }
     },
   });
 }

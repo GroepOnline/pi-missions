@@ -62,12 +62,14 @@ describe("piMissions extension registration", () => {
     expect(pi.getCommands()[0]!.name).toBe("mission");
     expect(pi.getCommands()[0]!.description).toContain("Mission management");
 
-    expect(pi.getTools()).toHaveLength(5);
+    expect(pi.getTools()).toHaveLength(7);
     expect(pi.getTools()[0]!.name).toBe("mission_feature_done");
     expect(pi.getTools()[1]!.name).toBe("mission_next_feature");
     expect(pi.getTools()[2]!.name).toBe("mission_ask_user");
     expect(pi.getTools()[3]!.name).toBe("mission_block_self");
     expect(pi.getTools()[4]!.name).toBe("mission_fork");
+    expect(pi.getTools()[5]!.name).toBe("mission_error_status");
+    expect(pi.getTools()[6]!.name).toBe("mission_retry_error");
 
     expect(pi.getShortcuts()).toHaveLength(2);
     expect(pi.getShortcuts()[0]!.key).toBe("ctrl+shift+m");

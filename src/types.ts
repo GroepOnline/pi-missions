@@ -110,14 +110,51 @@ export interface ToolPolicy {
 }
 
 export const TOOL_POLICIES: Record<ToolPhase, ToolPolicy> = {
-  planning: { phase: "planning", allowedTools: ["read", "grep", "find", "ls", "mission_next_feature", "mission_feature_done", "mission_ask_user", "mission_block_self", "mission_fork"], maxToolCalls: 30 },
-  execution: { phase: "execution", allowedTools: ["read", "write", "edit", "bash", "grep", "find", "ls", "mission_next_feature", "mission_feature_done", "mission_ask_user", "mission_block_self", "mission_fork"], maxToolCalls: 120 },
-  verification: { phase: "verification", allowedTools: ["read", "bash", "grep", "find", "ls", "mission_next_feature", "mission_feature_done", "mission_ask_user", "mission_block_self", "mission_fork"], maxToolCalls: 60 },
+  planning: { phase: "planning", allowedTools: ["read", "grep", "find", "ls", "mission_next_feature", "mission_feature_done", "mission_ask_user", "mission_block_self", "mission_fork", "mission_error_status", "mission_retry_error"], maxToolCalls: 30 },
+  execution: { phase: "execution", allowedTools: ["read", "write", "edit", "bash", "grep", "find", "ls", "mission_next_feature", "mission_feature_done", "mission_ask_user", "mission_block_self", "mission_fork", "mission_error_status", "mission_retry_error"], maxToolCalls: 120 },
+  verification: { phase: "verification", allowedTools: ["read", "bash", "grep", "find", "ls", "mission_next_feature", "mission_feature_done", "mission_ask_user", "mission_block_self", "mission_fork", "mission_error_status", "mission_retry_error"], maxToolCalls: 60 },
 };
 
 export const DEFAULT_FEATURE_MAX_WALL_CLOCK_MS = 30 * 60 * 1000; // 30 minutes
 export const DEFAULT_FEATURE_MAX_TOOL_CALLS = 150;
 export const STALE_FEATURE_WARN_CLOCK_MS = 20 * 60 * 1000; // 20 min — warn before hard limit
+
+// ---------------------------------------------------------------------------
+// Error Recovery Types
+// ---------------------------------------------------------------------------
+
+export type ErrorCategory = "transient" | "permanent" | "user" | "system" | "network" | "permission" | "unknown";
+export type ErrorSeverity = "low" | "medium" | "high" | "critical";
+export type RecoveryAction = "retry" | "fallback" | "skip" | "block" | "ask_user" | "degrade";
+
+export interface ErrorContext {
+  toolName?: string;
+  featureId?: string;
+  missionId?: string;
+  timestamp: number;
+  errorType: string;
+  errorMessage: string;
+  stackTrace?: string;
+}
+
+export interface ErrorRecoveryStrategy {
+  category: ErrorCategory;
+  maxRetries: number;
+  backoffMs: number;
+  fallbackAction?: RecoveryAction;
+  degradeAction?: () => void;
+}
+
+export interface ErrorRecord {
+  id: string;
+  context: ErrorContext;
+  category: ErrorCategory;
+  severity: ErrorSeverity;
+  retryCount: number;
+  actionTaken: RecoveryAction;
+  resolved: boolean;
+  timestamp: number;
+}
 
 // ---------------------------------------------------------------------------
 // Completion Detection Engine Types

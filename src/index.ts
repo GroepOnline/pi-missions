@@ -8,6 +8,7 @@ import { TOOL_POLICIES } from "./types.js";
 import { registerMissionTools } from "./tools.js";
 import { updateFooter } from "./ui.js";
 import { getCompletionDetector, resetCompletionDetector } from "./completion.js";
+import { getErrorRecoveryEngine, resetErrorRecoveryEngine } from "./recovery.js";
 
 export default function piMissions(pi: ExtensionAPI): void {
   // Load model configuration at extension startup
@@ -103,16 +104,65 @@ export default function piMissions(pi: ExtensionAPI): void {
       if (feature && feature.status === "active") {
         const detector = getCompletionDetector();
         detector.clearToolCallHistory();
+        
+        // Reset error recovery for the new feature
+        const recovery = getErrorRecoveryEngine();
+        recovery.clearErrorsForFeature(feature.id);
       }
     }
   });
 
-  pi.on("tool_call", async (event: { toolName: string; success?: boolean }) => {
+  pi.on("tool_call", async (event: { toolName: string; success?: boolean; error?: any }) => {
     if (!runtime.activeMission) return;
     
     // Record tool call for completion detection
     const detector = getCompletionDetector();
-    detector.recordToolCall(event.toolName, event.success !== false);
+    const success = event.success !== false;
+    detector.recordToolCall(event.toolName, success);
+    
+    // Handle error recovery if tool call failed
+    if (!success && event.error) {
+      const feature = getActiveFeature(runtime.activeMission);
+      const recovery = getErrorRecoveryEngine();
+      
+      const errorContext = {
+        toolName: event.toolName,
+        featureId: feature?.id,
+        missionId: runtime.activeMission.id,
+        timestamp: Date.now(),
+        errorType: event.error.name || "Error",
+        errorMessage: event.error.message || String(event.error),
+        stackTrace: event.error.stack,
+      };
+      
+      const { action, shouldRetry, retryAfter, record } = recovery.handleError(errorContext);
+      
+      // Log error to mission history
+      appendHistory(runtime.activeMission, {
+        event: "error_detected",
+        featureId: feature?.id,
+        note: `${event.toolName} failed: ${errorContext.errorMessage}`,
+        details: {
+          category: record.category,
+          severity: record.severity,
+          action,
+          shouldRetry,
+          retryAfter,
+          retryCount: record.retryCount,
+        },
+      });
+      
+      // Apply recovery action
+      if (action === "block") {
+        return { block: true, reason: `Tool '${event.toolName}' failed with ${record.category} error: ${errorContext.errorMessage}` };
+      } else if (action === "ask_user") {
+        // Don't block, but notify user
+        // Note: We can't directly notify here, but the error will be visible in the agent output
+      } else if (action === "retry" && shouldRetry && retryAfter) {
+        // Don't block, let the agent retry naturally
+        // The retry delay is informational
+      }
+    }
     
     // Enforce tool policy
     const policy = TOOL_POLICIES[currentPhase];
