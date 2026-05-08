@@ -1,5 +1,6 @@
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { completionSignal, buildMissionContext } from "./context.js";
+import { processAgentEndForAutopilot } from "./autopilot.js";
 import { compactionCheckpoint, handleDashboard, missionSummaryForTree, registerMissionCommand, saveSessionLink } from "./commands.js";
 import { appendHistory, autoBlockBlockedFeatures, getActiveFeature, getMissionPhase, isValidMissionId, loadMissionFromDisk, saveEvidence, saveMissionSafe, getNextPendingFeature, getAllFeatures } from "./state.js";
 import type { RuntimeState, ToolPhase } from "./types.js";
@@ -271,6 +272,10 @@ export default function piMissions(pi: ExtensionAPI): void {
 
   pi.on("agent_end", async (event, ctx) => {
     const mission = runtime.activeMission;
+    if (mission?.autopilot?.enabled) {
+      await processAgentEndForAutopilot(pi, ctx, event, runtime);
+      return;
+    }
     const feature = mission ? getActiveFeature(mission) : null;
     if (!mission || !feature || feature.status !== "active") return;
     

@@ -54,8 +54,10 @@ export function updateFooter(ctx: ExtensionContext, mission: MissionState | null
   }
   const p = progress(mission);
   const active = getActiveFeature(mission);
-  const icon = mission.status === "paused" ? "⏸" : mission.status === "budget_limited" ? "⚠️" : mission.status === "complete" ? "✅" : "🎯";
-  ctx.ui.setStatus("pi-mission", `${icon} ${mission.title} [${p.done}/${p.total} ${p.pct}%]${active ? ` — ${active.title}` : ""}`);
+  const icon = mission.status === "paused" ? "⏸" : mission.status === "blocked" ? "⛔" : mission.status === "budget_limited" ? "⚠️" : mission.status === "complete" ? "✅" : "🎯";
+  const a = mission.autopilot;
+  const autopilot = a.enabled ? ` · Autopilot ON · iter ${a.iteration}/${a.maxIterations} · no-progress ${a.noProgressTurns}/${a.maxNoProgressTurns} · failures ${a.consecutiveFailures}/${a.maxConsecutiveFailures}` : " · Autopilot OFF";
+  ctx.ui.setStatus("pi-mission", `${icon} ${mission.title} [${p.done}/${p.total} ${p.pct}%]${active ? ` — ${active.id} ${active.title}` : ""}${autopilot}`);
 }
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -70,6 +72,7 @@ export function dashboardRows(mission: MissionState): string[] {
     `  ${statusIcon} ${mission.title}`,
     `     ${progressBar(p.done, p.total)} ${p.done}/${p.total} features — ${p.pct}%`, 
     `     ID: ${mission.id} | Status: ${mission.status} | Tokens: ${mission.tokensUsed.toLocaleString()}`,
+    `     Autopilot: ${mission.autopilot.enabled ? "ON" : "OFF"} (${mission.autopilot.mode}) | Iter: ${mission.autopilot.iteration}/${mission.autopilot.maxIterations} | Last stop: ${mission.autopilot.lastStopReason ?? "none"}`,
     "  " + "─".repeat(76),
     "",
   ];
@@ -91,13 +94,13 @@ export function dashboardRows(mission: MissionState): string[] {
     rows.push(`     ${milestoneProgressBar(milestone)} ${mDone}/${mTotal} — ${mPct}%`);
 
     // Sort: active first, then pending, blocked, failed, done last
-    const order: Record<string, number> = { active: 0, pending: 1, blocked: 2, failed: 3, done: 4 };
+    const order: Record<string, number> = { active: 0, pending: 1, waiting: 2, blocked: 3, failed: 4, done: 5 };
     const sorted = [...milestone.features].sort(
       (a, b) => (order[a.status] ?? 5) - (order[b.status] ?? 5) || a.priority - b.priority
     );
 
     for (const feature of sorted) {
-      const fIcon = feature.status === "done" ? "✅" : feature.status === "active" ? "➡️" : feature.status === "blocked" ? "⛔" : feature.status === "failed" ? "❌" : "•";
+      const fIcon = feature.status === "done" ? "✅" : feature.status === "active" ? "➡️" : feature.status === "waiting" ? "⏳" : feature.status === "blocked" ? "⛔" : feature.status === "failed" ? "❌" : "•";
       const deps = feature.dependsOn.length ? ` 🔗${feature.dependsOn.join(",")}` : "";
       const blocked = feature.status === "blocked" && feature.notes ? ` ↳ ${feature.notes.slice(0, 50)}` : "";
       const failedTag = feature.status === "failed" ? " [failed]" : "";
@@ -118,7 +121,7 @@ export function dashboardRows(mission: MissionState): string[] {
 
   // Quick reference footer
   rows.push("  " + "─".repeat(76));
-  rows.push(`  Commands: /mission next | done | block | pause | resume | status | dashboard | metrics | export`);
+  rows.push(`  Commands: /mission run | pause | resume | stop | autopilot | next | done | block | status | dashboard`);
   rows.push("");
   return rows;
 }
@@ -132,6 +135,12 @@ export function statusText(mission: MissionState): string {
     `Status: ${mission.status}`,
     `Progress: ${p.done}/${p.total} (${p.pct}%)`,
     active ? `Active: ${active.id} — ${active.title}` : "Active: none",
+    `Autopilot: ${mission.autopilot.enabled ? "ON" : "OFF"} (${mission.autopilot.mode})`,
+    `Iteration: ${mission.autopilot.iteration}/${mission.autopilot.maxIterations}`,
+    `Failures: ${mission.autopilot.consecutiveFailures}/${mission.autopilot.maxConsecutiveFailures}`,
+    `No-progress: ${mission.autopilot.noProgressTurns}/${mission.autopilot.maxNoProgressTurns}`,
+    `Last continuation: ${mission.autopilot.lastContinuationAt ?? "never"}`,
+    `Last stop: ${mission.autopilot.lastStopReason ?? "none"}${mission.autopilot.lastStopMessage ? ` - ${mission.autopilot.lastStopMessage}` : ""}`,
     "",
   ];
 
@@ -140,7 +149,7 @@ export function statusText(mission: MissionState): string {
     const mDone = milestone.features.filter((f) => f.status === "done").length;
     lines.push(`${mi} ${milestone.id}: ${milestone.title} [${mDone}/${milestone.features.length}]`);
     for (const feature of milestone.features) {
-      const mark = feature.status === "done" ? "✅" : feature.status === "active" ? "➡️" : feature.status === "blocked" ? "⛔" : "•";
+      const mark = feature.status === "done" ? "✅" : feature.status === "active" ? "➡️" : feature.status === "waiting" ? "⏳" : feature.status === "blocked" ? "⛔" : "•";
       const blocked = feature.status === "blocked" && feature.notes ? ` — ${feature.notes.slice(0, 50)}` : "";
       lines.push(`  ${mark} ${feature.id}: ${feature.title} (${feature.status})${blocked}`);
     }

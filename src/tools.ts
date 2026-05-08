@@ -1,5 +1,5 @@
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
-import { Type } from "typebox";
+import { Type } from "@sinclair/typebox";
 import { appendHistory, autoUnblockResolved, autoVerifyAcceptance, getActiveFeature, getAllFeatures, getNextPendingFeature, saveEvidence, saveMissionSafe } from "./state.js";
 import type { MissionState, RuntimeState } from "./types.js";
 import { updateFooter } from "./ui.js";
@@ -39,7 +39,11 @@ export function registerMissionTools(pi: ExtensionAPI, runtime: RuntimeState): v
       appendHistory(mission, { event: "feature_done", featureId: feature.id, note: params.notes, details: { evidenceFile } });
       autoUnblockResolved(mission);
       const next = getNextPendingFeature(mission);
-      if (!next && allFeaturesDone(mission)) mission.status = "complete";
+      if (!next && allFeaturesDone(mission)) {
+        mission.status = "complete";
+        mission.autopilot.enabled = false;
+        mission.autopilot.lastStopReason = "mission_complete";
+      }
       await saveMissionSafe(mission);
       updateFooter(ctx, mission);
       return { content: [{ type: "text", text: `✅ Feature ${feature.id} done. Evidence: ${evidenceFile}` }], details: { featureId: feature.id, evidenceFile }, isError: false };
@@ -115,6 +119,9 @@ export function registerMissionTools(pi: ExtensionAPI, runtime: RuntimeState): v
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
       const mission = runtime.activeMission;
       if (!mission) throw new Error("No active mission. Cannot ask user.");
+      mission.autopilot.enabled = false;
+      mission.autopilot.lastStopReason = "needs_user_decision";
+      mission.autopilot.lastStopMessage = params.question;
       
       const feature = getActiveFeature(mission);
       const questionType = params.questionType || "input";
@@ -224,6 +231,10 @@ export function registerMissionTools(pi: ExtensionAPI, runtime: RuntimeState): v
       
       feature.status = "blocked";
       feature.notes = `Self-blocked: ${params.reason}${params.context ? `\n\nContext: ${params.context}` : ""}`;
+      mission.status = "blocked";
+      mission.autopilot.enabled = false;
+      mission.autopilot.lastStopReason = "blocked";
+      mission.autopilot.lastStopMessage = params.reason;
       appendHistory(mission, { event: "feature_blocked", featureId: feature.id, note: params.reason, details: { context: params.context, self: true } });
       
       // Try to advance to next feature

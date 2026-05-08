@@ -3,7 +3,7 @@ import * as fs from "node:fs";
 import * as fsAsync from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
-import { CURRENT_SCHEMA_VERSION, DEFAULT_FEATURE_MAX_TOOL_CALLS, DEFAULT_FEATURE_MAX_WALL_CLOCK_MS, STALE_FEATURE_WARN_CLOCK_MS, type Feature, type Milestone, type MissionHistoryEntry, type MissionMetrics, type MissionMetricsSummary, type MissionState, type ToolPhase } from "./types.js";
+import { CURRENT_SCHEMA_VERSION, DEFAULT_AUTOPILOT, DEFAULT_FEATURE_MAX_TOOL_CALLS, DEFAULT_FEATURE_MAX_WALL_CLOCK_MS, STALE_FEATURE_WARN_CLOCK_MS, type Feature, type Milestone, type MissionHistoryEntry, type MissionMetrics, type MissionMetricsSummary, type MissionState, type ToolPhase } from "./types.js";
 import { withLock } from "./lock.js";
 import { logger } from "./logger.js";
 import { createFeedback, formatError } from "./feedback.js";
@@ -63,13 +63,13 @@ export function getActiveFeature(mission: MissionState): Feature | null {
   return mission.activeFeatureId ? getFeatureById(mission, mission.activeFeatureId) ?? null : null;
 }
 
-function dependenciesDone(mission: MissionState, feature: Feature): boolean {
+export function dependenciesDone(mission: MissionState, feature: Feature): boolean {
   return feature.dependsOn.every((id) => getFeatureById(mission, id)?.status === "done");
 }
 
 export function getNextPendingFeature(mission: MissionState): Feature | null {
   return getAllFeatures(mission)
-    .filter((f) => f.status === "pending" && dependenciesDone(mission, f))
+    .filter((f) => (f.status === "pending" || f.status === "waiting") && dependenciesDone(mission, f))
     .sort((a, b) => a.priority - b.priority || a.id.localeCompare(b.id))[0] ?? null;
 }
 
@@ -94,6 +94,7 @@ export function createMission(title: string, goal: string, constraints = ""): Mi
     tokensUsed: 0,
     lastContextTokens: 0,
     validationToken: createValidationToken(),
+    autopilot: { ...DEFAULT_AUTOPILOT, startedAt: new Date(now).toISOString() },
     createdAt: now,
     updatedAt: now,
     milestones: [
@@ -149,7 +150,9 @@ export function createMission(title: string, goal: string, constraints = ""): Mi
 export function migrateMission(raw: unknown): MissionState {
   const value = raw as Partial<MissionState> & { features?: Feature[]; schemaVersion?: number };
   const version = value.schemaVersion ?? 1;
-  if (version === CURRENT_SCHEMA_VERSION) return value as MissionState;
+  if (version === CURRENT_SCHEMA_VERSION) {
+    return { ...(value as MissionState), autopilot: { ...DEFAULT_AUTOPILOT, ...(value as MissionState).autopilot } };
+  }
   if (version === 1 || version === 2) {
     const v1Features = (value.features ?? []).map((f: any) => ({ ...f, toolCallCount: f.toolCallCount ?? 0 }));
     return {
@@ -164,6 +167,7 @@ export function migrateMission(raw: unknown): MissionState {
       tokensUsed: value.tokensUsed ?? 0,
       lastContextTokens: value.lastContextTokens ?? 0,
       validationToken: (value as MissionState).validationToken || createValidationToken(),
+      autopilot: { ...DEFAULT_AUTOPILOT, ...(value as MissionState).autopilot, startedAt: (value as MissionState).autopilot?.startedAt ?? new Date(value.createdAt ?? Date.now()).toISOString() },
       userPreferences: (value as MissionState).userPreferences,
       createdAt: value.createdAt ?? Date.now(),
       updatedAt: Date.now(),
@@ -308,16 +312,19 @@ export function linkSession(mission: MissionState, sessionFile: string): void {
 
 /** Mark features as blocked when their dependencies are not all done. */
 export function autoBlockBlockedFeatures(mission: MissionState): number {
-  let blocked = 0;
+  let waiting = 0;
   for (const f of getAllFeatures(mission)) {
-    if (f.status === "blocked" || f.status === "done") continue;
+    if (f.status === "blocked" || f.status === "done" || f.status === "failed") continue;
     if (f.dependsOn.length && !dependenciesDone(mission, f)) {
-      f.status = "blocked";
-      f.notes = `Blocked: waiting on ${f.dependsOn.filter((id) => getFeatureById(mission, id)?.status !== "done").join(", ")}`;
-      blocked++;
+      f.status = "waiting";
+      f.notes = `Waiting on ${f.dependsOn.filter((id) => getFeatureById(mission, id)?.status !== "done").join(", ")}`;
+      waiting++;
+    } else if (f.status === "waiting") {
+      f.status = "pending";
+      f.notes = undefined;
     }
   }
-  return blocked;
+  return waiting;
 }
 
 // ---------------------------------------------------------------------------
@@ -619,18 +626,12 @@ export function detectStaleFeature(mission: MissionState, now?: number): StaleFe
 // Revolutionary: Self-healing — auto-unblock when dependencies resolve
 // ---------------------------------------------------------------------------
 
-/** Unblock blocked features whose dependencies are now all done. Returns count of unblocked features. */
+/** Move dependency-waiting features back to pending once dependencies are resolved. Returns count of resolved wait states. */
 export function autoUnblockResolved(mission: MissionState): number {
   let unblocked = 0;
   for (const f of getAllFeatures(mission)) {
-    if (f.status !== "blocked") continue;
-    if (f.dependsOn.length === 0) {
-      f.status = "pending";
-      f.notes = undefined;
-      unblocked++;
-      continue;
-    }
-    if (dependenciesDone(mission, f)) {
+    if (f.status !== "waiting") continue;
+    if (f.dependsOn.length === 0 || dependenciesDone(mission, f)) {
       f.status = "pending";
       f.notes = undefined;
       unblocked++;

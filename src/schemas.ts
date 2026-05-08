@@ -22,6 +22,7 @@ export const FeatureSchema = Type.Object({
   acceptance: Type.Array(AcceptanceCriterionSchema, { minItems: 1 }),
   status: Type.Union([
     Type.Literal("pending"),
+    Type.Literal("waiting"),
     Type.Literal("active"),
     Type.Literal("done"),
     Type.Literal("blocked"),

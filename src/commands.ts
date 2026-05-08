@@ -5,6 +5,8 @@ import type { ExtensionAPI, ExtensionCommandContext } from "@mariozechner/pi-cod
 import { buildCompactionSummary } from "./context.js";
 import { appendHistory, autoBlockBlockedFeatures, autoCompleteMilestones, autoUnblockResolved, autoVerifyAcceptance, calculateMetricsSummary, computeMissionMetrics, createMission, createMissionFromTemplate, createMissionId, createValidationToken, exportMarkdown, getActiveFeature, getAllFeatures, getFeatureById, getMilestoneById, getNextPendingFeature, isValidMissionId, linkSession, listMissions, loadMissionFromDisk, MISSION_TEMPLATES, progress, readHistory, saveEvidence, saveMissionSafe } from "./state.js";
 import type { Feature, MissionState, RuntimeState } from "./types.js";
+import { DEFAULT_AUTOPILOT } from "./types.js";
+import { ensureActiveFeature, shouldContinueMission, triggerMissionContinuation } from "./autopilot.js";
 import { missionControlOverlay } from "./dashboard.js";
 import { dashboardRows, statusText, updateFooter } from "./ui.js";
 import { validate, formatValidationErrors } from "./validation.js";
@@ -15,9 +17,9 @@ import { createFeedback, formatError, getErrorSeverity } from "./feedback.js";
 
 export function registerMissionCommand(pi: ExtensionAPI, runtime: RuntimeState): void {
   pi.registerCommand("mission", {
-    description: "Mission management: new|list|load|status|next|done|block|pause|resume|clear|edit|fork|debug|dashboard|metrics",
+    description: "Mission management: new|list|load|run|pause|resume|stop|status|autopilot|next|done|block|clear|edit|fork|debug|dashboard|metrics",
     getArgumentCompletions: (prefix: string) =>
-      ["new", "list", "load", "status", "next", "done", "block", "pause", "resume", "clear", "edit", "fork", "debug", "dashboard", "metrics", "export", "templates"]
+      ["new", "list", "load", "run", "pause", "resume", "stop", "status", "autopilot", "next", "done", "block", "clear", "edit", "fork", "debug", "dashboard", "metrics", "export", "templates"]
         .filter((s) => s.startsWith(prefix))
         .map((s) => ({ value: s, label: s })),
     handler: async (args: string, ctx: ExtensionCommandContext) => {
@@ -26,7 +28,10 @@ export function registerMissionCommand(pi: ExtensionAPI, runtime: RuntimeState):
         case "new": return handleNew(rest.join(" "), ctx, pi, runtime);
         case "list": return handleList(ctx, pi, runtime);
         case "load": return handleLoad(rest[0], ctx, pi, runtime);
+        case "run": return handleRun(ctx, pi, runtime);
         case "status": return handleStatus(ctx, runtime);
+        case "autopilot": return handleAutopilot(ctx, runtime);
+        case "stop": return handleStop(ctx, runtime);
         case "dashboard": return handleDashboard(ctx, runtime);
         case "next": return handleNext(ctx, runtime);
         case "done": return handleDone(rest.join(" "), ctx, runtime);
@@ -154,6 +159,7 @@ export async function handleNew(titleArg: string, ctx: ExtensionCommandContext, 
             tokensUsed: 0,
             lastContextTokens: 0,
             validationToken: createValidationToken(),
+            autopilot: { ...DEFAULT_AUTOPILOT, startedAt: new Date(now).toISOString() },
             createdAt: now,
             updatedAt: now,
             milestones: raw.milestones.map((m: any, mi: number) => ({
@@ -250,6 +256,66 @@ export async function handleLoad(id: string | undefined, ctx: ExtensionCommandCo
     ctx.ui.notify(formatError(feedback), getErrorSeverity(feedback));
     logger.error("commands", "Failed to initialize loaded mission", error as Error, { missionId: mission.id });
   }
+}
+
+export async function handleRun(ctx: ExtensionCommandContext, pi: ExtensionAPI, runtime: RuntimeState): Promise<void> {
+  const mission = runtime.activeMission;
+  if (!mission) return ctx.ui.notify("No active mission. Use /mission new <title> or /mission load <id>.", "warning");
+  mission.status = "active";
+  mission.autopilot = {
+    ...mission.autopilot,
+    enabled: true,
+    mode: "autopilot",
+    iteration: 0,
+    consecutiveFailures: 0,
+    noProgressTurns: 0,
+    startedAt: new Date().toISOString(),
+    lastStopReason: undefined,
+    lastStopMessage: undefined,
+  };
+  const feature = ensureActiveFeature(mission);
+  if (!feature) {
+    mission.autopilot.enabled = false;
+    mission.autopilot.lastStopReason = "no_active_feature";
+    await saveMissionSafe(mission);
+    updateFooter(ctx, mission);
+    return ctx.ui.notify("No runnable feature is available for autopilot.", "warning");
+  }
+  appendHistory(mission, { event: "autopilot_started", featureId: feature.id });
+  await saveMissionSafe(mission);
+  updateFooter(ctx, mission);
+  await triggerMissionContinuation(pi, ctx, mission);
+  ctx.ui.notify(`Autopilot started for ${feature.id} - ${feature.title}.`, "info");
+}
+
+export async function handleAutopilot(ctx: ExtensionCommandContext, runtime: RuntimeState): Promise<void> {
+  const mission = runtime.activeMission;
+  if (!mission) return ctx.ui.notify("No active mission.", "warning");
+  const decision = shouldContinueMission(mission, ctx);
+  const a = mission.autopilot;
+  ctx.ui.notify([
+    `Autopilot: ${a.enabled ? "ON" : "OFF"} (${a.mode})`,
+    `Iteration: ${a.iteration}/${a.maxIterations}`,
+    `Failures: ${a.consecutiveFailures}/${a.maxConsecutiveFailures}`,
+    `No-progress: ${a.noProgressTurns}/${a.maxNoProgressTurns}`,
+    `Context limit: ${a.maxContextPercent}%`,
+    `Last continuation: ${a.lastContinuationAt ?? "never"}`,
+    `Last stop: ${a.lastStopReason ?? "none"}${a.lastStopMessage ? ` - ${a.lastStopMessage}` : ""}`,
+    `Would continue: ${decision.continue ? "yes" : `no (${decision.reason})`}`,
+  ].join("\n"), "info");
+}
+
+export async function handleStop(ctx: ExtensionCommandContext, runtime: RuntimeState): Promise<void> {
+  const mission = runtime.activeMission;
+  if (!mission) return ctx.ui.notify("No active mission.", "warning");
+  mission.autopilot.enabled = false;
+  mission.autopilot.mode = "manual";
+  mission.autopilot.lastStopReason = "paused_by_user";
+  mission.autopilot.lastStopMessage = "Stopped by user.";
+  appendHistory(mission, { event: "autopilot_stopped" });
+  await saveMissionSafe(mission);
+  updateFooter(ctx, mission);
+  ctx.ui.notify("Autopilot stopped.", "info");
 }
 
 export async function handleStatus(ctx: ExtensionCommandContext, runtime: RuntimeState): Promise<void> {
@@ -411,6 +477,9 @@ export async function handleBlock(reason: string, ctx: ExtensionCommandContext, 
 export async function handlePause(ctx: ExtensionCommandContext, runtime: RuntimeState): Promise<void> {
   if (!runtime.activeMission) return ctx.ui.notify("No active mission.", "warning");
   runtime.activeMission.status = "paused";
+  runtime.activeMission.autopilot.enabled = false;
+  runtime.activeMission.autopilot.lastStopReason = "paused_by_user";
+  runtime.activeMission.autopilot.lastStopMessage = "Paused by user.";
   appendHistory(runtime.activeMission, { event: "mission_paused" });
   await saveMissionSafe(runtime.activeMission);
   updateFooter(ctx, runtime.activeMission);
@@ -419,9 +488,15 @@ export async function handlePause(ctx: ExtensionCommandContext, runtime: Runtime
 export async function handleResume(ctx: ExtensionCommandContext, runtime: RuntimeState): Promise<void> {
   if (!runtime.activeMission) return ctx.ui.notify("No active mission.", "warning");
   runtime.activeMission.status = "active";
+  runtime.activeMission.autopilot.enabled = true;
+  runtime.activeMission.autopilot.mode = "autopilot";
+  runtime.activeMission.autopilot.lastStopReason = undefined;
+  runtime.activeMission.autopilot.lastStopMessage = undefined;
+  ensureActiveFeature(runtime.activeMission);
   appendHistory(runtime.activeMission, { event: "mission_resumed" });
   await saveMissionSafe(runtime.activeMission);
   updateFooter(ctx, runtime.activeMission);
+  ctx.ui.notify("Mission resumed. Use /mission run to trigger the next autopilot turn immediately.", "info");
 }
 
 export async function handleClear(ctx: ExtensionCommandContext, runtime: RuntimeState): Promise<void> {
