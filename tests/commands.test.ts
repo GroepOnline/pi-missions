@@ -129,10 +129,10 @@ describe("exportMarkdown", () => {
     if (fs.existsSync(tmpRoot)) fs.rmSync(tmpRoot, { recursive: true, force: true });
   });
 
-  it("exports a complete markdown report", () => {
+  it("exports a complete markdown report", async () => {
     const m = createMission("Exporter", "Export mission");
     m.tokensUsed = 999;
-    saveMissionSafe(m);
+    await saveMissionSafe(m);
     const md = exportMarkdown(m);
     expect(md).toContain("# Mission Report: Exporter");
     expect(md).toContain("**Goal**: Export mission");
@@ -141,21 +141,21 @@ describe("exportMarkdown", () => {
     expect(md).toContain("**Tokens used**: 999");
   });
 
-  it("includes evidence in export when available", () => {
+  it("includes evidence in export when available", async () => {
     const m = createMission("Evidence", "Test");
     const f = m.milestones[0].features[0]!;
     f.status = "done";
     f.completedAt = Date.now();
-    saveMissionSafe(m);
+    await saveMissionSafe(m);
     saveEvidence(m, f, "## Completed\nAll checks passed");
     const md = exportMarkdown(m);
     expect(md).toContain("Evidence");
     expect(md).toContain("All checks passed");
   });
 
-  it("includes history section when history exists", () => {
+  it("includes history section when history exists", async () => {
     const m = createMission("History", "Test");
-    saveMissionSafe(m);
+    await saveMissionSafe(m);
     appendHistory(m, { event: "feature_done", featureId: "F001", note: "completed" });
     const md = exportMarkdown(m);
     expect(md).toContain("## Recent History");
@@ -171,10 +171,10 @@ describe("exportMarkdown", () => {
 });
 
 describe("saveEvidence integration", () => {
-  it("saves and reads evidence", () => {
+  it("saves and reads evidence", async () => {
     const m = createMission("EvidenceInt", "Integration test");
     const f = m.milestones[0].features[0]!;
-    saveMissionSafe(m);
+    await saveMissionSafe(m);
     const file = saveEvidence(m, f, "Test evidence content");
     expect(fs.existsSync(file)).toBe(true);
     expect(fs.readFileSync(file, "utf-8")).toBe("Test evidence content");
@@ -427,7 +427,7 @@ describe("handleDone", () => {
   it("marks active feature done and saves evidence", async () => {
     const ctx = mkCtx();
     const rt = runtimeFixture();
-    saveMissionSafe(rt.activeMission!);
+    await saveMissionSafe(rt.activeMission!);
     await handleDone("Feature completed successfully", ctx, rt);
     const f = rt.activeMission!.milestones[0].features[0]!;
     expect(f.status).toBe("done");
@@ -446,7 +446,7 @@ describe("handleDone", () => {
   it("completes mission when last feature is done", async () => {
     const ctx = mkCtx();
     const rt = runtimeFixture();
-    saveMissionSafe(rt.activeMission!);
+    await saveMissionSafe(rt.activeMission!);
     rt.activeMission!.milestones[0].features[1]!.status = "done";
     rt.activeMission!.milestones[0].features[2]!.status = "done";
     await handleDone("done", ctx, rt);
@@ -456,7 +456,7 @@ describe("handleDone", () => {
   it("auto-verifies bash acceptance criteria", async () => {
     const ctx = mkCtx();
     const rt = runtimeFixture();
-    saveMissionSafe(rt.activeMission!);
+    await saveMissionSafe(rt.activeMission!);
     rt.activeMission!.milestones[0].features[0]!.acceptance = [
       { id: "AC001", description: "Bash check", checkType: "bash", checkCommand: "echo ok", verified: false },
     ];
@@ -508,7 +508,7 @@ describe("handleDebug", () => {
   it("loads mission by id", async () => {
     const ctx = mkCtx();
     const rt = runtimeFixture();
-    saveMissionSafe(rt.activeMission!);
+    await saveMissionSafe(rt.activeMission!);
     await handleDebug(rt.activeMission!.id, ctx, { activeMission: null, autoSaveInterval: null });
     const w = ctx.getWidgets()["pi-mission-debug"];
     expect(w).toBeDefined();
@@ -756,7 +756,7 @@ describe("handleList", () => {
     const rt = runtimeFixture();
     const pi = mkPi();
     // Save a mission so listMissions finds something
-    saveMissionSafe(rt.activeMission!);
+    await saveMissionSafe(rt.activeMission!);
     await handleList(ctx, pi, rt);
     expect(ctx.getCalls()[0]!.level).toBe("info");
     expect(ctx.getCalls()[0]!.msg).toContain(rt.activeMission!.id);
@@ -764,7 +764,7 @@ describe("handleList", () => {
 
   it("selects and loads a mission when hasUI is true", async () => {
     const m = createMission("Selectable", "Test");
-    saveMissionSafe(m);
+    await saveMissionSafe(m);
     const ctx = mkCtx({
       hasUI: true,
       ui: {
@@ -818,7 +818,7 @@ describe("handleLoad", () => {
 
   it("loads mission by id and sets active", async () => {
     const m = createMission("Loadable", "Test load");
-    saveMissionSafe(m);
+    await saveMissionSafe(m);
     const ctx = mkCtx();
     const rt: RuntimeState = { activeMission: null, autoSaveInterval: null };
     const pi = mkPi();
@@ -880,7 +880,7 @@ describe("handleEdit", () => {
       },
     });
     const rt = runtimeFixture();
-    saveMissionSafe(rt.activeMission!);
+    await saveMissionSafe(rt.activeMission!);
     await handleEdit("F001", ctx, rt);
     expect(rt.activeMission!.milestones[0].features[0]!.title).toBe("Edited title");
   });
@@ -954,7 +954,7 @@ describe("handleDashboard already-active branch", () => {
   it("notifies already active when selected feature is current active feature", async () => {
     const ctx = mkCtx({ hasUI: true });
     const rt = runtimeFixture();
-    saveMissionSafe(rt.activeMission!);
+    await saveMissionSafe(rt.activeMission!);
     // Manually trigger the overlay selection with the already-active feature
     let selectedFeatureId: string | null = null;
     await ctx.ui.custom(
@@ -1000,7 +1000,7 @@ describe("handleFork", () => {
   it("forks active feature and creates new one", async () => {
     const ctx = mkCtx({ hasUI: true });
     const rt = runtimeFixture();
-    saveMissionSafe(rt.activeMission!);
+    await saveMissionSafe(rt.activeMission!);
     await handleFork("Alternative approach", ctx, rt);
     const f = rt.activeMission!.milestones[0].features[0]!;
     expect(f.status).toBe("blocked");
@@ -1018,7 +1018,7 @@ describe("handleFork", () => {
       fork: async (_leafId: string, _opts: any) => { forkCalled = true; },
     });
     const rt = runtimeFixture();
-    saveMissionSafe(rt.activeMission!);
+    await saveMissionSafe(rt.activeMission!);
     await handleFork("Alternative approach", ctx, rt);
     expect(forkCalled).toBe(true);
     const forked = rt.activeMission!.milestones[0].features[3];
@@ -1130,7 +1130,7 @@ describe("handleDone auto-verifies acceptance criteria", () => {
   it("marks feature done and verifies bash checks", async () => {
     const ctx = mkCtx();
     const rt = runtimeFixture();
-    saveMissionSafe(rt.activeMission!);
+    await saveMissionSafe(rt.activeMission!);
     rt.activeMission!.milestones[0].features[0]!.acceptance = [
       { id: "AC001", description: "Bash check", checkType: "bash", checkCommand: "echo ok", verified: false },
     ];

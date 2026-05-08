@@ -97,7 +97,7 @@ describe("piMissions extension registration", () => {
 
   it("session_start hook auto-loads mission from entries", async () => {
     const m = createMission("AutoLoad", "Auto load test");
-    saveMissionSafe(m);
+    await saveMissionSafe(m);
 
     const pi = mkPi();
     const entries = [
@@ -122,7 +122,7 @@ describe("piMissions extension registration", () => {
     const pi = mkPi();
     const m = createMission("ToolPolicy", "Tool policy test");
     getActiveFeature(m)!.status = "pending";
-    saveMissionSafe(m);
+    await saveMissionSafe(m);
 
     piMissions(pi);
 
@@ -159,7 +159,7 @@ describe("piMissions extension registration", () => {
     const m = createMission("ToolLimit", "Tool limit test");
     getActiveFeature(m)!.status = "active";
     m.activeFeatureId = "F002"; // execution phase (title "Implement the core change")
-    saveMissionSafe(m);
+    await saveMissionSafe(m);
 
     piMissions(pi);
 
@@ -202,7 +202,7 @@ describe("piMissions extension registration", () => {
 
   it("agent_end hook does nothing when feature not active", async () => {
     const m = createMission("AgentEnd", "Test");
-    saveMissionSafe(m);
+    await saveMissionSafe(m);
 
     const pi = mkPi();
     piMissions(pi);
@@ -244,7 +244,7 @@ describe("piMissions extension registration", () => {
 
   it("session_shutdown hook clears interval and saves", async () => {
     const m = createMission("Shutdown", "Shutdown test");
-    saveMissionSafe(m);
+    await saveMissionSafe(m);
 
     const pi = mkPi();
     piMissions(pi);
@@ -274,7 +274,7 @@ describe("piMissions extension registration", () => {
 
   it("session_before_tree returns mission summary when mission active", async () => {
     const m = createMission("TreeSummary", "Test");
-    saveMissionSafe(m);
+    await saveMissionSafe(m);
 
     const pi = mkPi();
     piMissions(pi);
@@ -302,7 +302,7 @@ describe("piMissions extension registration", () => {
 
   it("session_before_compact calls compaction checkpoint", async () => {
     const m = createMission("Compact", "Test");
-    saveMissionSafe(m);
+    await saveMissionSafe(m);
 
     const pi = mkPi();
     piMissions(pi);
@@ -331,7 +331,7 @@ describe("piMissions extension registration", () => {
 
   it("before_agent_start hook builds mission context", async () => {
     const m = createMission("Context", "Context test");
-    saveMissionSafe(m);
+    await saveMissionSafe(m);
 
     const pi = mkPi();
     piMissions(pi);
@@ -365,7 +365,7 @@ describe("piMissions extension registration", () => {
 
   it("agent_end hook checks for completion signals", async () => {
     const m = createMission("AgentEnd", "Test");
-    saveMissionSafe(m);
+    await saveMissionSafe(m);
 
     const pi = mkPi();
     piMissions(pi);
@@ -401,7 +401,7 @@ describe("piMissions extension registration", () => {
     m.tokensBudget = 10000;
     m.tokensUsed = 0;
     m.lastContextTokens = 0;
-    saveMissionSafe(m);
+    await saveMissionSafe(m);
 
     const pi = mkPi();
     piMissions(pi);
@@ -429,7 +429,7 @@ describe("piMissions extension registration", () => {
 
   it("turn_end hook tracks token usage and labels leaf", async () => {
     const m = createMission("TurnEnd", "Test");
-    saveMissionSafe(m);
+    await saveMissionSafe(m);
 
     const pi = mkPi();
     piMissions(pi);
@@ -459,7 +459,7 @@ describe("piMissions extension registration", () => {
 
   it("keyboard shortcut ctrl+shift+d marks feature done", async () => {
     const m = createMission("Shortcut", "Shortcut test");
-    saveMissionSafe(m);
+    await saveMissionSafe(m);
 
     const pi = mkPi();
     piMissions(pi);

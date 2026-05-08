@@ -163,9 +163,9 @@ describe("save / load roundtrip", () => {
     cleanupTmp();
   });
 
-  it("roundtrips via plan.json", () => {
+  it("roundtrips via plan.json", async () => {
     const m = createMission("Roundtrip", "Ensure save works");
-    saveMissionSafe(m);
+    await saveMissionSafe(m);
     const loaded = loadMissionFromDisk(m.id);
     expect(loaded).not.toBeNull();
     expect(loaded!.id).toBe(m.id);
@@ -173,12 +173,12 @@ describe("save / load roundtrip", () => {
     expect(loaded!.schemaVersion).toBe(2);
   });
 
-  it("falls back to plan.json.bak when plan.json is corrupted", () => {
+  it("falls back to plan.json.bak when plan.json is corrupted", async () => {
     const m = createMission("Backup test", "Testing");
-    saveMissionSafe(m);
+    await saveMissionSafe(m);
     // Save twice so plan.json.bak is created from the first save.
     m.title = "Backup test modified";
-    saveMissionSafe(m);
+    await saveMissionSafe(m);
     // Corrupt plan.json
     const dir = missionDirSafe(m.id);
     fs.writeFileSync(path.join(dir, "plan.json"), "{corrupted}", "utf-8");
@@ -210,12 +210,12 @@ describe("listMissions", () => {
     expect(listMissions()).toEqual([]);
   });
 
-  it("lists saved missions", () => {
+  it("lists saved missions", async () => {
     const m1 = createMission("A", "Goal A");
     const m2 = createMission("B", "Goal B");
     // saveMissionSafe overwrites updatedAt; both get near-identical timestamps.
-    saveMissionSafe(m1);
-    saveMissionSafe(m2);
+    await saveMissionSafe(m1);
+    await saveMissionSafe(m2);
     const list = listMissions();
     expect(list).toHaveLength(2);
     const titles = list.map((m) => m.title);
@@ -333,9 +333,9 @@ describe("linkSession", () => {
     cleanupTmp();
   });
 
-  it("creates a session reference file", () => {
+  it("creates a session reference file", async () => {
     const m = createMission("Session", "Test");
-    saveMissionSafe(m);
+    await saveMissionSafe(m);
     linkSession(m, "/home/user/.pi/sessions/session-abc.jsonl");
     const refFile = path.join(missionDirSafe(m.id), "sessions", "session-abc.jsonl.ref");
     expect(fs.existsSync(refFile)).toBe(true);
@@ -496,11 +496,11 @@ describe("exportMarkdown", () => {
     expect(md).toContain("Acceptance criteria");
   });
 
-  it("includes evidence section when evidence exists", () => {
+  it("includes evidence section when evidence exists", async () => {
     const m = createMission("ExportEv", "Test");
     const f = m.milestones[0].features[0]!;
     f.status = "done";
-    saveMissionSafe(m);
+    await saveMissionSafe(m);
     saveEvidence(m, f, "## Test evidence\nAll passed");
     const md = exportMarkdown(m);
     expect(md).toContain("Evidence");
@@ -794,10 +794,10 @@ describe("evidenceIntegrityHash", () => {
     expect(evidenceIntegrityHash(m, "F001")).toBeNull();
   });
 
-  it("returns sha256 hex hash of evidence file", () => {
+  it("returns sha256 hex hash of evidence file", async () => {
     const m = createMission("Hash", "Test");
     const f = m.milestones[0].features[0]!;
-    saveMissionSafe(m);
+    await saveMissionSafe(m);
     saveEvidence(m, f, "test data");
     const hash = evidenceIntegrityHash(m, f.id);
     expect(hash).not.toBeNull();
@@ -805,11 +805,11 @@ describe("evidenceIntegrityHash", () => {
     expect(typeof hash).toBe("string");
   });
 
-  it("produces different hashes for different content", () => {
+  it("produces different hashes for different content", async () => {
     const m = createMission("Hash", "Test");
     const f1 = m.milestones[0].features[0]!;
     const f2 = m.milestones[0].features[1]!;
-    saveMissionSafe(m);
+    await saveMissionSafe(m);
     saveEvidence(m, f1, "data one");
     saveEvidence(m, f2, "data two");
     expect(evidenceIntegrityHash(m, "F001")).not.toBe(evidenceIntegrityHash(m, "F002"));
@@ -857,19 +857,19 @@ describe("computeMissionMetrics", () => {
     expect(metrics.acceptanceFailures).toBeGreaterThanOrEqual(3); // 3 features × 1 AC each
   });
 
-  it("sets completed from mission_complete event", () => {
+  it("sets completed from mission_complete event", async () => {
     const m = createMission("Metrics", "Test");
     m.createdAt = 1000000;
-    saveMissionSafe(m);
+    await saveMissionSafe(m);
     appendHistory(m, { event: "mission_complete" });
     const metrics = computeMissionMetrics(m);
     expect(metrics.completed).toBeGreaterThan(0);
   });
 
-  it("computes evidenceHashErrors for done features without evidence", () => {
+  it("computes evidenceHashErrors for done features without evidence", async () => {
     const m = createMission("Metrics", "Test");
     m.milestones[0].features[0]!.status = "done";
-    saveMissionSafe(m);
+    await saveMissionSafe(m);
     // No evidence saved → evidenceHashErrors should be 1
     const metrics = computeMissionMetrics(m);
     expect(metrics.evidenceHashErrors).toBeGreaterThanOrEqual(1);

@@ -174,7 +174,7 @@ describe("save/load roundtrip with done->next flow", () => {
     cleanupTmp();
   });
 
-  it("persists feature state changes across save/load", () => {
+  it("persists feature state changes across save/load", async () => {
     const m = createMission("Persist test", "Testing persistence");
     const f1 = getActiveFeature(m)!;
     f1.status = "done";
@@ -182,7 +182,7 @@ describe("save/load roundtrip with done->next flow", () => {
     const next = getNextPendingFeature(m)!;
     next.status = "active";
     m.activeFeatureId = next.id;
-    saveMissionSafe(m);
+    await saveMissionSafe(m);
 
     const m2 = loadMissionFromDisk(m.id);
     expect(m2).not.toBeNull();
@@ -258,7 +258,7 @@ describe("registerMissionTools — tool registration", () => {
     const pi = { registerTool: (t: any) => { tools.push(t); } };
     const rt: RuntimeState = { activeMission: m, autoSaveInterval: null };
     registerMissionTools(pi as any, rt);
-    saveMissionSafe(m);
+    await saveMissionSafe(m);
     const ctx = { ui: { setStatus: () => {}, notify: () => {} } };
     const result = await tools[0]!.execute("call1", { evidence: "All tests pass", notes: "optional" }, null as any, () => {}, ctx);
     expect(result.isError).toBe(false);
@@ -297,7 +297,7 @@ describe("registerMissionTools — tool registration", () => {
     const current = getActiveFeature(m)!;
     current.status = "done";
     current.completedAt = Date.now();
-    saveMissionSafe(m);
+    await saveMissionSafe(m);
     const tools: any[] = [];
     const pi = { registerTool: (t: any) => { tools.push(t); } };
     const rt: RuntimeState = { activeMission: m, autoSaveInterval: null };
@@ -316,7 +316,7 @@ describe("registerMissionTools — tool registration", () => {
       f.status = "done";
       if (!f.completedAt) f.completedAt = Date.now();
     }
-    saveMissionSafe(m);
+    await saveMissionSafe(m);
     const tools: any[] = [];
     const pi = { registerTool: (t: any) => { tools.push(t); } };
     const rt: RuntimeState = { activeMission: m, autoSaveInterval: null };
@@ -330,7 +330,7 @@ describe("registerMissionTools — tool registration", () => {
 
   it("mission_feature_done sets feature notes from params", async () => {
     const m = createMission("NotesTest", "Test");
-    saveMissionSafe(m);
+    await saveMissionSafe(m);
     const tools: any[] = [];
     const pi = { registerTool: (t: any) => { tools.push(t); } };
     const rt: RuntimeState = { activeMission: m, autoSaveInterval: null };
@@ -350,7 +350,7 @@ describe("registerMissionTools — tool registration", () => {
     m.milestones[0].features[1]!.status = "blocked";
     m.milestones[0].features[2]!.status = "pending";
     // F003 depends on F002 which is blocked → no unblocked pending
-    saveMissionSafe(m);
+    await saveMissionSafe(m);
     const tools: any[] = [];
     const pi = { registerTool: (t: any) => { tools.push(t); } };
     const rt: RuntimeState = { activeMission: m, autoSaveInterval: null };

@@ -36,8 +36,13 @@
     "@mariozechner/pi-tui": "*",
     "typebox": "*"
   },
+  "dependencies": {
+    "proper-lockfile": "^4.1.2",
+    "@sinclair/typebox": "^0.31.28"
+  },
   "devDependencies": {
     "@types/node": "^22.0.0",
+    "@types/proper-lockfile": "^4.1.2",
     "@vitest/coverage-v8": "^2.1.9",
     "typescript": "^5.6.0",
     "vitest": "^2.1.0"

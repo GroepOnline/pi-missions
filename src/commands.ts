@@ -177,7 +177,7 @@ export async function handleNew(titleArg: string, ctx: ExtensionCommandContext, 
 
   const mission = parsedMission ?? createMission(title, goal, constraints);
   runtime.activeMission = mission;
-  saveMissionSafe(mission);
+  await saveMissionSafe(mission);
   appendHistory(mission, { event: "mission_created", note: goal, details: { usedWizard } });
   pi.appendEntry("pi-mission-active", { missionId: mission.id });
   pi.setSessionName(`🎯 ${mission.title}`);
@@ -247,7 +247,7 @@ export async function handleDashboard(ctx: ExtensionCommandContext, runtime: Run
       mission.status = "active";
       autoBlockBlockedFeatures(mission);
       appendHistory(mission, { event: "feature_active", featureId: selectedFeatureId });
-      saveMissionSafe(mission);
+      await saveMissionSafe(mission);
       updateFooter(ctx, mission);
       ctx.ui.notify(`➡️ Activated: ${selectedFeatureId} — ${feature.title}`, "info");
     } else if (feature && mission.activeFeatureId === selectedFeatureId) {
@@ -270,7 +270,7 @@ export async function handleNext(ctx: ExtensionCommandContext, runtime: RuntimeS
     if (allFeaturesDone(mission)) {
       mission.status = "complete";
       autoCompleteMilestones(mission);
-      saveMissionSafe(mission);
+      await saveMissionSafe(mission);
       updateFooter(ctx, mission);
       return ctx.ui.notify("🎉 Mission complete.", "info");
     }
@@ -283,7 +283,7 @@ export async function handleNext(ctx: ExtensionCommandContext, runtime: RuntimeS
   mission.activeMilestoneId = next.milestoneId;
   autoBlockBlockedFeatures(mission);
   appendHistory(mission, { event: "feature_active", featureId: next.id });
-  saveMissionSafe(mission);
+  await saveMissionSafe(mission);
   updateFooter(ctx, mission);
   ctx.ui.notify(`➡️ Active feature: ${next.id} — ${next.title}\n${next.description}`, "info");
 }
@@ -317,7 +317,7 @@ export async function handleDone(evidence: string, ctx: ExtensionCommandContext,
   const next = getNextPendingFeature(mission);
   if (!next && allFeaturesDone(mission)) mission.status = "complete";
   autoCompleteMilestones(mission);
-  saveMissionSafe(mission);
+  await saveMissionSafe(mission);
   updateFooter(ctx, mission);
   ctx.ui.notify(`✅ ${feature.id} done. Evidence: ${evidenceFile}`, "info");
 }
@@ -329,7 +329,7 @@ export async function handleBlock(reason: string, ctx: ExtensionCommandContext, 
   feature.status = "blocked";
   feature.notes = reason || "Blocked";
   appendHistory(mission, { event: "feature_blocked", featureId: feature.id, note: feature.notes });
-  saveMissionSafe(mission);
+  await saveMissionSafe(mission);
   updateFooter(ctx, mission);
 }
 
@@ -337,7 +337,7 @@ export async function handlePause(ctx: ExtensionCommandContext, runtime: Runtime
   if (!runtime.activeMission) return ctx.ui.notify("No active mission.", "warning");
   runtime.activeMission.status = "paused";
   appendHistory(runtime.activeMission, { event: "mission_paused" });
-  saveMissionSafe(runtime.activeMission);
+  await saveMissionSafe(runtime.activeMission);
   updateFooter(ctx, runtime.activeMission);
 }
 
@@ -345,7 +345,7 @@ export async function handleResume(ctx: ExtensionCommandContext, runtime: Runtim
   if (!runtime.activeMission) return ctx.ui.notify("No active mission.", "warning");
   runtime.activeMission.status = "active";
   appendHistory(runtime.activeMission, { event: "mission_resumed" });
-  saveMissionSafe(runtime.activeMission);
+  await saveMissionSafe(runtime.activeMission);
   updateFooter(ctx, runtime.activeMission);
 }
 
@@ -374,7 +374,7 @@ export async function handleEdit(featureId: string | undefined, ctx: ExtensionCo
 
   Object.assign(feature, parsed);
   appendHistory(mission, { event: "feature_edited", featureId });
-  saveMissionSafe(mission);
+  await saveMissionSafe(mission);
   updateFooter(ctx, mission);
 }
 
@@ -396,7 +396,7 @@ export async function handleFork(reason: string, ctx: ExtensionCommandContext, r
   mission.activeFeatureId = forked.id;
   mission.status = "active";
   appendHistory(mission, { event: "feature_forked", featureId: feature.id, note: approach, details: { forkedFeatureId: forked.id } });
-  saveMissionSafe(mission);
+  await saveMissionSafe(mission);
   const leafId = ctx.sessionManager.getLeafId();
   if (!leafId) {
     ctx.ui.notify(`🌿 Fork feature created: ${forked.title} (no session leaf available to fork)`, "warning");
@@ -520,7 +520,7 @@ export async function handleTemplates(sub: string | undefined, arg: string | und
     const mission = createMissionFromTemplate(arg, title);
     if (!mission) return ctx.ui.notify(`Unknown template: ${arg}. Use /mission templates list.`, "error");
     runtime.activeMission = mission;
-    saveMissionSafe(mission);
+    await saveMissionSafe(mission);
     appendHistory(mission, { event: "mission_created", note: `From template: ${arg}` });
     pi.appendEntry("pi-mission-active", { missionId: mission.id });
     pi.setSessionName(`🎯 ${mission.title}`);

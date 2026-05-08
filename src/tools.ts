@@ -31,7 +31,7 @@ export function registerMissionTools(pi: ExtensionAPI, runtime: RuntimeState): v
       appendHistory(mission, { event: "feature_done", featureId: feature.id, note: params.notes, details: { evidenceFile } });
       const next = getNextPendingFeature(mission);
       if (!next && allFeaturesDone(mission)) mission.status = "complete";
-      saveMissionSafe(mission);
+      await saveMissionSafe(mission);
       updateFooter(ctx, mission);
       return { content: [{ type: "text", text: `✅ Feature ${feature.id} done. Evidence: ${evidenceFile}` }], details: { featureId: feature.id, evidenceFile }, isError: false };
     },
@@ -58,7 +58,7 @@ export function registerMissionTools(pi: ExtensionAPI, runtime: RuntimeState): v
       if (!next) {
         if (allFeaturesDone(mission)) {
           mission.status = "complete";
-          saveMissionSafe(mission);
+          await saveMissionSafe(mission);
           updateFooter(ctx, mission);
           return { content: [{ type: "text", text: "🎉 Mission complete." }], details: { missionId: mission.id }, isError: false };
         }
@@ -73,7 +73,7 @@ export function registerMissionTools(pi: ExtensionAPI, runtime: RuntimeState): v
       mission.activeFeatureId = next.id;
       mission.activeMilestoneId = next.milestoneId;
       appendHistory(mission, { event: "feature_active", featureId: next.id });
-      saveMissionSafe(mission);
+      await saveMissionSafe(mission);
       updateFooter(ctx, mission);
       return { content: [{ type: "text", text: `➡️ Active feature: ${next.id} — ${next.title}\n${next.description}` }], details: { feature: next }, isError: false };
     },

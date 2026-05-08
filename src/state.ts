@@ -1,8 +1,10 @@
 import * as crypto from "node:crypto";
 import * as fs from "node:fs";
+import * as fsAsync from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { CURRENT_SCHEMA_VERSION, DEFAULT_FEATURE_MAX_TOOL_CALLS, DEFAULT_FEATURE_MAX_WALL_CLOCK_MS, STALE_FEATURE_WARN_CLOCK_MS, type Feature, type Milestone, type MissionHistoryEntry, type MissionMetrics, type MissionState, type ToolPhase } from "./types.js";
+import { withLock } from "./lock.js";
 
 export function missionsRoot(): string {
   return path.join(os.homedir(), ".pi", "missions");
@@ -154,27 +156,33 @@ export function migrateMission(raw: unknown): MissionState {
   throw new Error(`Unsupported mission schemaVersion: ${version}`);
 }
 
-export function saveMissionSafe(mission: MissionState): void {
+export async function saveMissionSafe(mission: MissionState): Promise<void> {
   const dir = missionDirSafe(mission.id);
-  fs.mkdirSync(dir, { recursive: true });
-  fs.mkdirSync(path.join(dir, "evidence"), { recursive: true });
-  fs.mkdirSync(path.join(dir, "sessions"), { recursive: true });
   const target = path.join(dir, "plan.json");
-  const backup = path.join(dir, "plan.json.bak");
-  const preMigration = path.join(dir, "plan.json.pre-migration.bak");
-  const temp = path.join(dir, "plan.json.tmp");
-  if (fs.existsSync(target)) {
-    fs.copyFileSync(target, backup);
-    if (!fs.existsSync(preMigration)) fs.copyFileSync(target, preMigration);
-  }
-  try {
-    mission.updatedAt = Date.now();
-    fs.writeFileSync(temp, JSON.stringify(mission, null, 2), "utf-8");
-    fs.renameSync(temp, target);
-  } catch (error) {
-    if (fs.existsSync(backup)) fs.copyFileSync(backup, target);
-    throw error;
-  }
+  
+  await withLock(target, async () => {
+    await fsAsync.mkdir(dir, { recursive: true });
+    await fsAsync.mkdir(path.join(dir, "evidence"), { recursive: true });
+    await fsAsync.mkdir(path.join(dir, "sessions"), { recursive: true });
+    
+    const backup = path.join(dir, "plan.json.bak");
+    const preMigration = path.join(dir, "plan.json.pre-migration.bak");
+    const temp = path.join(dir, "plan.json.tmp");
+    
+    if (fs.existsSync(target)) {
+      await fsAsync.copyFile(target, backup);
+      if (!fs.existsSync(preMigration)) await fsAsync.copyFile(target, preMigration);
+    }
+    
+    try {
+      mission.updatedAt = Date.now();
+      await fsAsync.writeFile(temp, JSON.stringify(mission, null, 2), "utf-8");
+      await fsAsync.rename(temp, target);
+    } catch (error) {
+      if (fs.existsSync(backup)) await fsAsync.copyFile(backup, target);
+      throw error;
+    }
+  });
 }
 
 export function loadMissionFromDisk(id: string): MissionState | null {

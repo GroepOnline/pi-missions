@@ -28,8 +28,8 @@ export default function piMissions(pi: ExtensionAPI): void {
       pi.setSessionName(`🎯 ${runtime.activeMission.title}`);
     }
     if (!runtime.autoSaveInterval) {
-      runtime.autoSaveInterval = setInterval(() => {
-        if (runtime.activeMission && runtime.activeMission.status === "active") saveMissionSafe(runtime.activeMission);
+      runtime.autoSaveInterval = setInterval(async () => {
+        if (runtime.activeMission && runtime.activeMission.status === "active") await saveMissionSafe(runtime.activeMission);
       }, 2 * 60 * 1000);
     }
   });
@@ -92,7 +92,7 @@ export default function piMissions(pi: ExtensionAPI): void {
       const evidenceFile = saveEvidence(mission, feature, "Marked done via keyboard shortcut.");
       appendHistory(mission, { event: "feature_done", featureId: feature.id, note: "Keyboard shortcut", details: { evidenceFile } });
       autoBlockBlockedFeatures(mission);
-      saveMissionSafe(mission);
+      await saveMissionSafe(mission);
       updateFooter(ctx, mission);
       ctx.ui.notify(`✅ ${feature.title} marked as done! Evidence: ${evidenceFile}`, "success");
     },
@@ -114,7 +114,7 @@ export default function piMissions(pi: ExtensionAPI): void {
     const leafId = ctx.sessionManager.getLeafId();
     const active = getActiveFeature(mission);
     if (leafId && active) pi.setLabel(leafId, `🎯 ${active.title}`);
-    saveMissionSafe(mission);
+    await saveMissionSafe(mission);
     updateFooter(ctx, mission);
   });
 
@@ -137,7 +137,7 @@ export default function piMissions(pi: ExtensionAPI): void {
     runtime.autoSaveInterval = null;
     if (runtime.activeMission) {
       saveSessionLink(runtime, ctx.sessionManager.getSessionFile());
-      saveMissionSafe(runtime.activeMission);
+      await saveMissionSafe(runtime.activeMission);
     }
     updateFooter(ctx, null);
   });
