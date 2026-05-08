@@ -1,5 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import type { TUI } from "@mariozechner/pi-tui";
 import { cloneFeatureForFork, compactionCheckpoint, handleBlock, handleClear, handleDashboard, handleDebug, handleDone, handleExport, handleFork, handleModels, handleNew, handleNext, handlePause, handleResume, handleStatus, handleTemplates, missionSummaryForTree, saveSessionLink } from "../src/commands.js";
+import { missionControlOverlay } from "../src/dashboard.js";
 import { appendHistory, autoBlockBlockedFeatures, createMission, exportMarkdown, loadMissionFromDisk, saveEvidence, saveMissionSafe } from "../src/state.js";
 import { clearModelConfigCache, formatAgentModelLine, formatModelConfig, loadModelConfig, type ModelsConfig } from "../src/models.js";
 import type { MissionState, RuntimeState } from "../src/types.js";
@@ -560,6 +562,48 @@ describe("handleDashboard", () => {
     // Handle input forwarding and disposal should not throw
     component.handleInput("j");
     component.dispose();
+  });
+
+  it("E2E: navigates SelectList with arrow keys, selects feature with Enter, fires onAction and hides overlay", async () => {
+    const mission = createMission("E2E Dashboard", "Test goal");
+
+    let overlayHidden = false;
+    let featureActivated: string | null = null;
+    const mockTui = {
+      hideOverlay: () => { overlayHidden = true; },
+      requestRender: () => {},
+    } as unknown as TUI;
+
+    const component: any = missionControlOverlay(mission, (featureId) => { featureActivated = featureId; })(mockTui);
+
+    // 1. Initial render — all 3 features listed, F001 selected with → prefix
+    const initial = component.render(80);
+    expect(initial.some((l: string) => l.includes("F001"))).toBe(true);
+    expect(initial.some((l: string) => l.includes("F002"))).toBe(true);
+    expect(initial.some((l: string) => l.includes("F003"))).toBe(true);
+    expect(initial.some((l: string) => l.includes("→") && l.includes("F001"))).toBe(true);
+
+    // 2. Navigate down (\x1b[B) to F002 — verify selection and detail pane
+    component.handleInput("\x1b[B");
+    const down1 = component.render(80);
+    expect(down1.some((l: string) => l.includes("→") && l.includes("F002"))).toBe(true);
+    expect(down1.some((l: string) => l.includes("F002:"))).toBe(true);
+
+    // 3. Navigate down again to F003
+    component.handleInput("\x1b[B");
+    const down2 = component.render(80);
+    expect(down2.some((l: string) => l.includes("→") && l.includes("F003"))).toBe(true);
+    expect(down2.some((l: string) => l.includes("F003:"))).toBe(true);
+
+    // 4. Navigate back up (\x1b[A) to F002
+    component.handleInput("\x1b[A");
+    const up1 = component.render(80);
+    expect(up1.some((l: string) => l.includes("→") && l.includes("F002"))).toBe(true);
+
+    // 5. Press Enter (\r) — activates F002, hides overlay
+    component.handleInput("\r");
+    expect(featureActivated).toBe("F002");
+    expect(overlayHidden).toBe(true);
   });
 
   it("warns when no mission", async () => {
