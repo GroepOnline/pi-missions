@@ -3,3 +3,7 @@ dist
 .pi
 coverage
 *.tmp
+autoresearch.jsonl
+autoresearch.md
+autoresearch.ideas.md
+autoresearch.checks.sh

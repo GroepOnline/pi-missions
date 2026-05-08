@@ -35,7 +35,7 @@ Inspired by Factory Droid Missions and Codex-style goal tracking, but built as a
 - **Structured logging** – detailed debug logs for troubleshooting
 - **Session metrics** – track tokens, time, and progress per session
 - **Graceful degradation** – continues working with degraded functionality when errors occur
-- **Autonomous execution** – agents can auto-advance through features without manual intervention
+- **Autopilot engine** – bounded autonomous execution with stop conditions
 - **Mission templates** – pre-defined mission structures for common workflows
 
 ## 🛠️ Quick Start
@@ -61,6 +61,9 @@ pi -e ./src/index.ts
 | `/mission new <title>`         | Create a new mission                             |
 | `/mission list`                | List missions and load one                       |
 | `/mission load <id>`           | Load a mission into the current session          |
+| `/mission run`                 | Start autopilot execution                        |
+| `/mission autopilot`           | Show autopilot status                            |
+| `/mission stop`                | Stop autopilot execution                         |
 | `/mission status`              | Show current status & active feature             |
 | `/mission dashboard`           | Open the beautiful dashboard widget              |
 | `/mission next`                | Advance to the next unblocked feature            |
@@ -102,12 +105,20 @@ All state is stored locally:
 
 ## 🔄 Typical Workflow
 
+### Manual Mode
 1. Create mission: `/mission new "Build user authentication system"`
 2. Break it into features
-3. Let the agent work on the active feature (autonomous execution will auto-advance)
+3. Let the agent work on the active feature
 4. Capture proof: `/mission done "Implemented JWT + tests + coverage"`
-5. Move forward: `/mission next` (or let autonomous execution handle it)
+5. Move forward: `/mission next`
 6. Repeat until mission complete!
+
+### Autopilot Mode
+1. Create mission: `/mission new "Build user authentication system"`
+2. Start autopilot: `/mission run`
+3. The engine automatically chains turns, evaluates progress, and advances through features
+4. Stop conditions: mission complete, blocker, max iterations, user stop
+5. Monitor status: `/mission autopilot`
 
 ![Dashboard Mockup](https://raw.githubusercontent.com/OnlineChef/pi-missions/main/assets/dashboard.png)
 
