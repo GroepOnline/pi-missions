@@ -236,7 +236,7 @@ export async function handleLoad(id: string | undefined, ctx: ExtensionCommandCo
   const mission = loadMissionFromDisk(id);
   if (!mission) {
     ctx.ui.notify(`Mission not found: ${id}`, "error");
-    logger.warn("commands", "Mission not found", undefined, { missionId: id });
+    logger.warn("commands", "Mission not found", { missionId: id });
     return;
   }
 

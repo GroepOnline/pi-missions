@@ -322,11 +322,11 @@ export default function piMissions(pi: ExtensionAPI): void {
         mission.activeMilestoneId = next.milestoneId;
         autoBlockBlockedFeatures(mission);
         appendHistory(mission, { event: "feature_active", featureId: next.id, note: "Auto-advanced" });
-        ctx.ui.notify(`✅ Auto-completed feature ${feature.id}. Auto-advanced to ${next.id} — ${next.title}`, "success");
+        ctx.ui.notify(`✅ Auto-completed feature ${feature.id}. Auto-advanced to ${next.id} — ${next.title}`, "info");
       } else if (getAllFeatures(mission).every(f => f.status === "done")) {
         mission.status = "complete";
         appendHistory(mission, { event: "mission_complete", note: "Auto-completed all features" });
-        ctx.ui.notify(`🎉 Mission complete! All features auto-completed.`, "success");
+        ctx.ui.notify(`🎉 Mission complete! All features auto-completed.`, "info");
       } else {
         autoBlockBlockedFeatures(mission);
         ctx.ui.notify(`✅ Auto-completed feature ${feature.id}. No pending features - check blocked features.`, "info");

@@ -242,6 +242,7 @@ describe("E2E: Mission Lifecycle", () => {
       ],
       status: "active" as const,
       sessions: [],
+      toolCallCount: 0,
     };
     
     // Record some successful tool calls
@@ -254,7 +255,7 @@ describe("E2E: Mission Lifecycle", () => {
     // Test completion with strong signals
     const result = detector.detectCompletion(feature, "I have completed the implementation. All tests pass and the feature is done.");
     // With acceptance criteria verified and keyword signals, should suggest completion
-    expect(result.confidence).toBe("high" || "medium");
+    expect(["high", "medium"]).toContain(result.confidence);
     expect(result.signals.length).toBeGreaterThan(0);
     expect(result.suggestedAction).toBe("auto_done"); // With all acceptance criteria verified, it should auto-done
   });

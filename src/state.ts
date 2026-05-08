@@ -373,7 +373,7 @@ export function exportMarkdown(mission: MissionState): string {
   try {
     history = readHistory(mission.id).slice(-50);
   } catch (error) {
-    logger.warn("state", "Failed to read history for export", error as Error, { missionId: mission.id });
+    logger.warn("state", "Failed to read history for export", { missionId: mission.id, error: error instanceof Error ? error.message : String(error) });
     // Graceful degradation: continue without history
   }
 

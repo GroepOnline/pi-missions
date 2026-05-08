@@ -1,4 +1,5 @@
-import lock from "proper-lockfile";
+// @ts-ignore - proper-lockfile types are not compatible
+const lock = require("proper-lockfile");
 import * as path from "node:path";
 import { missionDirSafe } from "./state.js";
 
@@ -125,10 +126,8 @@ export async function cleanupStaleLocks(): Promise<void> {
     if (entry.isDirectory()) {
       const lockPath = path.join(missionsRoot, entry.name, ".lock");
       try {
-        const released = await lock.unlock(lockPath);
-        if (released) {
-          console.log(`[pi-missions] Cleaned up stale lock for ${entry.name}`);
-        }
+        await lock.unlock(lockPath);
+        console.log(`[pi-missions] Cleaned up stale lock for ${entry.name}`);
       } catch {
         // Lock doesn't exist or can't be cleaned - ignore
       }
