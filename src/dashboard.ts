@@ -103,6 +103,7 @@ class MissionControl implements Component {
   private onAction?: (featureId: string) => void;
   private filterChars = "";
   private width = 80;
+  private filterText: Text;
 
   constructor(mission: MissionState, tui: TUI, onAction?: (featureId: string) => void) {
     this.mission = mission;
@@ -122,6 +123,9 @@ class MissionControl implements Component {
     const header = new Box(1, 0);
     header.addChild(new Text(`${statusIco} Mission Control — ${mission.title}`));
     header.addChild(new Text(`Progress: ${p.done}/${p.total} features (${p.pct}%)  |  Status: ${mission.status}  |  Tokens: ${mission.tokensUsed.toLocaleString()}`));
+
+    // Filter indicator (shown only when filterChars is non-empty)
+    this.filterText = new Text("", 1, 0);
 
     // Feature list
     this.list = new SelectList(items, Math.min(items.length, 15), selectTheme);
@@ -150,6 +154,7 @@ class MissionControl implements Component {
     // Container
     this.container = new Box(1, 1);
     this.container.addChild(header);
+    this.container.addChild(this.filterText);
     this.container.addChild(this.list);
     this.container.addChild(new Spacer(1));
     this.container.addChild(this.detailBox);
@@ -179,12 +184,24 @@ class MissionControl implements Component {
     this.container.invalidate();
   }
 
+  private updateFilterDisplay(): void {
+    if (this.filterChars) {
+      this.filterText.setText(`🔍 Filter: ${this.filterChars}`);
+    } else {
+      this.filterText.setText("");
+    }
+    this.container.invalidate();
+    // Note: updateDetailForCurrentSelection() already calls requestRender()
+    // when invoked alongside this method in handleInput.
+  }
+
   handleInput(data: string): void {
     // Type-to-filter: intercept printable characters to filter the feature list
     if (data.length === 1 && data.charCodeAt(0) >= 32 && data.charCodeAt(0) <= 126) {
       this.filterChars += data;
       this.list.setFilter(this.filterChars);
       this.updateDetailForCurrentSelection();
+      this.updateFilterDisplay();
       return;
     }
     // Backspace — remove last char from filter
@@ -192,6 +209,7 @@ class MissionControl implements Component {
       this.filterChars = this.filterChars.slice(0, -1);
       this.list.setFilter(this.filterChars);
       this.updateDetailForCurrentSelection();
+      this.updateFilterDisplay();
       return;
     }
     // Escape: if filter is active, clear it and stay open.
@@ -201,6 +219,7 @@ class MissionControl implements Component {
         this.filterChars = "";
         this.list.setFilter("");
         this.updateDetailForCurrentSelection();
+        this.updateFilterDisplay();
         return;
       }
     }

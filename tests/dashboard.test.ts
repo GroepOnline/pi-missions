@@ -593,6 +593,8 @@ describe("missionControlOverlay", () => {
     expect(afterF.some((l: string) => l.includes("F001"))).toBe(true);
     expect(afterF.some((l: string) => l.includes("F002"))).toBe(true);
     expect(afterF.some((l: string) => l.includes("F003"))).toBe(true);
+    // Filter bar shows current filter text
+    expect(afterF.some((l: string) => l.includes("🔍 Filter: F"))).toBe(true);
     // No "No matching" message
     expect(afterF.some((l: string) => l.includes("No matching"))).toBe(false);
 
@@ -619,6 +621,8 @@ describe("missionControlOverlay", () => {
     const afterF003 = component.render(80);
     expect(afterF003.some((l: string) => l.includes("F003"))).toBe(true);
     expect(afterF003.some((l: string) => l.includes("F001"))).toBe(false);
+    // Filter bar shows accumulated text
+    expect(afterF003.some((l: string) => l.includes("🔍 Filter: F003"))).toBe(true);
     // F002 appears as dependency in detail pane
     expect(afterF003.some((l: string) => l.includes("🔗") && l.includes("F002"))).toBe(true);
 
@@ -663,6 +667,8 @@ describe("missionControlOverlay", () => {
     c.handleInput("\x1b");
     expect(overlayHidden).toBe(false);
     const afterClear = c.render(80);
+    // Filter bar hidden after clear
+    expect(afterClear.some((l: string) => l.includes("Filter:"))).toBe(false);
     expect(afterClear.some((l: string) => l.includes("F001"))).toBe(true);
     expect(afterClear.some((l: string) => l.includes("F002"))).toBe(true);
     expect(afterClear.some((l: string) => l.includes("F003"))).toBe(true);
