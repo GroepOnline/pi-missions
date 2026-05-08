@@ -104,6 +104,7 @@ class MissionControl implements Component {
   private filterChars = "";
   private width = 80;
   private filterText: Text;
+  private footerText: Text;
 
   constructor(mission: MissionState, tui: TUI, onAction?: (featureId: string) => void) {
     this.mission = mission;
@@ -147,9 +148,10 @@ class MissionControl implements Component {
       }
     }
 
-    // Footer
+    // Footer — dynamic text updated when filter changes
+    this.footerText = new Text(this.footerTextFor(items.length, items.length), 1, 0);
     const footer = new Box(1, 0);
-    footer.addChild(new Text(`Keys: ↑↓ navigate  |  Enter select  |  Esc close  |  Ctrl+U clear filter  |  Type to filter  |  ${items.length} features`));
+    footer.addChild(this.footerText);
 
     // Container
     this.container = new Box(1, 1);
@@ -195,6 +197,20 @@ class MissionControl implements Component {
     // when invoked alongside this method in handleInput.
   }
 
+  private footerTextFor(filtered: number, total: number): string {
+    if (this.filterChars) {
+      return `Keys: ↑↓ navigate  |  Enter select  |  Esc close  |  Ctrl+U clear filter  |  Type to filter  |  ${filtered}/${total} features`;
+    }
+    return `Keys: ↑↓ navigate  |  Enter select  |  Esc close  |  Ctrl+U clear filter  |  Type to filter  |  ${total} features`;
+  }
+
+  private updateFooter(): void {
+    const listAny = this.list as any;
+    this.footerText.setText(
+      this.footerTextFor(listAny.filteredItems.length, listAny.items.length),
+    );
+  }
+
   handleInput(data: string): void {
     // Type-to-filter: intercept printable characters to filter the feature list
     if (data.length === 1 && data.charCodeAt(0) >= 32 && data.charCodeAt(0) <= 126) {
@@ -202,6 +218,7 @@ class MissionControl implements Component {
       this.list.setFilter(this.filterChars);
       this.updateDetailForCurrentSelection();
       this.updateFilterDisplay();
+      this.updateFooter();
       return;
     }
     // Backspace — remove last char from filter
@@ -210,6 +227,7 @@ class MissionControl implements Component {
       this.list.setFilter(this.filterChars);
       this.updateDetailForCurrentSelection();
       this.updateFilterDisplay();
+      this.updateFooter();
       return;
     }
     // Ctrl+U — clear filter in one keystroke (always stays open)
@@ -218,6 +236,7 @@ class MissionControl implements Component {
       this.list.setFilter("");
       this.updateDetailForCurrentSelection();
       this.updateFilterDisplay();
+      this.updateFooter();
       return;
     }
     // Escape: if filter is active, clear it and stay open.
@@ -228,6 +247,7 @@ class MissionControl implements Component {
         this.list.setFilter("");
         this.updateDetailForCurrentSelection();
         this.updateFilterDisplay();
+        this.updateFooter();
         return;
       }
     }

@@ -579,15 +579,17 @@ describe("missionControlOverlay", () => {
     };
     const component: any = missionControlOverlay(mission)(mockTui);
 
-    // 1. Initial render — all 5 features visible
+    // 1. Initial render — all 5 features visible, no filter count
     const initial = component.render(80);
     expect(initial.some((l: string) => l.includes("F001"))).toBe(true);
     expect(initial.some((l: string) => l.includes("F002"))).toBe(true);
     expect(initial.some((l: string) => l.includes("F003"))).toBe(true);
     expect(initial.some((l: string) => l.includes("F010"))).toBe(true);
     expect(initial.some((l: string) => l.includes("F011"))).toBe(true);
+    // Footer shows total count, not filtered/total
+    expect(initial.some((l: string) => l.includes("5 features") && !l.includes("/"))).toBe(true);
 
-    // 2. Type "F" — all still visible (all start with F)
+    // 2. Type "F" — all still visible (all start with F), 5/5
     component.handleInput("F");
     const afterF = component.render(80);
     expect(afterF.some((l: string) => l.includes("F001"))).toBe(true);
@@ -595,6 +597,8 @@ describe("missionControlOverlay", () => {
     expect(afterF.some((l: string) => l.includes("F003"))).toBe(true);
     // Filter bar shows current filter text
     expect(afterF.some((l: string) => l.includes("🔍 Filter: F"))).toBe(true);
+    // Footer shows filtered/total count
+    expect(afterF.some((l: string) => l.includes("5/5 features"))).toBe(true);
     // No "No matching" message
     expect(afterF.some((l: string) => l.includes("No matching"))).toBe(false);
 
@@ -605,7 +609,7 @@ describe("missionControlOverlay", () => {
     expect(afterF0.some((l: string) => l.includes("F002"))).toBe(true);
     expect(afterF0.some((l: string) => l.includes("F010"))).toBe(true);
 
-    // 4. Type "0" again — filter="F00", only F001, F002, F003 remain
+    // 4. Type "0" again — filter="F00", only F001, F002, F003 remain (3/5)
     component.handleInput("0");
     const afterF00 = component.render(80);
     expect(afterF00.some((l: string) => l.includes("F001"))).toBe(true);
@@ -613,8 +617,10 @@ describe("missionControlOverlay", () => {
     expect(afterF00.some((l: string) => l.includes("F003"))).toBe(true);
     expect(afterF00.some((l: string) => l.includes("F010"))).toBe(false);
     expect(afterF00.some((l: string) => l.includes("F011"))).toBe(false);
+    // Footer shows 3/5 filtered count
+    expect(afterF00.some((l: string) => l.includes("3/5 features"))).toBe(true);
 
-    // 5. Type "3" — filter="F003", only F003 in list.
+    // 5. Type "3" — filter="F003", only F003 in list (1/5).
     // Detail pane shows F003 depends on F002, so F002 appears there (correct).
     // F001 is absent (not in filter results, not a dependency of F003).
     component.handleInput("3");
@@ -623,6 +629,8 @@ describe("missionControlOverlay", () => {
     expect(afterF003.some((l: string) => l.includes("F001"))).toBe(false);
     // Filter bar shows accumulated text
     expect(afterF003.some((l: string) => l.includes("🔍 Filter: F003"))).toBe(true);
+    // Footer shows 1/5 filtered count
+    expect(afterF003.some((l: string) => l.includes("1/5 features"))).toBe(true);
     // F002 appears as dependency in detail pane
     expect(afterF003.some((l: string) => l.includes("🔗") && l.includes("F002"))).toBe(true);
 
@@ -667,8 +675,9 @@ describe("missionControlOverlay", () => {
     c.handleInput("\x1b");
     expect(overlayHidden).toBe(false);
     const afterClear = c.render(80);
-    // Filter bar hidden after clear
+    // Filter bar hidden after clear; footer back to plain total
     expect(afterClear.some((l: string) => l.includes("Filter:"))).toBe(false);
+    expect(afterClear.some((l: string) => l.includes("5 features") && !l.includes("/"))).toBe(true);
     expect(afterClear.some((l: string) => l.includes("F001"))).toBe(true);
     expect(afterClear.some((l: string) => l.includes("F002"))).toBe(true);
     expect(afterClear.some((l: string) => l.includes("F003"))).toBe(true);
@@ -740,8 +749,9 @@ describe("missionControlOverlay", () => {
     const afterPunct = c3.render(80);
     // Filter bar shows "!"
     expect(afterPunct.some((l: string) => l.includes("🔍 Filter: !"))).toBe(true);
-    // No features match "!"
+    // No features match "!" — footer shows 0/5
     expect(afterPunct.some((l: string) => l.includes("No matching"))).toBe(true);
+    expect(afterPunct.some((l: string) => l.includes("0/5 features"))).toBe(true);
 
     // ── 4. Rapid type then backspace all the way ──
     const c4: any = missionControlOverlay(mission)(mockTui);
@@ -828,6 +838,8 @@ describe("missionControlOverlay", () => {
     expect(overlayHidden).toBe(false); // overlay does NOT close
     const afterClear = c1.render(80);
     expect(afterClear.some((l: string) => l.includes("Filter:"))).toBe(false);
+    // Footer back to plain total after clear
+    expect(afterClear.some((l: string) => l.includes("5 features") && !l.includes("/"))).toBe(true);
     expect(afterClear.some((l: string) => l.includes("F001"))).toBe(true);
     expect(afterClear.some((l: string) => l.includes("F002"))).toBe(true);
     expect(afterClear.some((l: string) => l.includes("F003"))).toBe(true);
