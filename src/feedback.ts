@@ -31,11 +31,11 @@ export class FeedbackHandler {
   
   private static createFeedbackFromError(error: Error, context?: string): ErrorFeedback {
     const message = error.message.toLowerCase();
-    
+
     // File system errors
     if (message.includes("enoent") || message.includes("no such file")) {
       return {
-        userMessage: context 
+        userMessage: context
           ? `Could not find required file for: ${context}`
           : "Could not find required file",
         technicalDetails: error.message,
@@ -43,7 +43,7 @@ export class FeedbackHandler {
         severity: "error",
       };
     }
-    
+
     if (message.includes("eacces") || message.includes("permission")) {
       return {
         userMessage: context
@@ -54,7 +54,7 @@ export class FeedbackHandler {
         severity: "error",
       };
     }
-    
+
     // Lock errors
     if (message.includes("lock") || message.includes("locked")) {
       return {
@@ -64,7 +64,7 @@ export class FeedbackHandler {
         severity: "warning",
       };
     }
-    
+
     // JSON parsing errors
     if (message.includes("json") || message.includes("parse")) {
       return {
@@ -74,7 +74,7 @@ export class FeedbackHandler {
         severity: "error",
       };
     }
-    
+
     // Validation errors
     if (message.includes("validation") || message.includes("invalid")) {
       return {
@@ -84,13 +84,12 @@ export class FeedbackHandler {
         severity: "error",
       };
     }
-    
-    // Generic error
+
+    // Generic error - use original message for better user experience
     return {
-      userMessage: context
-        ? `An error occurred while: ${context}`
-        : "An error occurred",
-      technicalDetails: error.message,
+      userMessage: error.message, // Use original error message instead of generic message
+      technicalDetails: error.stack,
+      recoverySuggestion: context ? `Error occurred while: ${context}` : undefined,
       severity: "error",
     };
   }

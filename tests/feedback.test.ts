@@ -52,8 +52,9 @@ describe("Feedback Handler", () => {
     it("handles generic errors", () => {
       const error = new Error("Something went wrong");
       const feedback = FeedbackHandler.createFeedback(error, "saving data");
-      
-      expect(feedback.userMessage).toContain("saving data");
+
+      expect(feedback.userMessage).toBe("Something went wrong");
+      expect(feedback.recoverySuggestion).toContain("saving data");
       expect(feedback.severity).toBe("error");
     });
 

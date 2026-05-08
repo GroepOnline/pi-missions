@@ -6,6 +6,7 @@ import * as path from "node:path";
 import { CURRENT_SCHEMA_VERSION, DEFAULT_FEATURE_MAX_TOOL_CALLS, DEFAULT_FEATURE_MAX_WALL_CLOCK_MS, STALE_FEATURE_WARN_CLOCK_MS, type Feature, type Milestone, type MissionHistoryEntry, type MissionMetrics, type MissionMetricsSummary, type MissionState, type ToolPhase } from "./types.js";
 import { withLock } from "./lock.js";
 import { logger } from "./logger.js";
+import { createFeedback, formatError } from "./feedback.js";
 
 export function createValidationToken(): string {
   return crypto.randomBytes(32).toString('hex');
@@ -208,6 +209,7 @@ export function loadMissionFromDisk(id: string): MissionState | null {
   for (const name of ["plan.json", "plan.json.bak"]) {
     try {
       const raw = JSON.parse(fs.readFileSync(path.join(dir, name), "utf-8"));
+      logger.debug("state", `Loaded mission from ${name}`, { missionId: id, source: name });
       return migrateMission(raw);
     } catch (error) {
       // Try next fallback.
@@ -367,7 +369,14 @@ export function buildWorkerPrompt(mission: MissionState, feature: Feature): stri
 
 export function exportMarkdown(mission: MissionState): string {
   const p = progress(mission);
-  const history = readHistory(mission.id).slice(-50);
+  let history: MissionHistoryEntry[] = [];
+  try {
+    history = readHistory(mission.id).slice(-50);
+  } catch (error) {
+    logger.warn("state", "Failed to read history for export", error as Error, { missionId: mission.id });
+    // Graceful degradation: continue without history
+  }
+
   const lines: string[] = [
     `# Mission Report: ${mission.title}`,
     "",
@@ -536,11 +545,12 @@ export function autoVerifyAcceptance(feature: Feature, execFn: (cmd: string) => 
       }
     } catch (error) {
       // Command execution failed — leave unverified.
-      logger.debug("state", "Bash acceptance check failed", { 
-        featureId: feature.id, 
+      logger.debug("state", "Bash acceptance check failed", {
+        featureId: feature.id,
         checkCommand: ac.checkCommand,
         error: error instanceof Error ? error.message : String(error)
       });
+      // Graceful degradation: continue with other acceptance criteria
     }
   }
   return verified;

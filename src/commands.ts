@@ -13,6 +13,7 @@ import { validate, formatValidationErrors } from "./validation.js";
 import { WizardOutputSchema, FeatureSchema } from "./schemas.js";
 import { logger } from "./logger.js";
 import { sessionMetrics } from "./metrics.js";
+import { createFeedback, formatError, getErrorSeverity } from "./feedback.js";
 
 export function registerMissionCommand(pi: ExtensionAPI, runtime: RuntimeState): void {
   pi.registerCommand("mission", {
@@ -226,20 +227,32 @@ export async function handleList(ctx: ExtensionCommandContext, pi: ExtensionAPI,
 
 export async function handleLoad(id: string | undefined, ctx: ExtensionCommandContext, pi: ExtensionAPI, runtime: RuntimeState): Promise<void> {
   if (!id) return ctx.ui.notify("Usage: /mission load <id>", "warning");
-  
+
   // Validate ID format
   if (!isValidMissionId(id)) {
     return ctx.ui.notify(`Invalid mission ID format: ${id}. Expected pim:<timestamp>:<<slug>.`, "error");
   }
-  
+
   const mission = loadMissionFromDisk(id);
-  if (!mission) return ctx.ui.notify(`Mission not found: ${id}`, "error");
-  autoBlockBlockedFeatures(mission);
-  runtime.activeMission = mission;
-  pi.appendEntry("pi-mission-active", { missionId: mission.id, validationToken: mission.validationToken });
-  pi.setSessionName(`🎯 ${mission.title}`);
-  updateFooter(ctx, mission);
-  ctx.ui.notify(`Loaded mission: ${mission.title}`, "info");
+  if (!mission) {
+    ctx.ui.notify(`Mission not found: ${id}`, "error");
+    logger.warn("commands", "Mission not found", undefined, { missionId: id });
+    return;
+  }
+
+  try {
+    autoBlockBlockedFeatures(mission);
+    runtime.activeMission = mission;
+    pi.appendEntry("pi-mission-active", { missionId: mission.id, validationToken: mission.validationToken });
+    pi.setSessionName(`🎯 ${mission.title}`);
+    updateFooter(ctx, mission);
+    ctx.ui.notify(`Loaded mission: ${mission.title}`, "info");
+    logger.info("commands", "Mission loaded successfully", { missionId: mission.id });
+  } catch (error) {
+    const feedback = createFeedback(error, "initializing loaded mission");
+    ctx.ui.notify(formatError(feedback), getErrorSeverity(feedback));
+    logger.error("commands", "Failed to initialize loaded mission", error as Error, { missionId: mission.id });
+  }
 }
 
 export async function handleStatus(ctx: ExtensionCommandContext, runtime: RuntimeState): Promise<void> {
@@ -571,12 +584,25 @@ function persistModelConfig(cfg: ModelsConfig): void {
 export async function handleExport(filename: string | undefined, ctx: ExtensionCommandContext, runtime: RuntimeState): Promise<void> {
   const mission = runtime.activeMission;
   if (!mission) return ctx.ui.notify("No active mission to export.", "warning");
-  const markdown = exportMarkdown(mission);
-  if (filename) {
-    fs.writeFileSync(filename, markdown, "utf-8");
-    ctx.ui.notify(`✅ Report exported to ${filename}`, "info");
-  } else {
-    ctx.ui.notify(markdown, "info");
+
+  try {
+    const markdown = exportMarkdown(mission);
+    if (filename) {
+      try {
+        fs.writeFileSync(filename, markdown, "utf-8");
+        ctx.ui.notify(`✅ Report exported to ${filename}`, "info");
+      } catch (error) {
+        const feedback = createFeedback(error, `exporting to ${filename}`);
+        ctx.ui.notify(formatError(feedback), getErrorSeverity(feedback));
+        logger.error("commands", "Failed to export mission to file", error as Error, { missionId: mission.id, filename });
+      }
+    } else {
+      ctx.ui.notify(markdown, "info");
+    }
+  } catch (error) {
+    const feedback = createFeedback(error, "generating export");
+    ctx.ui.notify(formatError(feedback), getErrorSeverity(feedback));
+    logger.error("commands", "Failed to generate mission export", error as Error, { missionId: mission.id });
   }
 }
 
