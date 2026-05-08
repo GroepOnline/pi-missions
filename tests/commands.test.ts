@@ -606,6 +606,28 @@ describe("handleDashboard", () => {
     expect(overlayHidden).toBe(true);
   });
 
+  it("E2E: pressing Escape hides overlay without firing onAction", async () => {
+    const mission = createMission("E2E Escape", "Test goal");
+
+    let overlayHidden = false;
+    let featureActivated: string | null = null;
+    const mockTui = {
+      hideOverlay: () => { overlayHidden = true; },
+      requestRender: () => {},
+    } as unknown as TUI;
+
+    const component: any = missionControlOverlay(mission, (featureId) => { featureActivated = featureId; })(mockTui);
+
+    // Verify component renders correctly
+    const lines = component.render(80);
+    expect(lines.some((l: string) => l.includes("Mission Control"))).toBe(true);
+
+    // Press Escape (\x1b) — should hide overlay but NOT activate any feature
+    component.handleInput("\x1b");
+    expect(overlayHidden).toBe(true);
+    expect(featureActivated).toBeNull();
+  });
+
   it("warns when no mission", async () => {
     const ctx = mkCtx();
     await handleDashboard(ctx, { activeMission: null, autoSaveInterval: null });
