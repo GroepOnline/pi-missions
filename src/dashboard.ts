@@ -149,7 +149,7 @@ class MissionControl implements Component {
 
     // Footer
     const footer = new Box(1, 0);
-    footer.addChild(new Text(`Keys: ↑↓ navigate  |  Enter select  |  Esc close  |  Type to filter  |  ${items.length} features`));
+    footer.addChild(new Text(`Keys: ↑↓ navigate  |  Enter select  |  Esc close  |  Ctrl+U clear filter  |  Type to filter  |  ${items.length} features`));
 
     // Container
     this.container = new Box(1, 1);
@@ -208,6 +208,14 @@ class MissionControl implements Component {
     if (data === "\b" || data === "\x7f") {
       this.filterChars = this.filterChars.slice(0, -1);
       this.list.setFilter(this.filterChars);
+      this.updateDetailForCurrentSelection();
+      this.updateFilterDisplay();
+      return;
+    }
+    // Ctrl+U — clear filter in one keystroke (always stays open)
+    if (data === "\x15") {
+      this.filterChars = "";
+      this.list.setFilter("");
       this.updateDetailForCurrentSelection();
       this.updateFilterDisplay();
       return;

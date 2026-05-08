@@ -795,4 +795,54 @@ describe("missionControlOverlay", () => {
     c5b.handleInput("\r");
     expect(captured).toBe("F002");
   });
+
+  it("E2E: Ctrl+U clears filter in one keystroke without closing overlay", () => {
+    const mission = createMission("CtrlU", "Test Ctrl+U clear");
+    mission.milestones[0]!.features.push(
+      {
+        id: "F010", milestoneId: "M01", title: "Bonus 10", description: "Tenth",
+        priority: 4, dependsOn: [], acceptance: [], status: "pending", sessions: [], toolCallCount: 0,
+      },
+      {
+        id: "F011", milestoneId: "M01", title: "Bonus 11", description: "Eleventh",
+        priority: 5, dependsOn: [], acceptance: [], status: "pending", sessions: [], toolCallCount: 0,
+      },
+    );
+
+    let overlayHidden = false;
+    const tuiWithSpy: any = {
+      hideOverlay: () => { overlayHidden = true; },
+      requestRender: () => {},
+    };
+
+    // 1. Ctrl+U with active filter — clears filter, overlay stays open
+    const c1: any = missionControlOverlay(mission)(tuiWithSpy);
+    c1.handleInput("F");
+    c1.handleInput("0");
+    c1.handleInput("0");
+    const beforeClear = c1.render(80);
+    expect(beforeClear.some((l: string) => l.includes("🔍 Filter: F00"))).toBe(true);
+    expect(beforeClear.some((l: string) => l.includes("F010"))).toBe(false);
+
+    c1.handleInput("\x15"); // Ctrl+U
+    expect(overlayHidden).toBe(false); // overlay does NOT close
+    const afterClear = c1.render(80);
+    expect(afterClear.some((l: string) => l.includes("Filter:"))).toBe(false);
+    expect(afterClear.some((l: string) => l.includes("F001"))).toBe(true);
+    expect(afterClear.some((l: string) => l.includes("F002"))).toBe(true);
+    expect(afterClear.some((l: string) => l.includes("F003"))).toBe(true);
+    expect(afterClear.some((l: string) => l.includes("F010"))).toBe(true);
+    expect(afterClear.some((l: string) => l.includes("F011"))).toBe(true);
+
+    // 2. Ctrl+U with empty filter — no-op, no crash, overlay stays open
+    const c2: any = missionControlOverlay(mission)(tuiWithSpy);
+    expect(() => c2.handleInput("\x15")).not.toThrow();
+    expect(overlayHidden).toBe(false);
+    const afterEmptyCtrlU = c2.render(80);
+    expect(afterEmptyCtrlU.some((l: string) => l.includes("F001"))).toBe(true);
+    expect(afterEmptyCtrlU.some((l: string) => l.includes("Filter:"))).toBe(false);
+
+    // 3. Footer hint mentions Ctrl+U
+    expect(afterEmptyCtrlU.some((l: string) => l.includes("Ctrl+U clear filter"))).toBe(true);
+  });
 });
