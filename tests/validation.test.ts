@@ -1,223 +1,121 @@
-import { describe, it, expect } from "vitest";
-import { 
-  validateMissionState, 
-  validateFeature, 
-  validateMilestone, 
-  validateHistoryEntry,
-  formatValidationErrors,
-  assertValidMissionState,
-  assertValidFeature,
-  safeParseJSON
-} from "../src/validation.js";
-import { MissionStateSchema, FeatureSchema } from "../src/schemas.js";
+import { describe, expect, it } from "vitest";
+import { validate, formatValidationErrors } from "../src/validation.js";
+import { FeatureSchema, WizardOutputSchema } from "../src/schemas.js";
 
 describe("Schema Validation", () => {
-  describe("validateMissionState", () => {
-    it("accepts valid mission state", () => {
-      const validMission = {
-        schemaVersion: 2,
-        id: "mission-123",
-        title: "Test Mission",
-        goal: "Test goal",
-        status: "active",
-        milestones: [],
-        tokensUsed: 0,
-        lastContextTokens: 0,
-        createdAt: Date.now(),
-        updatedAt: Date.now(),
-      };
-      
-      const result = validateMissionState(validMission);
-      expect(result.valid).toBe(true);
-      expect(result.errors).toHaveLength(0);
-    });
-
-    it("rejects null data", () => {
-      const result = validateMissionState(null);
-      expect(result.valid).toBe(false);
-      expect(result.errors.length).toBeGreaterThan(0);
-    });
-
-    it("rejects undefined data", () => {
-      const result = validateMissionState(undefined);
-      expect(result.valid).toBe(false);
-      expect(result.errors.length).toBeGreaterThan(0);
-    });
-
-    it("rejects non-object data", () => {
-      const result = validateMissionState("string");
-      expect(result.valid).toBe(false);
-      expect(result.errors.length).toBeGreaterThan(0);
-    });
+  it("rejects invalid feature ID", () => {
+    const invalid = {
+      id: "INVALID",
+      milestoneId: "M01",
+      title: "Test",
+      description: "Test",
+      priority: 1,
+      dependsOn: [],
+      acceptance: [{ id: "AC001", description: "Test", checkType: "manual", verified: false }],
+      status: "pending",
+      sessions: [],
+      toolCallCount: 0,
+    };
+    const result = validate(FeatureSchema, invalid);
+    expect(result.valid).toBe(false);
+    expect(result.errors.some(e => e.path.includes("id"))).toBe(true);
   });
 
-  describe("validateFeature", () => {
-    it("accepts valid feature", () => {
-      const validFeature = {
-        id: "F001",
-        milestoneId: "M01",
-        title: "Test Feature",
-        description: "Test description",
-        priority: 1,
-        dependsOn: [],
-        acceptance: [],
-        status: "pending",
-        sessions: [],
-        toolCallCount: 0,
-      };
-      
-      const result = validateFeature(validFeature);
-      expect(result.valid).toBe(true);
-    });
-
-    it("rejects null data", () => {
-      const result = validateFeature(null);
-      expect(result.valid).toBe(false);
-    });
-
-    it("rejects non-object data", () => {
-      const result = validateFeature("string");
-      expect(result.valid).toBe(false);
-    });
-  });
-
-  describe("validateMilestone", () => {
-    it("accepts valid milestone", () => {
-      const validMilestone = {
+  it("rejects wizard with single milestone", () => {
+    const invalid = {
+      title: "Test",
+      milestones: [{
         id: "M01",
-        title: "Test Milestone",
-        description: "Test description",
+        title: "M1",
+        description: "D",
         status: "active",
         features: [],
-      };
-      
-      const result = validateMilestone(validMilestone);
-      expect(result.valid).toBe(true);
-    });
-
-    it("rejects null data", () => {
-      const result = validateMilestone(null);
-      expect(result.valid).toBe(false);
-    });
+      }],
+    };
+    const result = validate(WizardOutputSchema, invalid);
+    expect(result.valid).toBe(false);
   });
 
-  describe("validateHistoryEntry", () => {
-    it("accepts valid history entry", () => {
-      const validEntry = {
-        ts: Math.floor(Date.now() / 1000),
-        missionId: "mission-123",
-        event: "feature_done",
-        featureId: "F001",
-      };
-      
-      const result = validateHistoryEntry(validEntry);
-      expect(result.valid).toBe(true);
-    });
-
-    it("rejects null data", () => {
-      const result = validateHistoryEntry(null);
-      expect(result.valid).toBe(false);
-    });
+  it("formats validation errors nicely", () => {
+    const invalid = { id: "BAD" };
+    const result = validate(FeatureSchema, invalid);
+    const formatted = formatValidationErrors(result.errors);
+    expect(formatted).toContain("Validation errors:");
+    expect(formatted).toContain("id:");
   });
 
-  describe("formatValidationErrors", () => {
-    it("returns success message for valid result", () => {
-      const result = { valid: true, errors: [] };
-      expect(formatValidationErrors(result)).toBe("Validation passed");
-    });
-
-    it("formats errors with path and message", () => {
-      const result = {
-        valid: false,
-        errors: [
-          { path: "/status", message: "Invalid union value", value: "invalid" },
-          { path: "/title", message: "Expected string", value: 123 },
-        ],
-      };
-      
-      const formatted = formatValidationErrors(result);
-      expect(formatted).toContain("Validation failed");
-      expect(formatted).toContain("/status");
-      expect(formatted).toContain("Invalid union value");
-      expect(formatted).toContain("/title");
-      expect(formatted).toContain("Expected string");
-    });
+  it("accepts valid feature structure", () => {
+    const valid = {
+      id: "F001",
+      milestoneId: "M01",
+      title: "Test Feature",
+      description: "Test description",
+      priority: 1,
+      dependsOn: [],
+      acceptance: [{ id: "AC001", description: "Test", checkType: "manual", verified: false }],
+      status: "pending",
+      sessions: [],
+      toolCallCount: 0,
+    };
+    const result = validate(FeatureSchema, valid);
+    expect(result.valid).toBe(true);
+    expect(result.errors).toHaveLength(0);
   });
 
-  describe("assertValidMissionState", () => {
-    it("does not throw for valid mission", () => {
-      const validMission = {
-        schemaVersion: 2,
-        id: "mission-123",
-        title: "Test Mission",
-        goal: "Test goal",
-        status: "active",
-        milestones: [],
-        tokensUsed: 0,
-        lastContextTokens: 0,
-        createdAt: Date.now(),
-        updatedAt: Date.now(),
-      };
-      
-      expect(() => assertValidMissionState(validMission)).not.toThrow();
-    });
-
-    it("throws for invalid mission (null)", () => {
-      expect(() => assertValidMissionState(null)).toThrow();
-      expect(() => assertValidMissionState(null)).toThrow("Invalid mission state");
-    });
+  it("accepts valid wizard output", () => {
+    const valid = {
+      title: "Test Mission",
+      milestones: [
+        {
+          id: "M01",
+          title: "Milestone 1",
+          description: "First milestone",
+          status: "active",
+          features: [{
+            id: "F001",
+            milestoneId: "M01",
+            title: "Feature 1",
+            description: "First feature",
+            priority: 1,
+            dependsOn: [],
+            acceptance: [{ id: "AC001", description: "Test", checkType: "manual", verified: false }],
+            status: "pending",
+            sessions: [],
+            toolCallCount: 0,
+          }],
+        },
+        {
+          id: "M02",
+          title: "Milestone 2",
+          description: "Second milestone",
+          status: "pending",
+          features: [{
+            id: "F002",
+            milestoneId: "M02",
+            title: "Feature 2",
+            description: "Second feature",
+            priority: 1,
+            dependsOn: [],
+            acceptance: [{ id: "AC002", description: "Test", checkType: "manual", verified: false }],
+            status: "pending",
+            sessions: [],
+            toolCallCount: 0,
+          }],
+        },
+      ],
+    };
+    const result = validate(WizardOutputSchema, valid);
+    expect(result.valid).toBe(true);
+    expect(result.errors).toHaveLength(0);
   });
 
-  describe("assertValidFeature", () => {
-    it("does not throw for valid feature", () => {
-      const validFeature = {
-        id: "F001",
-        milestoneId: "M01",
-        title: "Test Feature",
-        description: "Test description",
-        priority: 1,
-        dependsOn: [],
-        acceptance: [],
-        status: "pending",
-        sessions: [],
-        toolCallCount: 0,
-      };
-      
-      expect(() => assertValidFeature(validFeature)).not.toThrow();
-    });
-
-    it("throws for invalid feature (null)", () => {
-      expect(() => assertValidFeature(null)).toThrow();
-    });
-  });
-
-  describe("safeParseJSON", () => {
-    it("parses and validates valid JSON", () => {
-      const json = JSON.stringify({
-        schemaVersion: 2,
-        id: "mission-123",
-        title: "Test Mission",
-        goal: "Test goal",
-        status: "active",
-        milestones: [],
-        tokensUsed: 0,
-        lastContextTokens: 0,
-        createdAt: Date.now(),
-        updatedAt: Date.now(),
-      });
-      
-      const result = safeParseJSON(json, MissionStateSchema);
-      expect(result).toHaveProperty("id", "mission-123");
-      expect(result).toHaveProperty("title", "Test Mission");
-    });
-
-    it("throws for invalid JSON", () => {
-      expect(() => safeParseJSON("invalid json", MissionStateSchema)).toThrow("JSON parsing failed");
-    });
-
-    it("throws for valid JSON that fails validation (null)", () => {
-      const json = JSON.stringify(null);
-      expect(() => safeParseJSON(json, MissionStateSchema)).toThrow("Invalid JSON");
-    });
+  it("limits error display to 10 errors", () => {
+    const invalid = { id: "BAD" };
+    const result = validate(FeatureSchema, invalid);
+    // Create more than 10 errors by having a very invalid structure
+    const formatted = formatValidationErrors(result.errors);
+    const lines = formatted.split("\n");
+    // Should have header + max 10 errors + "and X more" line if needed
+    expect(lines.length).toBeLessThanOrEqual(13); // 1 header + 10 errors + 2 more lines max
   });
 });

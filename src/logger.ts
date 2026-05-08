@@ -1,96 +1,124 @@
-/**
- * Simple structured logging utility.
- * Provides consistent log formatting and levels without external dependencies.
- */
+import * as fs from "node:fs";
+import * as path from "node:path";
+import * as os from "node:os";
 
 export enum LogLevel {
-  DEBUG = 0,
-  INFO = 1,
-  WARN = 2,
-  ERROR = 3,
+  DEBUG = "debug",
+  INFO = "info",
+  WARN = "warn",
+  ERROR = "error",
 }
 
 export interface LogEntry {
+  timestamp: string;
   level: LogLevel;
-  timestamp: number;
+  component: string;
+  missionId?: string;
   message: string;
-  context?: string;
-  data?: Record<string, unknown>;
+  context?: Record<string, unknown>;
+  error?: {
+    name: string;
+    message: string;
+    stack?: string;
+  };
 }
 
-export class Logger {
-  private minLevel: LogLevel;
-  private context: string;
-  
-  constructor(context: string, minLevel: LogLevel = LogLevel.INFO) {
-    this.context = context;
-    this.minLevel = minLevel;
+class Logger {
+  private logFile: string;
+  private logLevel: LogLevel;
+
+  constructor() {
+    const logDir = path.join(os.homedir(), ".pi", "missions", "logs");
+    fs.mkdirSync(logDir, { recursive: true });
+    this.logFile = path.join(logDir, "pi-missions.log");
+    this.logLevel = (process.env.PI_MISSIONS_LOG_LEVEL as LogLevel) || LogLevel.INFO;
   }
-  
+
   private shouldLog(level: LogLevel): boolean {
-    return level >= this.minLevel;
+    const levels = [LogLevel.DEBUG, LogLevel.INFO, LogLevel.WARN, LogLevel.ERROR];
+    return levels.indexOf(level) >= levels.indexOf(this.logLevel);
   }
-  
-  private formatMessage(level: LogLevel, message: string, data?: Record<string, unknown>): string {
-    const levelName = LogLevel[level];
-    const timestamp = new Date().toISOString();
-    const prefix = `[${timestamp}] [${levelName}] [${this.context}]`;
-    
-    if (data && Object.keys(data).length > 0) {
-      return `${prefix} ${message} ${JSON.stringify(data)}`;
-    }
-    
-    return `${prefix} ${message}`;
-  }
-  
-  debug(message: string, data?: Record<string, unknown>): void {
-    if (this.shouldLog(LogLevel.DEBUG)) {
-      console.log(this.formatMessage(LogLevel.DEBUG, message, data));
+
+  private write(entry: LogEntry): void {
+    if (!this.shouldLog(entry.level)) return;
+
+    const line = JSON.stringify(entry) + "\n";
+    try {
+      fs.appendFileSync(this.logFile, line, "utf-8");
+    } catch (e) {
+      // Silent fail - can't log if log file is unavailable
     }
   }
-  
-  info(message: string, data?: Record<string, unknown>): void {
-    if (this.shouldLog(LogLevel.INFO)) {
-      console.log(this.formatMessage(LogLevel.INFO, message, data));
+
+  private log(
+    level: LogLevel,
+    component: string,
+    message: string,
+    context?: Record<string, unknown>,
+    error?: Error
+  ): void {
+    const entry: LogEntry = {
+      timestamp: new Date().toISOString(),
+      level,
+      component,
+      message,
+      context,
+    };
+
+    if (error) {
+      entry.error = {
+        name: error.name,
+        message: error.message,
+        stack: error.stack,
+      };
     }
+
+    this.write(entry);
   }
-  
-  warn(message: string, data?: Record<string, unknown>): void {
-    if (this.shouldLog(LogLevel.WARN)) {
-      console.warn(this.formatMessage(LogLevel.WARN, message, data));
-    }
+
+  debug(component: string, message: string, context?: Record<string, unknown>): void {
+    this.log(LogLevel.DEBUG, component, message, context);
   }
-  
-  error(message: string, error?: Error | unknown, data?: Record<string, unknown>): void {
-    if (this.shouldLog(LogLevel.ERROR)) {
-      const errorData = error instanceof Error 
-        ? { ...data, error: { message: error.message, stack: error.stack } }
-        : data;
-      
-      console.error(this.formatMessage(LogLevel.ERROR, message, errorData));
-    }
+
+  info(component: string, message: string, context?: Record<string, unknown>): void {
+    this.log(LogLevel.INFO, component, message, context);
+  }
+
+  warn(component: string, message: string, context?: Record<string, unknown>): void {
+    this.log(LogLevel.WARN, component, message, context);
+  }
+
+  error(component: string, message: string, error?: Error, context?: Record<string, unknown>): void {
+    this.log(LogLevel.ERROR, component, message, context, error);
+  }
+
+  withMission(missionId: string): MissionLogger {
+    return new MissionLogger(this, missionId);
   }
 }
 
-/**
- * Create a logger instance for a specific context.
- * @param context - The context/module name for the logger
- * @param minLevel - Minimum log level (default: INFO)
- * @returns Logger instance
- */
-export function createLogger(context: string, minLevel: LogLevel = LogLevel.INFO): Logger {
-  return new Logger(context, minLevel);
+class MissionLogger {
+  constructor(private logger: Logger, private missionId: string) {}
+
+  private addMissionId(context?: Record<string, unknown>): Record<string, unknown> {
+    return { ...context, missionId: this.missionId };
+  }
+
+  debug(component: string, message: string, context?: Record<string, unknown>): void {
+    this.logger.debug(component, message, this.addMissionId(context));
+  }
+
+  info(component: string, message: string, context?: Record<string, unknown>): void {
+    this.logger.info(component, message, this.addMissionId(context));
+  }
+
+  warn(component: string, message: string, context?: Record<string, unknown>): void {
+    this.logger.warn(component, message, this.addMissionId(context));
+  }
+
+  error(component: string, message: string, error?: Error, context?: Record<string, unknown>): void {
+    this.logger.error(component, message, error, this.addMissionId(context));
+  }
 }
 
-/**
- * Global logger for general logging.
- */
-export const logger = createLogger("pi-missions");
-
-/**
- * Set global minimum log level.
- * @param level - Minimum log level
- */
-export function setLogLevel(level: LogLevel): void {
-  logger.minLevel = level;
-}
+export const logger = new Logger();

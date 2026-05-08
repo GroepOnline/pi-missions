@@ -9,6 +9,8 @@ import { appendHistory, autoBlockBlockedFeatures, autoCompleteMilestones, autoVe
 import type { Feature, MissionState, RuntimeState } from "./types.js";
 import { missionControlOverlay } from "./dashboard.js";
 import { dashboardRows, statusText, updateFooter } from "./ui.js";
+import { validate, formatValidationErrors } from "./validation.js";
+import { WizardOutputSchema, FeatureSchema } from "./schemas.js";
 
 export function registerMissionCommand(pi: ExtensionAPI, runtime: RuntimeState): void {
   pi.registerCommand("mission", {
@@ -127,8 +129,15 @@ export async function handleNew(titleArg: string, ctx: ExtensionCommandContext, 
       const jsonMatch = String(text).match(/\{[\s\S]*\}/);
       if (jsonMatch) {
         const raw = JSON.parse(jsonMatch[0]);
-        if (raw.milestones && Array.isArray(raw.milestones) && raw.milestones.length > 0) {
-          // Build mission from wizard output
+        
+        // Validate wizard output against schema
+        const validation = validate(WizardOutputSchema, raw);
+        if (!validation.valid) {
+          ctx.ui.notify(`Wizard output validation failed:\n${formatValidationErrors(validation.errors)}`, "error");
+          ctx.ui.notify("Falling back to default mission structure.", "warning");
+          // Fall through to default mission creation
+        } else if (raw.milestones && Array.isArray(raw.milestones) && raw.milestones.length > 0) {
+          // Build mission from validated wizard output
           const now = Date.now();
           parsedMission = {
             schemaVersion: 3,
@@ -407,15 +416,21 @@ export async function handleEdit(featureId: string | undefined, ctx: ExtensionCo
   const edited = await ctx.ui.editor("Edit feature JSON", JSON.stringify(feature, null, 2));
   if (!edited) return;
 
-  let parsed: Feature;
+  let parsed: unknown;
   try {
-    parsed = JSON.parse(edited) as Feature;
+    parsed = JSON.parse(edited);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     return ctx.ui.notify(`Invalid feature JSON: ${message}`, "error");
   }
 
-  Object.assign(feature, parsed);
+  // Validate against schema
+  const validation = validate(FeatureSchema, parsed);
+  if (!validation.valid) {
+    return ctx.ui.notify(`Invalid feature structure:\n${formatValidationErrors(validation.errors)}`, "error");
+  }
+
+  Object.assign(feature, parsed as Feature);
   appendHistory(mission, { event: "feature_edited", featureId });
   await saveMissionSafe(mission);
   updateFooter(ctx, mission);

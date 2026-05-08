@@ -9,6 +9,7 @@ import { registerMissionTools } from "./tools.js";
 import { updateFooter } from "./ui.js";
 import { getCompletionDetector, resetCompletionDetector } from "./completion.js";
 import { getErrorRecoveryEngine, resetErrorRecoveryEngine } from "./recovery.js";
+import { cleanupStaleLocks } from "./lock.js";
 
 export default function piMissions(pi: ExtensionAPI): void {
   // Load model configuration at extension startup
@@ -20,6 +21,13 @@ export default function piMissions(pi: ExtensionAPI): void {
   registerMissionTools(pi, runtime);
 
   pi.on("session_start", async (event, ctx) => {
+    // Cleanup stale locks from previous crashes
+    try {
+      await cleanupStaleLocks();
+    } catch (error) {
+      console.warn("[pi-missions] Failed to cleanup stale locks:", error);
+    }
+
     const entries = ctx.sessionManager.getEntries() as Array<Record<string, any>>;
     const activeEntry = [...entries].reverse().find((e) => e.type === "custom" && e.customType === "pi-mission-active");
     

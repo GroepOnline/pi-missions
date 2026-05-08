@@ -37,8 +37,8 @@
     "typebox": "*"
   },
   "dependencies": {
-    "proper-lockfile": "^4.1.2",
-    "@sinclair/typebox": "^0.31.28"
+    "@sinclair/typebox": "^0.31.28",
+    "proper-lockfile": "^4.1.2"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

@@ -1055,20 +1055,32 @@ describe("handleNew", () => {
     const pi = mkPi({
       sendUserMessage: async () => JSON.stringify({
         title: "Wizard Mission",
-        milestones: [{
-          id: "M01", title: "M1", description: "D1",
-          features: [{
-            id: "F001", title: "F1", description: "FD1",
-            priority: 1, dependsOn: [],
-            acceptance: [{ id: "AC001", description: "A1", checkType: "manual" }],
-          }],
-        }],
+        milestones: [
+          {
+            id: "M01", title: "M1", description: "D1", status: "active",
+            features: [{
+              id: "F001", milestoneId: "M01", title: "F1", description: "FD1",
+              priority: 1, dependsOn: [],
+              acceptance: [{ id: "AC001", description: "A1", checkType: "manual", verified: false }],
+              status: "pending", sessions: [], toolCallCount: 0,
+            }],
+          },
+          {
+            id: "M02", title: "M2", description: "D2", status: "pending",
+            features: [{
+              id: "F002", milestoneId: "M02", title: "F2", description: "FD2",
+              priority: 1, dependsOn: [],
+              acceptance: [{ id: "AC002", description: "A2", checkType: "manual", verified: false }],
+              status: "pending", sessions: [], toolCallCount: 0,
+            }],
+          },
+        ],
       }),
     });
     await handleNew("Test Mission", ctx, pi, rt);
     expect(rt.activeMission).not.toBeNull();
     expect(rt.activeMission!.title).toBe("Wizard Mission");
-    expect(rt.activeMission!.milestones.length).toBe(1);
+    expect(rt.activeMission!.milestones.length).toBe(2);
     const aiGeneratedCall = ctx.getCalls().find((c: any) => c.msg && c.msg.includes("AI-generated"));
     expect(aiGeneratedCall).toBeDefined();
     expect(aiGeneratedCall!.msg).toContain("AI-generated");
