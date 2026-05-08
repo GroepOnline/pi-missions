@@ -85,7 +85,7 @@ describe("autopilot engine", () => {
     const prompt = buildAutopilotContinuationPrompt(m);
     expect(prompt).toContain("Enterprise mission");
     expect(prompt).toContain("F001");
-    expect(prompt).toContain("Stop after this turn");
+    expect(prompt).toContain("autopilot will evaluate");
   });
 
   it("sends follow-up when allowed", async () => {
