@@ -274,11 +274,13 @@ describe("handleStatus", () => {
 function mkCtx(overrides: Record<string, any> = {}): any {
   const calls: any[] = [];
   const widgets: Record<string, string[]> = {};
+  let lastCustom: { factory: any; options: any } | null = null;
   return {
     ui: {
       notify: (msg: string, level: string) => { calls.push({ type: "notify", msg, level }); },
       setStatus: () => {},
       setWidget: (key: string, rows: string[]) => { widgets[key] = rows; },
+      custom: async (factory: any, options: any) => { lastCustom = { factory, options }; },
       input: async () => null,
       select: async () => null,
       editor: async () => null,
@@ -289,6 +291,7 @@ function mkCtx(overrides: Record<string, any> = {}): any {
     fork: async () => {},
     getCalls: () => calls,
     getWidgets: () => widgets,
+    getLastCustom: () => lastCustom,
     ...overrides,
   };
 }
@@ -517,13 +520,23 @@ describe("handleDebug", () => {
 });
 
 describe("handleDashboard", () => {
-  it("sets dashboard widget", async () => {
+  it("shows status text when hasUI is false", async () => {
     const ctx = mkCtx();
     const rt = runtimeFixture();
     await handleDashboard(ctx, rt);
-    const w = ctx.getWidgets()["pi-mission-dashboard"];
-    expect(w).toBeDefined();
-    expect(w.length).toBeGreaterThan(3);
+    const calls = ctx.getCalls();
+    expect(calls[0]!.msg).toContain("Tree mission");
+    expect(calls[0]!.level).toBe("info");
+  });
+
+  it("opens full-screen overlay when hasUI is true", async () => {
+    const ctx = mkCtx({ hasUI: true });
+    const rt = runtimeFixture();
+    await handleDashboard(ctx, rt);
+    const custom = ctx.getLastCustom();
+    expect(custom).not.toBeNull();
+    expect(custom.options).toEqual({ overlay: true });
+    expect(typeof custom.factory).toBe("function");
   });
 
   it("warns when no mission", async () => {

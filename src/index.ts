@@ -6,7 +6,8 @@ import { appendHistory, autoBlockBlockedFeatures, getActiveFeature, getMissionPh
 import type { RuntimeState, ToolPhase } from "./types.js";
 import { TOOL_POLICIES } from "./types.js";
 import { registerMissionTools } from "./tools.js";
-import { dashboardRows, updateFooter } from "./ui.js";
+import { missionControlOverlay } from "./dashboard.js";
+import { statusText, updateFooter } from "./ui.js";
 
 export default function piMissions(pi: ExtensionAPI): void {
   // Load model configuration at extension startup
@@ -72,11 +73,15 @@ export default function piMissions(pi: ExtensionAPI): void {
 
   // ── Keyboard shortcuts ──────────────────────────────────────────────────────
   pi.registerShortcut("ctrl+shift+m", {
-    description: "Toggle mission dashboard",
+    description: "Open Mission Control dashboard",
     handler: async (ctx: any) => {
       const mission = runtime.activeMission;
       if (!mission) return ctx.ui.notify("No active mission. Use /mission new <title>.", "info");
-      ctx.ui.setWidget("pi-mission-dashboard", dashboardRows(mission));
+      if (!ctx.hasUI) {
+        ctx.ui.notify(statusText(mission), "info");
+        return;
+      }
+      await ctx.ui.custom(missionControlOverlay(mission), { overlay: true });
     },
   });
 

@@ -7,6 +7,7 @@ import { buildCompactionSummary } from "./context.js";
 import { clearModelConfigCache, formatAgentModelLine, formatModelConfig, loadModelConfig, type ModelsConfig } from "./models.js";
 import { appendHistory, autoBlockBlockedFeatures, autoCompleteMilestones, autoVerifyAcceptance, createMission, createMissionFromTemplate, createMissionId, exportMarkdown, getActiveFeature, getAllFeatures, getFeatureById, getMilestoneById, getNextPendingFeature, linkSession, listMissions, loadMissionFromDisk, MISSION_TEMPLATES, progress, readHistory, saveEvidence, saveMissionSafe } from "./state.js";
 import type { Feature, MissionState, RuntimeState } from "./types.js";
+import { missionControlOverlay } from "./dashboard.js";
 import { dashboardRows, statusText, updateFooter } from "./ui.js";
 
 export function registerMissionCommand(pi: ExtensionAPI, runtime: RuntimeState): void {
@@ -224,7 +225,13 @@ export async function handleStatus(ctx: ExtensionCommandContext, runtime: Runtim
 export async function handleDashboard(ctx: ExtensionCommandContext, runtime: RuntimeState): Promise<void> {
   const mission = runtime.activeMission;
   if (!mission) return ctx.ui.notify("No active mission.", "warning");
-  ctx.ui.setWidget("pi-mission-dashboard", dashboardRows(mission));
+  if (!ctx.hasUI) {
+    // Fallback: show text status for non-UI sessions
+    ctx.ui.notify(statusText(mission), "info");
+    return;
+  }
+  // Full-screen interactive overlay via ctx.ui.custom()
+  await ctx.ui.custom(missionControlOverlay(mission), { overlay: true });
 }
 
 export async function handleNext(ctx: ExtensionCommandContext, runtime: RuntimeState): Promise<void> {
