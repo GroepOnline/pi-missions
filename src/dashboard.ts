@@ -101,6 +101,7 @@ class MissionControl implements Component {
   private mission: MissionState;
   private tui: TUI;
   private onAction?: (featureId: string) => void;
+  private filterChars = "";
   private width = 80;
 
   constructor(mission: MissionState, tui: TUI, onAction?: (featureId: string) => void) {
@@ -179,8 +180,41 @@ class MissionControl implements Component {
   }
 
   handleInput(data: string): void {
-    // Forward keyboard input to SelectList for navigation/filtering
+    // Type-to-filter: intercept printable characters to filter the feature list
+    if (data.length === 1 && data.charCodeAt(0) >= 32 && data.charCodeAt(0) <= 126) {
+      this.filterChars += data;
+      this.list.setFilter(this.filterChars);
+      this.updateDetailForCurrentSelection();
+      return;
+    }
+    // Backspace — remove last char from filter
+    if (data === "\b" || data === "\x7f") {
+      this.filterChars = this.filterChars.slice(0, -1);
+      this.list.setFilter(this.filterChars);
+      this.updateDetailForCurrentSelection();
+      return;
+    }
+    // Escape: if filter is active, clear it and stay open.
+    // If filter is already empty, forward to SelectList (closes overlay).
+    if (data === "\x1b") {
+      if (this.filterChars.length > 0) {
+        this.filterChars = "";
+        this.list.setFilter("");
+        this.updateDetailForCurrentSelection();
+        return;
+      }
+    }
+    // Forward all keyboard input to SelectList for navigation/confirmation
     this.list.handleInput(data);
+  }
+
+  /** Sync the detail pane with the currently selected item after filtering. */
+  private updateDetailForCurrentSelection(): void {
+    const item = this.list.getSelectedItem();
+    if (item) {
+      this.updateDetail(item);
+      this.invalidate();
+    }
   }
 
   dispose(): void {

@@ -541,4 +541,153 @@ describe("missionControlOverlay", () => {
     const component = factory(mockTui);
     expect(() => component.dispose()).not.toThrow();
   });
+
+  it("E2E: type-to-filter narrows feature list, Backspace expands, Escape clears", () => {
+    const mission = createMission("Filter", "Test type-to-filter");
+    // Default mission: F001, F002, F003
+    // Add more features for a richer filter test
+    mission.milestones[0]!.features.push(
+      {
+        id: "F010",
+        milestoneId: "M01",
+        title: "Bonus feature 10",
+        description: "Tenth feature",
+        priority: 4,
+        dependsOn: [],
+        acceptance: [],
+        status: "pending",
+        sessions: [],
+        toolCallCount: 0,
+      },
+      {
+        id: "F011",
+        milestoneId: "M01",
+        title: "Bonus feature 11",
+        description: "Eleventh feature",
+        priority: 5,
+        dependsOn: [],
+        acceptance: [],
+        status: "pending",
+        sessions: [],
+        toolCallCount: 0,
+      },
+    );
+
+    const mockTui: any = {
+      hideOverlay: () => {},
+      requestRender: () => {},
+    };
+    const component: any = missionControlOverlay(mission)(mockTui);
+
+    // 1. Initial render — all 5 features visible
+    const initial = component.render(80);
+    expect(initial.some((l: string) => l.includes("F001"))).toBe(true);
+    expect(initial.some((l: string) => l.includes("F002"))).toBe(true);
+    expect(initial.some((l: string) => l.includes("F003"))).toBe(true);
+    expect(initial.some((l: string) => l.includes("F010"))).toBe(true);
+    expect(initial.some((l: string) => l.includes("F011"))).toBe(true);
+
+    // 2. Type "F" — all still visible (all start with F)
+    component.handleInput("F");
+    const afterF = component.render(80);
+    expect(afterF.some((l: string) => l.includes("F001"))).toBe(true);
+    expect(afterF.some((l: string) => l.includes("F002"))).toBe(true);
+    expect(afterF.some((l: string) => l.includes("F003"))).toBe(true);
+    // No "No matching" message
+    expect(afterF.some((l: string) => l.includes("No matching"))).toBe(false);
+
+    // 3. Type "0" — filter="F0", all still match (F001, F002, F003, F010, F011)
+    component.handleInput("0");
+    const afterF0 = component.render(80);
+    expect(afterF0.some((l: string) => l.includes("F001"))).toBe(true);
+    expect(afterF0.some((l: string) => l.includes("F002"))).toBe(true);
+    expect(afterF0.some((l: string) => l.includes("F010"))).toBe(true);
+
+    // 4. Type "0" again — filter="F00", only F001, F002, F003 remain
+    component.handleInput("0");
+    const afterF00 = component.render(80);
+    expect(afterF00.some((l: string) => l.includes("F001"))).toBe(true);
+    expect(afterF00.some((l: string) => l.includes("F002"))).toBe(true);
+    expect(afterF00.some((l: string) => l.includes("F003"))).toBe(true);
+    expect(afterF00.some((l: string) => l.includes("F010"))).toBe(false);
+    expect(afterF00.some((l: string) => l.includes("F011"))).toBe(false);
+
+    // 5. Type "3" — filter="F003", only F003 in list.
+    // Detail pane shows F003 depends on F002, so F002 appears there (correct).
+    // F001 is absent (not in filter results, not a dependency of F003).
+    component.handleInput("3");
+    const afterF003 = component.render(80);
+    expect(afterF003.some((l: string) => l.includes("F003"))).toBe(true);
+    expect(afterF003.some((l: string) => l.includes("F001"))).toBe(false);
+    // F002 appears as dependency in detail pane
+    expect(afterF003.some((l: string) => l.includes("🔗") && l.includes("F002"))).toBe(true);
+
+    // 6. Press Enter on the filtered single item — activates F003
+    let captured = "";
+    const component2: any = missionControlOverlay(mission, (id) => { captured = id; })(mockTui);
+    component2.handleInput("F");
+    component2.handleInput("0");
+    component2.handleInput("0");
+    component2.handleInput("3");
+    component2.handleInput("\r");
+    expect(captured).toBe("F003");
+
+    // 7. Backspace — removes last char, filter="F00" again
+    const afterBackspace = (() => {
+      const c: any = missionControlOverlay(mission)(mockTui);
+      c.handleInput("F");
+      c.handleInput("0");
+      c.handleInput("0");
+      c.handleInput("3");
+      c.handleInput("\b");
+      return c.render(80);
+    })();
+    expect(afterBackspace.some((l: string) => l.includes("F001"))).toBe(true);
+    expect(afterBackspace.some((l: string) => l.includes("F002"))).toBe(true);
+    expect(afterBackspace.some((l: string) => l.includes("F003"))).toBe(true);
+    expect(afterBackspace.some((l: string) => l.includes("F010"))).toBe(false);
+
+    // 8. Escape with active filter: clears filter, stays open (hideOverlay NOT called)
+    // Second Escape with empty filter: closes overlay
+    let overlayHidden = false;
+    const tuiWithSpy: any = {
+      hideOverlay: () => { overlayHidden = true; },
+      requestRender: () => {},
+    };
+    const c: any = missionControlOverlay(mission)(tuiWithSpy);
+    c.handleInput("F");
+    c.handleInput("0");
+    c.handleInput("0");
+    c.handleInput("3");
+    // First Escape — clears filter, stays open
+    c.handleInput("\x1b");
+    expect(overlayHidden).toBe(false);
+    const afterClear = c.render(80);
+    expect(afterClear.some((l: string) => l.includes("F001"))).toBe(true);
+    expect(afterClear.some((l: string) => l.includes("F002"))).toBe(true);
+    expect(afterClear.some((l: string) => l.includes("F003"))).toBe(true);
+    expect(afterClear.some((l: string) => l.includes("F010"))).toBe(true);
+    expect(afterClear.some((l: string) => l.includes("F011"))).toBe(true);
+    // Second Escape — closes overlay
+    c.handleInput("\x1b");
+    expect(overlayHidden).toBe(true);
+
+    // 9. Escape with empty filter closes immediately
+    let closed = false;
+    const tui2: any = {
+      hideOverlay: () => { closed = true; },
+      requestRender: () => {},
+    };
+    const c2: any = missionControlOverlay(mission)(tui2);
+    c2.handleInput("\x1b");
+    expect(closed).toBe(true);
+
+    // 10. No-match filter shows "No matching" message
+    const noMatch = (() => {
+      const c: any = missionControlOverlay(mission)(mockTui);
+      c.handleInput("Z");
+      return c.render(80);
+    })();
+    expect(noMatch.some((l: string) => l.includes("No matching"))).toBe(true);
+  });
 });
