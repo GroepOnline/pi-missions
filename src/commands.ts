@@ -12,6 +12,7 @@ import { dashboardRows, statusText, updateFooter } from "./ui.js";
 import { validate, formatValidationErrors } from "./validation.js";
 import { WizardOutputSchema, FeatureSchema } from "./schemas.js";
 import { logger } from "./logger.js";
+import { sessionMetrics } from "./metrics.js";
 
 export function registerMissionCommand(pi: ExtensionAPI, runtime: RuntimeState): void {
   pi.registerCommand("mission", {
@@ -250,6 +251,7 @@ export async function handleStatus(ctx: ExtensionCommandContext, runtime: Runtim
 
 export async function handleMetrics(ctx: ExtensionCommandContext, runtime: RuntimeState): Promise<void> {
   const summary = calculateMetricsSummary();
+  const sessionMetricsSummary = sessionMetrics.getMetricsSummary();
   
   if (summary.totalMissions === 0) {
     return ctx.ui.notify("No missions found. Create a mission with /mission new <title>.", "info");
@@ -264,6 +266,10 @@ export async function handleMetrics(ctx: ExtensionCommandContext, runtime: Runti
     `Average Tokens/Mission: ${summary.averageTokensPerMission.toFixed(0)}`,
     `Average Features/Mission: ${summary.averageFeaturesPerMission.toFixed(1)}`,
     `Avg Completion Time: ${(summary.averageCompletionTimeMs / 1000 / 60).toFixed(1)} min`,
+    "",
+    "📈 Session Metrics",
+    "=".repeat(40),
+    sessionMetricsSummary,
   ];
   
   ctx.ui.notify(lines.join("\n"), "info");

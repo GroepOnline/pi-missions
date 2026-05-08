@@ -84,6 +84,27 @@ export interface MissionMetricsSummary {
   averageCompletionTimeMs: number;
 }
 
+// Session-level metrics for terminal/pi session tracking
+export interface SessionMetrics {
+  sessionId: string;
+  startTime: number;
+  endTime?: number;
+  toolCalls: {
+    total: number;
+    byTool: Record<string, number>;
+    successful: number;
+    failed: number;
+  };
+  tokensUsed: number;
+  featuresCompleted: number;
+  errors: {
+    total: number;
+    byCategory: Record<string, number>;
+  };
+  autoAdvanceCount: number;
+  stuckDetectionCount: number;
+}
+
 export interface MissionHistoryEntry {
   ts: number;
   missionId: string;

@@ -576,26 +576,33 @@ describe("handleDashboard", () => {
 
     const component: any = missionControlOverlay(mission, (featureId) => { featureActivated = featureId; })(mockTui);
 
-    // 1. Initial render — all 3 features listed, F001 selected with → prefix
+    // 1. Initial render — session metrics + 3 features listed, session metrics selected with → prefix
     const initial = component.render(80);
+    expect(initial.some((l: string) => l.includes("Session Metrics"))).toBe(true);
     expect(initial.some((l: string) => l.includes("F001"))).toBe(true);
     expect(initial.some((l: string) => l.includes("F002"))).toBe(true);
     expect(initial.some((l: string) => l.includes("F003"))).toBe(true);
-    expect(initial.some((l: string) => l.includes("→") && l.includes("F001"))).toBe(true);
+    expect(initial.some((l: string) => l.includes("→") && l.includes("Session Metrics"))).toBe(true);
 
-    // 2. Navigate down (\x1b[B) to F002 — verify selection and detail pane
+    // 2. Navigate down (\x1b[B) to F001 — verify selection and detail pane
     component.handleInput("\x1b[B");
     const down1 = component.render(80);
-    expect(down1.some((l: string) => l.includes("→") && l.includes("F002"))).toBe(true);
-    expect(down1.some((l: string) => l.includes("F002:"))).toBe(true);
+    expect(down1.some((l: string) => l.includes("→") && l.includes("F001"))).toBe(true);
+    expect(down1.some((l: string) => l.includes("F001:"))).toBe(true);
 
-    // 3. Navigate down again to F003
+    // 3. Navigate down again to F002
     component.handleInput("\x1b[B");
     const down2 = component.render(80);
-    expect(down2.some((l: string) => l.includes("→") && l.includes("F003"))).toBe(true);
-    expect(down2.some((l: string) => l.includes("F003:"))).toBe(true);
+    expect(down2.some((l: string) => l.includes("→") && l.includes("F002"))).toBe(true);
+    expect(down2.some((l: string) => l.includes("F002:"))).toBe(true);
 
-    // 4. Navigate back up (\x1b[A) to F002
+    // 4. Navigate down again to F003
+    component.handleInput("\x1b[B");
+    const down3 = component.render(80);
+    expect(down3.some((l: string) => l.includes("→") && l.includes("F003"))).toBe(true);
+    expect(down3.some((l: string) => l.includes("F003:"))).toBe(true);
+
+    // 5. Navigate back up (\x1b[A) to F002
     component.handleInput("\x1b[A");
     const up1 = component.render(80);
     expect(up1.some((l: string) => l.includes("→") && l.includes("F002"))).toBe(true);
@@ -973,7 +980,8 @@ describe("handleDashboard already-active branch", () => {
         setWidget: () => {},
         custom: async (factory: any, _opts: any) => {
           const comp = factory({ hideOverlay: () => {}, requestRender: () => {} });
-          // F001 is already active — select it and press Enter
+          // Navigate down to F001 (skip session metrics) and press Enter
+          comp.handleInput("\x1b[B");
           comp.handleInput("\r");
         },
         input: async () => null,

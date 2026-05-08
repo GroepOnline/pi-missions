@@ -11,6 +11,7 @@ import { getCompletionDetector, resetCompletionDetector } from "./completion.js"
 import { getErrorRecoveryEngine, resetErrorRecoveryEngine } from "./recovery.js";
 import { cleanupStaleLocks } from "./lock.js";
 import { logger } from "./logger.js";
+import { sessionMetrics, SessionMetricsCollector } from "./metrics.js";
 
 export default function piMissions(pi: ExtensionAPI): void {
   // Load model configuration at extension startup
@@ -22,6 +23,9 @@ export default function piMissions(pi: ExtensionAPI): void {
   registerMissionTools(pi, runtime);
 
   pi.on("session_start", async (event, ctx) => {
+    // Reset metrics on session start
+    SessionMetricsCollector.reset();
+
     // Cleanup stale locks from previous crashes
     try {
       await cleanupStaleLocks();
@@ -132,6 +136,9 @@ export default function piMissions(pi: ExtensionAPI): void {
     const success = event.success !== false;
     detector.recordToolCall(event.toolName, success);
     
+    // Record metrics
+    sessionMetrics.recordToolCall(event.toolName, success);
+    
     // Handle error recovery if tool call failed
     if (!success && event.error) {
       const feature = getActiveFeature(runtime.activeMission);
@@ -148,6 +155,9 @@ export default function piMissions(pi: ExtensionAPI): void {
       };
       
       const { action, shouldRetry, retryAfter, record } = recovery.handleError(errorContext);
+      
+      // Record error in metrics
+      sessionMetrics.recordError(record.category);
       
       // Log error to mission history
       logger.error("index", "Tool call failed, error recovery triggered", event.error, {
@@ -246,6 +256,7 @@ export default function piMissions(pi: ExtensionAPI): void {
       const detector = getCompletionDetector();
       const stuckDetection = detector.detectStuck();
       if (stuckDetection.isStuck && stuckDetection.suggestedAction === "block_self") {
+        sessionMetrics.recordStuckDetection();
         appendHistory(mission, { 
           event: "stuck_detected", 
           featureId: active.id, 
@@ -299,9 +310,13 @@ export default function piMissions(pi: ExtensionAPI): void {
       const evidenceFile = saveEvidence(mission, feature, `Auto-completed: ${detectionResult.reason}\n\nSignals:\n${detectionResult.signals.map(s => `- ${s.type}: ${s.evidence}`).join("\n")}`);
       appendHistory(mission, { event: "feature_done", featureId: feature.id, note: "Auto-completed", details: { evidenceFile, auto: true } });
       
+      // Record metrics
+      sessionMetrics.recordFeatureCompleted();
+      
       // Auto-advance to next feature
       const next = getNextPendingFeature(mission);
       if (next) {
+        sessionMetrics.recordAutoAdvance();
         next.status = "active";
         mission.activeFeatureId = next.id;
         mission.activeMilestoneId = next.milestoneId;
@@ -335,6 +350,9 @@ export default function piMissions(pi: ExtensionAPI): void {
   pi.on("session_before_compact", async () => compactionCheckpoint(pi, runtime));
 
   pi.on("session_shutdown", async (_event, ctx) => {
+    // End session metrics
+    sessionMetrics.endSession();
+    
     if (runtime.autoSaveInterval) clearInterval(runtime.autoSaveInterval);
     runtime.autoSaveInterval = null;
     if (runtime.activeMission) {

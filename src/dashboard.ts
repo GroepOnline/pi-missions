@@ -13,6 +13,7 @@ import type { Component, SelectItem, SelectListTheme, TUI } from "@mariozechner/
 import { Box, SelectList, Spacer, Text } from "@mariozechner/pi-tui";
 import { getFeatureById, progress } from "./state.js";
 import type { Feature, MissionState } from "./types.js";
+import { sessionMetrics } from "./metrics.js";
 
 // ────────────────────────────────────────────────────────────────────────────
 // Theme for the SelectList — minimal styling
@@ -56,6 +57,12 @@ export function featureDescription(f: Feature, milestoneId: string): string {
 
 export function buildFeatureItems(mission: MissionState): SelectItem[] {
   const items: SelectItem[] = [];
+  // Add session metrics item at the top
+  items.push({
+    value: "__session_metrics__",
+    label: "📊 Session Metrics",
+    description: "View current session performance metrics",
+  });
   for (const milestone of mission.milestones) {
     for (const feature of milestone.features) {
       items.push({
@@ -84,6 +91,32 @@ export function featureDetailLines(feature: Feature, width: number): string[] {
       const mark = ac.verified || ac.waived ? "☑" : "☐";
       const checkHint = ac.checkType === "bash" && ac.checkCommand ? ` → \`${ac.checkCommand}\`` : "";
       lines.push(`     ${mark} ${ac.id}: ${ac.description}${checkHint}`);
+    }
+  }
+  lines.push(`  ${bar}`);
+  return lines;
+}
+
+export function sessionMetricsLines(width: number): string[] {
+  const metrics = sessionMetrics.getMetrics();
+  const barW = Math.min(width - 4, 72);
+  const bar = "─".repeat(barW > 0 ? barW : 40);
+  const lines: string[] = [];
+  lines.push(`  ${bar}`);
+  lines.push(`  📊 Session Metrics`);
+  lines.push(`  Session: ${metrics.sessionId}`);
+  const duration = metrics.endTime ? (metrics.endTime - metrics.startTime) / 1000 : (Date.now() - metrics.startTime) / 1000;
+  lines.push(`  Duration: ${duration.toFixed(1)}s`);
+  lines.push(`  Tool Calls: ${metrics.toolCalls.total} (${((metrics.toolCalls.successful / metrics.toolCalls.total) * 100).toFixed(1)}% success)`);
+  lines.push(`  Tokens Used: ${metrics.tokensUsed}`);
+  lines.push(`  Features Completed: ${metrics.featuresCompleted}`);
+  lines.push(`  Auto-Advances: ${metrics.autoAdvanceCount}`);
+  lines.push(`  Stuck Detections: ${metrics.stuckDetectionCount}`);
+  lines.push(`  Errors: ${metrics.errors.total}`);
+  if (metrics.errors.total > 0) {
+    lines.push(`  Error Categories:`);
+    for (const [category, count] of Object.entries(metrics.errors.byCategory)) {
+      lines.push(`    - ${category}: ${count}`);
     }
   }
   lines.push(`  ${bar}`);
@@ -133,17 +166,25 @@ class MissionControl implements Component {
     this.list.onSelectionChange = (item: SelectItem) => this.updateDetail(item);
     this.list.onCancel = () => this.tui.hideOverlay();
     this.list.onSelect = (item: SelectItem) => {
-      this.onAction?.(item.value);
+      if (item.value !== "__session_metrics__") {
+        this.onAction?.(item.value);
+      }
       this.tui.hideOverlay();
     };
 
-    // Detail pane — initially shows first feature if available
+    // Detail pane — initially shows first item (session metrics or first feature)
     this.detailBox = new Box(0, 0);
     if (items.length > 0) {
-      const firstFeature = getFeatureById(mission, items[0]!.value);
-      if (firstFeature) {
-        for (const line of featureDetailLines(firstFeature, this.width)) {
+      if (items[0]!.value === "__session_metrics__") {
+        for (const line of sessionMetricsLines(this.width)) {
           this.detailBox.addChild(new Text(line));
+        }
+      } else {
+        const firstFeature = getFeatureById(mission, items[0]!.value);
+        if (firstFeature) {
+          for (const line of featureDetailLines(firstFeature, this.width)) {
+            this.detailBox.addChild(new Text(line));
+          }
         }
       }
     }
@@ -165,11 +206,17 @@ class MissionControl implements Component {
   }
 
   private updateDetail(item: SelectItem): void {
-    const feature = getFeatureById(this.mission, item.value);
-    if (!feature) return;
     this.detailBox.clear();
-    for (const line of featureDetailLines(feature, this.width)) {
-      this.detailBox.addChild(new Text(line));
+    if (item.value === "__session_metrics__") {
+      for (const line of sessionMetricsLines(this.width)) {
+        this.detailBox.addChild(new Text(line));
+      }
+    } else {
+      const feature = getFeatureById(this.mission, item.value);
+      if (!feature) return;
+      for (const line of featureDetailLines(feature, this.width)) {
+        this.detailBox.addChild(new Text(line));
+      }
     }
     this.detailBox.invalidate();
     this.tui.requestRender();

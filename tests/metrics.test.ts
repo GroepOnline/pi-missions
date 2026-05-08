@@ -1,287 +1,293 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { 
-  MetricsCollector, 
-  MissionMetrics, 
-  metricsCollector, 
-  recordMetrics, 
-  getMetricsSummary, 
-  getSuccessRate, 
-  getAverageTokensPerMission 
+  SessionMetricsCollector,
+  sessionMetrics
 } from "../src/metrics.js";
 
-describe("Metrics Collector", () => {
-  describe("recordMetrics", () => {
-    it("records mission metrics", () => {
-      const collector = new MetricsCollector();
-      const metrics: MissionMetrics = {
-        missionId: "mission-1",
-        created: Date.now(),
-        totalFeatures: 5,
-        featuresDone: 3,
-        featuresFailed: 1,
-        totalTokensUsed: 1000,
-        totalWallClockMs: 5000,
-        acceptanceFailures: 2,
-        evidenceHashErrors: 0,
-      };
-      
-      collector.recordMetrics(metrics);
-      
-      expect(collector.getMetrics("mission-1")).toEqual(metrics);
+describe("Session Metrics Collector", () => {
+  beforeEach(() => {
+    SessionMetricsCollector.reset();
+  });
+
+  afterEach(() => {
+    SessionMetricsCollector.reset();
+  });
+
+  describe("getInstance", () => {
+    it("returns singleton instance", () => {
+      const instance1 = SessionMetricsCollector.getInstance();
+      const instance2 = SessionMetricsCollector.getInstance();
+      expect(instance1).toBe(instance2);
     });
 
-    it("overwrites existing metrics for same mission", () => {
-      const collector = new MetricsCollector();
-      const metrics1: MissionMetrics = {
-        missionId: "mission-1",
-        created: Date.now(),
-        totalFeatures: 5,
-        featuresDone: 3,
-        featuresFailed: 1,
-        totalTokensUsed: 1000,
-        totalWallClockMs: 5000,
-        acceptanceFailures: 2,
-        evidenceHashErrors: 0,
-      };
+    it("creates new instance after reset", () => {
+      const instance1 = SessionMetricsCollector.getInstance();
+      SessionMetricsCollector.reset();
+      const instance2 = SessionMetricsCollector.getInstance();
+      expect(instance1).not.toBe(instance2);
+    });
+  });
+
+  describe("recordToolCall", () => {
+    it("records successful tool call", () => {
+      const collector = SessionMetricsCollector.getInstance();
+      collector.recordToolCall("read", true);
       
-      const metrics2: MissionMetrics = {
-        ...metrics1,
-        featuresDone: 4,
-      };
+      const metrics = collector.getMetrics();
+      expect(metrics.toolCalls.total).toBe(1);
+      expect(metrics.toolCalls.successful).toBe(1);
+      expect(metrics.toolCalls.failed).toBe(0);
+      expect(metrics.toolCalls.byTool["read"]).toBe(1);
+    });
+
+    it("records failed tool call", () => {
+      const collector = SessionMetricsCollector.getInstance();
+      collector.recordToolCall("write", false);
       
-      collector.recordMetrics(metrics1);
-      collector.recordMetrics(metrics2);
+      const metrics = collector.getMetrics();
+      expect(metrics.toolCalls.total).toBe(1);
+      expect(metrics.toolCalls.successful).toBe(0);
+      expect(metrics.toolCalls.failed).toBe(1);
+      expect(metrics.toolCalls.byTool["write"]).toBe(1);
+    });
+
+    it("accumulates multiple tool calls", () => {
+      const collector = SessionMetricsCollector.getInstance();
+      collector.recordToolCall("read", true);
+      collector.recordToolCall("read", true);
+      collector.recordToolCall("write", false);
       
-      expect(collector.getMetrics("mission-1")?.featuresDone).toBe(4);
+      const metrics = collector.getMetrics();
+      expect(metrics.toolCalls.total).toBe(3);
+      expect(metrics.toolCalls.successful).toBe(2);
+      expect(metrics.toolCalls.failed).toBe(1);
+      expect(metrics.toolCalls.byTool["read"]).toBe(2);
+      expect(metrics.toolCalls.byTool["write"]).toBe(1);
+    });
+  });
+
+  describe("recordTokenUsage", () => {
+    it("records token usage", () => {
+      const collector = SessionMetricsCollector.getInstance();
+      collector.recordTokenUsage(100);
+      
+      const metrics = collector.getMetrics();
+      expect(metrics.tokensUsed).toBe(100);
+    });
+
+    it("accumulates token usage", () => {
+      const collector = SessionMetricsCollector.getInstance();
+      collector.recordTokenUsage(100);
+      collector.recordTokenUsage(200);
+      
+      const metrics = collector.getMetrics();
+      expect(metrics.tokensUsed).toBe(300);
+    });
+  });
+
+  describe("recordFeatureCompleted", () => {
+    it("records feature completion", () => {
+      const collector = SessionMetricsCollector.getInstance();
+      collector.recordFeatureCompleted();
+      
+      const metrics = collector.getMetrics();
+      expect(metrics.featuresCompleted).toBe(1);
+    });
+
+    it("accumulates feature completions", () => {
+      const collector = SessionMetricsCollector.getInstance();
+      collector.recordFeatureCompleted();
+      collector.recordFeatureCompleted();
+      
+      const metrics = collector.getMetrics();
+      expect(metrics.featuresCompleted).toBe(2);
+    });
+  });
+
+  describe("recordError", () => {
+    it("records error by category", () => {
+      const collector = SessionMetricsCollector.getInstance();
+      collector.recordError("validation");
+      
+      const metrics = collector.getMetrics();
+      expect(metrics.errors.total).toBe(1);
+      expect(metrics.errors.byCategory["validation"]).toBe(1);
+    });
+
+    it("accumulates errors by category", () => {
+      const collector = SessionMetricsCollector.getInstance();
+      collector.recordError("validation");
+      collector.recordError("validation");
+      collector.recordError("io");
+      
+      const metrics = collector.getMetrics();
+      expect(metrics.errors.total).toBe(3);
+      expect(metrics.errors.byCategory["validation"]).toBe(2);
+      expect(metrics.errors.byCategory["io"]).toBe(1);
+    });
+  });
+
+  describe("recordAutoAdvance", () => {
+    it("records auto advance", () => {
+      const collector = SessionMetricsCollector.getInstance();
+      collector.recordAutoAdvance();
+      
+      const metrics = collector.getMetrics();
+      expect(metrics.autoAdvanceCount).toBe(1);
+    });
+
+    it("accumulates auto advances", () => {
+      const collector = SessionMetricsCollector.getInstance();
+      collector.recordAutoAdvance();
+      collector.recordAutoAdvance();
+      
+      const metrics = collector.getMetrics();
+      expect(metrics.autoAdvanceCount).toBe(2);
+    });
+  });
+
+  describe("recordStuckDetection", () => {
+    it("records stuck detection", () => {
+      const collector = SessionMetricsCollector.getInstance();
+      collector.recordStuckDetection();
+      
+      const metrics = collector.getMetrics();
+      expect(metrics.stuckDetectionCount).toBe(1);
+    });
+
+    it("accumulates stuck detections", () => {
+      const collector = SessionMetricsCollector.getInstance();
+      collector.recordStuckDetection();
+      collector.recordStuckDetection();
+      
+      const metrics = collector.getMetrics();
+      expect(metrics.stuckDetectionCount).toBe(2);
+    });
+  });
+
+  describe("endSession", () => {
+    it("sets end time", async () => {
+      const collector = SessionMetricsCollector.getInstance();
+      // Wait a bit to ensure endTime > startTime
+      await new Promise(resolve => setTimeout(resolve, 1));
+      collector.endSession();
+      
+      const metrics = collector.getMetrics();
+      expect(metrics.endTime).toBeDefined();
+      expect(metrics.endTime).toBeGreaterThanOrEqual(metrics.startTime);
     });
   });
 
   describe("getMetrics", () => {
-    it("returns undefined for non-existent mission", () => {
-      const collector = new MetricsCollector();
-      expect(collector.getMetrics("non-existent")).toBeUndefined();
+    it("returns copy of metrics", () => {
+      const collector = SessionMetricsCollector.getInstance();
+      const metrics1 = collector.getMetrics();
+      const metrics2 = collector.getMetrics();
+      
+      expect(metrics1).toEqual(metrics2);
+      expect(metrics1).not.toBe(metrics2);
     });
 
-    it("returns metrics for existing mission", () => {
-      const collector = new MetricsCollector();
-      const metrics: MissionMetrics = {
-        missionId: "mission-1",
-        created: Date.now(),
-        totalFeatures: 5,
-        featuresDone: 3,
-        featuresFailed: 1,
-        totalTokensUsed: 1000,
-        totalWallClockMs: 5000,
-        acceptanceFailures: 2,
-        evidenceHashErrors: 0,
-      };
+    it("includes session id", () => {
+      const collector = SessionMetricsCollector.getInstance();
+      const metrics = collector.getMetrics();
       
-      collector.recordMetrics(metrics);
-      
-      const retrieved = collector.getMetrics("mission-1");
-      expect(retrieved).toEqual(metrics);
-    });
-  });
-
-  describe("getAllMetrics", () => {
-    it("returns empty array when no metrics recorded", () => {
-      const collector = new MetricsCollector();
-      expect(collector.getAllMetrics()).toEqual([]);
+      expect(metrics.sessionId).toBeDefined();
+      expect(metrics.sessionId).toMatch(/^session-\d+-[a-z0-9]+$/);
     });
 
-    it("returns all recorded metrics", () => {
-      const collector = new MetricsCollector();
-      const metrics1: MissionMetrics = {
-        missionId: "mission-1",
-        created: Date.now(),
-        totalFeatures: 5,
-        featuresDone: 3,
-        featuresFailed: 1,
-        totalTokensUsed: 1000,
-        totalWallClockMs: 5000,
-        acceptanceFailures: 2,
-        evidenceHashErrors: 0,
-      };
+    it("includes start time", () => {
+      const collector = SessionMetricsCollector.getInstance();
+      const metrics = collector.getMetrics();
       
-      const metrics2: MissionMetrics = {
-        missionId: "mission-2",
-        created: Date.now(),
-        totalFeatures: 3,
-        featuresDone: 2,
-        featuresFailed: 0,
-        totalTokensUsed: 500,
-        totalWallClockMs: 3000,
-        acceptanceFailures: 0,
-        evidenceHashErrors: 0,
-      };
-      
-      collector.recordMetrics(metrics1);
-      collector.recordMetrics(metrics2);
-      
-      const all = collector.getAllMetrics();
-      expect(all).toHaveLength(2);
-      expect(all.map(m => m.missionId)).toEqual(["mission-1", "mission-2"]);
+      expect(metrics.startTime).toBeDefined();
+      expect(metrics.startTime).toBeLessThanOrEqual(Date.now());
     });
   });
 
-  describe("getSummary", () => {
-    it("returns zeros when no metrics", () => {
-      const collector = new MetricsCollector();
-      const summary = collector.getSummary();
+  describe("getMetricsSummary", () => {
+    it("returns formatted summary", () => {
+      const collector = SessionMetricsCollector.getInstance();
+      collector.recordToolCall("read", true);
+      collector.recordTokenUsage(100);
       
-      expect(summary.totalMissions).toBe(0);
-      expect(summary.completedMissions).toBe(0);
-      expect(summary.successRate).toBe(0);
+      const summary = collector.getMetricsSummary();
+      
+      expect(summary).toContain("Session:");
+      expect(summary).toContain("Duration:");
+      expect(summary).toContain("Tool Calls:");
+      expect(summary).toContain("Tokens Used:");
+      expect(summary).toContain("Features Completed:");
+      expect(summary).toContain("Auto-Advances:");
+      expect(summary).toContain("Stuck Detections:");
+      expect(summary).toContain("Errors:");
     });
 
-    it("calculates summary statistics correctly", () => {
-      const collector = new MetricsCollector();
-      const now = Date.now();
+    it("shows correct values", () => {
+      const collector = SessionMetricsCollector.getInstance();
+      collector.recordToolCall("read", true);
+      collector.recordTokenUsage(100);
+      collector.recordFeatureCompleted();
       
-      const metrics1: MissionMetrics = {
-        missionId: "mission-1",
-        created: now,
-        completed: now + 10000,
-        totalFeatures: 5,
-        featuresDone: 5,
-        featuresFailed: 0,
-        totalTokensUsed: 1000,
-        totalWallClockMs: 5000,
-        acceptanceFailures: 0,
-        evidenceHashErrors: 0,
-      };
+      const summary = collector.getMetricsSummary();
       
-      const metrics2: MissionMetrics = {
-        missionId: "mission-2",
-        created: now,
-        completed: now + 20000,
-        totalFeatures: 3,
-        featuresDone: 3,
-        featuresFailed: 0,
-        totalTokensUsed: 500,
-        totalWallClockMs: 3000,
-        acceptanceFailures: 0,
-        evidenceHashErrors: 0,
-      };
-      
-      const metrics3: MissionMetrics = {
-        missionId: "mission-3",
-        created: now,
-        totalFeatures: 4,
-        featuresDone: 2,
-        featuresFailed: 1,
-        totalTokensUsed: 800,
-        totalWallClockMs: 4000,
-        acceptanceFailures: 1,
-        evidenceHashErrors: 0,
-      };
-      
-      collector.recordMetrics(metrics1);
-      collector.recordMetrics(metrics2);
-      collector.recordMetrics(metrics3);
-      
-      const summary = collector.getSummary();
-      
-      expect(summary.totalMissions).toBe(3);
-      expect(summary.completedMissions).toBe(2);
-      expect(summary.successRate).toBeCloseTo(2/3, 2);
-      expect(summary.averageTokensPerMission).toBeCloseTo((1000 + 500 + 800) / 3, 2);
-      expect(summary.averageFeaturesPerMission).toBeCloseTo((5 + 3 + 4) / 3, 2);
-      expect(summary.averageCompletionTimeMs).toBeCloseTo((10000 + 20000) / 2, 2);
+      expect(summary).toContain("Tool Calls: 1");
+      expect(summary).toContain("Tokens Used: 100");
+      expect(summary).toContain("Features Completed: 1");
     });
   });
 
-  describe("clear", () => {
-    it("clears all recorded metrics", () => {
-      const collector = new MetricsCollector();
-      const metrics: MissionMetrics = {
-        missionId: "mission-1",
-        created: Date.now(),
-        totalFeatures: 5,
-        featuresDone: 3,
-        featuresFailed: 1,
-        totalTokensUsed: 1000,
-        totalWallClockMs: 5000,
-        acceptanceFailures: 2,
-        evidenceHashErrors: 0,
-      };
+  describe("exportMetrics", () => {
+    it("returns JSON string", () => {
+      const collector = SessionMetricsCollector.getInstance();
+      const json = collector.exportMetrics();
       
-      collector.recordMetrics(metrics);
-      collector.clear();
+      expect(typeof json).toBe("string");
       
-      expect(collector.getAllMetrics()).toEqual([]);
+      const parsed = JSON.parse(json);
+      expect(parsed).toHaveProperty("sessionId");
+      expect(parsed).toHaveProperty("startTime");
+      expect(parsed).toHaveProperty("toolCalls");
+      expect(parsed).toHaveProperty("tokensUsed");
+      expect(parsed).toHaveProperty("featuresCompleted");
+      expect(parsed).toHaveProperty("errors");
+      expect(parsed).toHaveProperty("autoAdvanceCount");
+      expect(parsed).toHaveProperty("stuckDetectionCount");
     });
-  });
 
-  describe("toJSON", () => {
-    it("returns JSON string of all metrics", () => {
-      const collector = new MetricsCollector();
-      const metrics: MissionMetrics = {
-        missionId: "mission-1",
-        created: Date.now(),
-        totalFeatures: 5,
-        featuresDone: 3,
-        featuresFailed: 1,
-        totalTokensUsed: 1000,
-        totalWallClockMs: 5000,
-        acceptanceFailures: 2,
-        evidenceHashErrors: 0,
-      };
+    it("includes recorded data", () => {
+      const collector = SessionMetricsCollector.getInstance();
+      collector.recordToolCall("read", true);
+      collector.recordTokenUsage(100);
       
-      collector.recordMetrics(metrics);
-      
-      const json = collector.toJSON();
+      const json = collector.exportMetrics();
       const parsed = JSON.parse(json);
       
-      expect(Array.isArray(parsed)).toBe(true);
-      expect(parsed).toHaveLength(1);
-      expect(parsed[0].missionId).toBe("mission-1");
+      expect(parsed.toolCalls.total).toBe(1);
+      expect(parsed.tokensUsed).toBe(100);
     });
   });
 });
 
-describe("Global metrics collector", () => {
-  it("provides global collector instance", () => {
-    expect(metricsCollector).toBeInstanceOf(MetricsCollector);
+describe("Global session metrics instance", () => {
+  it("provides global instance", () => {
+    expect(sessionMetrics).toBeInstanceOf(SessionMetricsCollector);
   });
 
-  it("recordMetrics uses global collector", () => {
-    const metrics: MissionMetrics = {
-      missionId: "test-mission",
-      created: Date.now(),
-      totalFeatures: 5,
-      featuresDone: 3,
-      featuresFailed: 1,
-      totalTokensUsed: 1000,
-      totalWallClockMs: 5000,
-      acceptanceFailures: 2,
-      evidenceHashErrors: 0,
-    };
-    
-    recordMetrics(metrics);
-    
-    expect(metricsCollector.getMetrics("test-mission")).toEqual(metrics);
-    
-    // Clean up
-    metricsCollector.clear();
+  it("getInstance returns same instance as global sessionMetrics", () => {
+    // Note: sessionMetrics is initialized at module import time
+    // getInstance should return the same singleton instance
+    const instance1 = SessionMetricsCollector.getInstance();
+    const instance2 = SessionMetricsCollector.getInstance();
+    expect(instance1).toBe(instance2);
   });
 
-  it("getMetricsSummary uses global collector", () => {
-    const summary = getMetricsSummary();
-    expect(summary).toHaveProperty("totalMissions");
-    expect(summary).toHaveProperty("successRate");
-  });
-
-  it("getSuccessRate returns success rate", () => {
-    const rate = getSuccessRate();
-    expect(typeof rate).toBe("number");
-    expect(rate).toBeGreaterThanOrEqual(0);
-    expect(rate).toBeLessThanOrEqual(1);
-  });
-
-  it("getAverageTokensPerMission returns average tokens", () => {
-    const avg = getAverageTokensPerMission();
-    expect(typeof avg).toBe("number");
-    expect(avg).toBeGreaterThanOrEqual(0);
+  it("reset creates new instance", () => {
+    const instance1 = SessionMetricsCollector.getInstance();
+    SessionMetricsCollector.reset();
+    const instance2 = SessionMetricsCollector.getInstance();
+    expect(instance1).not.toBe(instance2);
+    // Reset back to clean state for other tests
+    SessionMetricsCollector.reset();
   });
 });

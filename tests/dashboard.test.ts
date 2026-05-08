@@ -233,26 +233,32 @@ describe("buildFeatureItems", () => {
     const mission = createMission("BuildItems", "Test goal");
     // Default mission has 1 milestone with 3 features
     const items = buildFeatureItems(mission);
-    expect(items).toHaveLength(3);
-    expect(items[0]!.value).toBe("F001");
-    expect(items[0]!.label).toContain("F001");
-    expect(items[0]!.description).toContain("M01:");
-    expect(items[1]!.value).toBe("F002");
-    expect(items[2]!.value).toBe("F003");
+    expect(items).toHaveLength(4); // 1 session metrics + 3 features
+    expect(items[0]!.value).toBe("__session_metrics__");
+    expect(items[0]!.label).toContain("Session Metrics");
+    expect(items[1]!.value).toBe("F001");
+    expect(items[1]!.label).toContain("F001");
+    expect(items[1]!.description).toContain("M01:");
+    expect(items[2]!.value).toBe("F002");
+    expect(items[3]!.value).toBe("F003");
   });
 
   it("returns empty array for mission with no milestones", () => {
     const mission = createMission("Empty", "No milestones");
     mission.milestones = [];
     const items = buildFeatureItems(mission);
-    expect(items).toEqual([]);
+    // Still returns session metrics item even with no features
+    expect(items).toHaveLength(1);
+    expect(items[0]!.value).toBe("__session_metrics__");
   });
 
   it("returns empty array for milestone with no features", () => {
     const mission = createMission("EmptyFeats", "No features");
     mission.milestones[0]!.features = [];
     const items = buildFeatureItems(mission);
-    expect(items).toEqual([]);
+    // Still returns session metrics item even with no features
+    expect(items).toHaveLength(1);
+    expect(items[0]!.value).toBe("__session_metrics__");
   });
 
   it("skips features in inactive milestones if any", () => {
@@ -280,16 +286,16 @@ describe("buildFeatureItems", () => {
     });
     // All milestones are included regardless of status
     const items = buildFeatureItems(mission);
-    expect(items).toHaveLength(4);
-    expect(items[3]!.value).toBe("F010");
-    expect(items[3]!.description).toContain("M02:");
+    expect(items).toHaveLength(5); // 1 session metrics + 4 features
+    expect(items[4]!.value).toBe("F010");
+    expect(items[4]!.description).toContain("M02:");
   });
 
   it("preserves feature ordering within milestones", () => {
     const mission = createMission("Ordered", "Test order");
     // Default features are F001, F002, F003 in order
     const items = buildFeatureItems(mission);
-    expect(items.map((i) => i.value)).toEqual(["F001", "F002", "F003"]);
+    expect(items.map((i) => i.value)).toEqual(["__session_metrics__", "F001", "F002", "F003"]);
   });
 });
 
@@ -524,10 +530,11 @@ describe("missionControlOverlay", () => {
     };
 
     const component: any = factory(mockTui);
-    // Simulate navigating down then pressing Enter
+    // Simulate navigating down twice (skip session metrics) then pressing Enter
+    component.handleInput("\x1b[B");
     component.handleInput("\x1b[B");
     component.handleInput("\r");
-    expect(captured).toBe("F002"); // second feature selected after one down
+    expect(captured).toBe("F002"); // second feature selected after two downs
   });
 
   it("disposes without error", () => {
@@ -579,17 +586,18 @@ describe("missionControlOverlay", () => {
     };
     const component: any = missionControlOverlay(mission)(mockTui);
 
-    // 1. Initial render — all 5 features visible, no filter count
+    // 1. Initial render — all 6 items visible (1 session metrics + 5 features), no filter count
     const initial = component.render(80);
+    expect(initial.some((l: string) => l.includes("Session Metrics"))).toBe(true);
     expect(initial.some((l: string) => l.includes("F001"))).toBe(true);
     expect(initial.some((l: string) => l.includes("F002"))).toBe(true);
     expect(initial.some((l: string) => l.includes("F003"))).toBe(true);
     expect(initial.some((l: string) => l.includes("F010"))).toBe(true);
     expect(initial.some((l: string) => l.includes("F011"))).toBe(true);
     // Footer shows total count, not filtered/total
-    expect(initial.some((l: string) => l.includes("5 features") && !l.includes("/"))).toBe(true);
+    expect(initial.some((l: string) => l.includes("6 features") && !l.includes("/"))).toBe(true);
 
-    // 2. Type "F" — all still visible (all start with F), 5/5
+    // 2. Type "F" — session metrics filtered out, 5 features visible, 5/6
     component.handleInput("F");
     const afterF = component.render(80);
     expect(afterF.some((l: string) => l.includes("F001"))).toBe(true);
@@ -598,7 +606,7 @@ describe("missionControlOverlay", () => {
     // Filter bar shows current filter text
     expect(afterF.some((l: string) => l.includes("🔍 Filter: F"))).toBe(true);
     // Footer shows filtered/total count
-    expect(afterF.some((l: string) => l.includes("5/5 features"))).toBe(true);
+    expect(afterF.some((l: string) => l.includes("5/6 features"))).toBe(true);
     // No "No matching" message
     expect(afterF.some((l: string) => l.includes("No matching"))).toBe(false);
 
@@ -609,7 +617,7 @@ describe("missionControlOverlay", () => {
     expect(afterF0.some((l: string) => l.includes("F002"))).toBe(true);
     expect(afterF0.some((l: string) => l.includes("F010"))).toBe(true);
 
-    // 4. Type "0" again — filter="F00", only F001, F002, F003 remain (3/5)
+    // 4. Type "0" again — filter="F00", only F001, F002, F003 remain (3/6)
     component.handleInput("0");
     const afterF00 = component.render(80);
     expect(afterF00.some((l: string) => l.includes("F001"))).toBe(true);
@@ -617,10 +625,10 @@ describe("missionControlOverlay", () => {
     expect(afterF00.some((l: string) => l.includes("F003"))).toBe(true);
     expect(afterF00.some((l: string) => l.includes("F010"))).toBe(false);
     expect(afterF00.some((l: string) => l.includes("F011"))).toBe(false);
-    // Footer shows 3/5 filtered count
-    expect(afterF00.some((l: string) => l.includes("3/5 features"))).toBe(true);
+    // Footer shows 3/6 filtered count
+    expect(afterF00.some((l: string) => l.includes("3/6 features"))).toBe(true);
 
-    // 5. Type "3" — filter="F003", only F003 in list (1/5).
+    // 5. Type "3" — filter="F003", only F003 in list (1/6).
     // Detail pane shows F003 depends on F002, so F002 appears there (correct).
     // F001 is absent (not in filter results, not a dependency of F003).
     component.handleInput("3");
@@ -629,8 +637,8 @@ describe("missionControlOverlay", () => {
     expect(afterF003.some((l: string) => l.includes("F001"))).toBe(false);
     // Filter bar shows accumulated text
     expect(afterF003.some((l: string) => l.includes("🔍 Filter: F003"))).toBe(true);
-    // Footer shows 1/5 filtered count
-    expect(afterF003.some((l: string) => l.includes("1/5 features"))).toBe(true);
+    // Footer shows 1/6 filtered count
+    expect(afterF003.some((l: string) => l.includes("1/6 features"))).toBe(true);
     // F002 appears as dependency in detail pane
     expect(afterF003.some((l: string) => l.includes("🔗") && l.includes("F002"))).toBe(true);
 
@@ -677,7 +685,7 @@ describe("missionControlOverlay", () => {
     const afterClear = c.render(80);
     // Filter bar hidden after clear; footer back to plain total
     expect(afterClear.some((l: string) => l.includes("Filter:"))).toBe(false);
-    expect(afterClear.some((l: string) => l.includes("5 features") && !l.includes("/"))).toBe(true);
+    expect(afterClear.some((l: string) => l.includes("6 features") && !l.includes("/"))).toBe(true);
     expect(afterClear.some((l: string) => l.includes("F001"))).toBe(true);
     expect(afterClear.some((l: string) => l.includes("F002"))).toBe(true);
     expect(afterClear.some((l: string) => l.includes("F003"))).toBe(true);
@@ -825,7 +833,7 @@ describe("missionControlOverlay", () => {
       requestRender: () => {},
     };
 
-    // 1. Type "F003" → 1 feature, Ctrl+W → removes whole word → all 5 restored
+    // 1. Type "F003" → 1 feature, Ctrl+W → removes whole word → all 6 restored
     const c1: any = missionControlOverlay(mission)(tuiWithSpy);
     c1.handleInput("F");
     c1.handleInput("0");
@@ -833,14 +841,14 @@ describe("missionControlOverlay", () => {
     c1.handleInput("3");
     const afterF003 = c1.render(80);
     expect(afterF003.some((l: string) => l.includes("🔍 Filter: F003"))).toBe(true);
-    expect(afterF003.some((l: string) => l.includes("1/5 features"))).toBe(true);
+    expect(afterF003.some((l: string) => l.includes("1/6 features"))).toBe(true);
     expect(afterF003.some((l: string) => l.includes("F010"))).toBe(false);
 
     c1.handleInput("\x17"); // Ctrl+W
     expect(overlayHidden).toBe(false);
     const afterCtrlW1 = c1.render(80);
     expect(afterCtrlW1.some((l: string) => l.includes("Filter:"))).toBe(false);
-    expect(afterCtrlW1.some((l: string) => l.includes("5 features") && !l.includes("/"))).toBe(true);
+    expect(afterCtrlW1.some((l: string) => l.includes("6 features") && !l.includes("/"))).toBe(true);
     expect(afterCtrlW1.some((l: string) => l.includes("F001"))).toBe(true);
     expect(afterCtrlW1.some((l: string) => l.includes("F011"))).toBe(true);
 
@@ -859,17 +867,17 @@ describe("missionControlOverlay", () => {
     c2.handleInput("d");
     const afterHelloWorld = c2.render(80);
     expect(afterHelloWorld.some((l: string) => l.includes("🔍 Filter: hello world"))).toBe(true);
-    expect(afterHelloWorld.some((l: string) => l.includes("0/5 features"))).toBe(true);
+    expect(afterHelloWorld.some((l: string) => l.includes("0/6 features"))).toBe(true);
 
     c2.handleInput("\x17"); // Ctrl+W → removes "world"
     const afterFirstCtrlW = c2.render(80);
     expect(afterFirstCtrlW.some((l: string) => l.includes("🔍 Filter: hello"))).toBe(true);
-    expect(afterFirstCtrlW.some((l: string) => l.includes("0/5 features"))).toBe(true);
+    expect(afterFirstCtrlW.some((l: string) => l.includes("0/6 features"))).toBe(true);
 
     c2.handleInput("\x17"); // Ctrl+W again → removes "hello"
     const afterSecondCtrlW = c2.render(80);
     expect(afterSecondCtrlW.some((l: string) => l.includes("Filter:"))).toBe(false);
-    expect(afterSecondCtrlW.some((l: string) => l.includes("5 features") && !l.includes("/"))).toBe(true);
+    expect(afterSecondCtrlW.some((l: string) => l.includes("6 features") && !l.includes("/"))).toBe(true);
 
     // 3. Ctrl+W on empty filter — no-op, no crash
     const c3: any = missionControlOverlay(mission)(tuiWithSpy);
@@ -915,7 +923,7 @@ describe("missionControlOverlay", () => {
     const afterClear = c1.render(80);
     expect(afterClear.some((l: string) => l.includes("Filter:"))).toBe(false);
     // Footer back to plain total after clear
-    expect(afterClear.some((l: string) => l.includes("5 features") && !l.includes("/"))).toBe(true);
+    expect(afterClear.some((l: string) => l.includes("6 features") && !l.includes("/"))).toBe(true);
     expect(afterClear.some((l: string) => l.includes("F001"))).toBe(true);
     expect(afterClear.some((l: string) => l.includes("F002"))).toBe(true);
     expect(afterClear.some((l: string) => l.includes("F003"))).toBe(true);
@@ -938,7 +946,7 @@ describe("missionControlOverlay", () => {
     c3.handleInput("Z"); // no features match "Z"
     const noMatch = c3.render(80);
     expect(noMatch.some((l: string) => l.includes("No matching"))).toBe(true);
-    expect(noMatch.some((l: string) => l.includes("0/5 features"))).toBe(true);
+    expect(noMatch.some((l: string) => l.includes("0/6 features"))).toBe(true);
 
     c3.handleInput("\x15"); // Ctrl+U
     expect(overlayHidden).toBe(false); // overlay stays open
@@ -947,7 +955,7 @@ describe("missionControlOverlay", () => {
     expect(afterNoMatchClear.some((l: string) => l.includes("No matching"))).toBe(false);
     expect(afterNoMatchClear.some((l: string) => l.includes("F001"))).toBe(true);
     expect(afterNoMatchClear.some((l: string) => l.includes("F011"))).toBe(true);
-    expect(afterNoMatchClear.some((l: string) => l.includes("5 features") && !l.includes("/"))).toBe(true);
+    expect(afterNoMatchClear.some((l: string) => l.includes("6 features") && !l.includes("/"))).toBe(true);
 
     // 5. Ctrl+W with trailing spaces — strips spaces then deletes word
     const c4: any = missionControlOverlay(mission)(tuiWithSpy);

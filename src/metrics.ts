@@ -1,147 +1,109 @@
+import type { SessionMetrics } from "./types.js";
+
 /**
- * Metrics and observability utilities.
- * Tracks mission success rates and performance metrics.
+ * Session metrics collector for terminal/pi session tracking
  */
+export class SessionMetricsCollector {
+  private metrics: SessionMetrics;
+  private static instance: SessionMetricsCollector | null = null;
 
-export interface MissionMetrics {
-  missionId: string;
-  created: number;
-  completed?: number;
-  totalFeatures: number;
-  featuresDone: number;
-  featuresFailed: number;
-  totalTokensUsed: number;
-  totalWallClockMs: number;
-  acceptanceFailures: number;
-  evidenceHashErrors: number;
-}
-
-export interface MetricsSummary {
-  totalMissions: number;
-  completedMissions: number;
-  successRate: number;
-  averageTokensPerMission: number;
-  averageFeaturesPerMission: number;
-  averageCompletionTimeMs: number;
-}
-
-export class MetricsCollector {
-  private metrics: Map<string, MissionMetrics> = new Map();
-  
-  /**
-   * Record metrics for a mission.
-   * @param metrics - The mission metrics to record
-   */
-  recordMetrics(metrics: MissionMetrics): void {
-    this.metrics.set(metrics.missionId, metrics);
-  }
-  
-  /**
-   * Get metrics for a specific mission.
-   * @param missionId - The mission ID
-   * @returns MissionMetrics or undefined if not found
-   */
-  getMetrics(missionId: string): MissionMetrics | undefined {
-    return this.metrics.get(missionId);
-  }
-  
-  /**
-   * Get all recorded metrics.
-   * @returns Array of all mission metrics
-   */
-  getAllMetrics(): MissionMetrics[] {
-    return Array.from(this.metrics.values());
-  }
-  
-  /**
-   * Calculate summary statistics across all missions.
-   * @returns MetricsSummary with aggregated statistics
-   */
-  getSummary(): MetricsSummary {
-    const allMetrics = this.getAllMetrics();
-    
-    if (allMetrics.length === 0) {
-      return {
-        totalMissions: 0,
-        completedMissions: 0,
-        successRate: 0,
-        averageTokensPerMission: 0,
-        averageFeaturesPerMission: 0,
-        averageCompletionTimeMs: 0,
-      };
-    }
-    
-    const completedMissions = allMetrics.filter(m => m.completed !== undefined);
-    const totalTokens = allMetrics.reduce((sum, m) => sum + m.totalTokensUsed, 0);
-    const totalFeatures = allMetrics.reduce((sum, m) => sum + m.totalFeatures, 0);
-    const totalCompletionTime = completedMissions.reduce((sum, m) => {
-      if (m.completed) {
-        return sum + (m.completed - m.created);
-      }
-      return sum;
-    }, 0);
-    
-    return {
-      totalMissions: allMetrics.length,
-      completedMissions: completedMissions.length,
-      successRate: completedMissions.length / allMetrics.length,
-      averageTokensPerMission: totalTokens / allMetrics.length,
-      averageFeaturesPerMission: totalFeatures / allMetrics.length,
-      averageCompletionTimeMs: completedMissions.length > 0 
-        ? totalCompletionTime / completedMissions.length 
-        : 0,
+  private constructor() {
+    this.metrics = {
+      sessionId: this.generateSessionId(),
+      startTime: Date.now(),
+      toolCalls: {
+        total: 0,
+        byTool: {},
+        successful: 0,
+        failed: 0,
+      },
+      tokensUsed: 0,
+      featuresCompleted: 0,
+      errors: {
+        total: 0,
+        byCategory: {},
+      },
+      autoAdvanceCount: 0,
+      stuckDetectionCount: 0,
     };
   }
-  
-  /**
-   * Clear all recorded metrics.
-   */
-  clear(): void {
-    this.metrics.clear();
+
+  private generateSessionId(): string {
+    return `session-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
   }
-  
-  /**
-   * Get metrics as JSON for export.
-   * @returns JSON string of all metrics
-   */
-  toJSON(): string {
-    return JSON.stringify(this.getAllMetrics(), null, 2);
+
+  static getInstance(): SessionMetricsCollector {
+    if (!SessionMetricsCollector.instance) {
+      SessionMetricsCollector.instance = new SessionMetricsCollector();
+    }
+    return SessionMetricsCollector.instance;
+  }
+
+  static reset(): void {
+    SessionMetricsCollector.instance = null;
+  }
+
+  recordToolCall(toolName: string, success: boolean): void {
+    this.metrics.toolCalls.total++;
+    this.metrics.toolCalls.byTool[toolName] = (this.metrics.toolCalls.byTool[toolName] || 0) + 1;
+    if (success) {
+      this.metrics.toolCalls.successful++;
+    } else {
+      this.metrics.toolCalls.failed++;
+    }
+  }
+
+  recordTokenUsage(tokens: number): void {
+    this.metrics.tokensUsed += tokens;
+  }
+
+  recordFeatureCompleted(): void {
+    this.metrics.featuresCompleted++;
+  }
+
+  recordError(category: string): void {
+    this.metrics.errors.total++;
+    this.metrics.errors.byCategory[category] = (this.metrics.errors.byCategory[category] || 0) + 1;
+  }
+
+  recordAutoAdvance(): void {
+    this.metrics.autoAdvanceCount++;
+  }
+
+  recordStuckDetection(): void {
+    this.metrics.stuckDetectionCount++;
+  }
+
+  endSession(): void {
+    this.metrics.endTime = Date.now();
+  }
+
+  getMetrics(): SessionMetrics {
+    return { ...this.metrics };
+  }
+
+  getMetricsSummary(): string {
+    const duration = this.metrics.endTime ? (this.metrics.endTime - this.metrics.startTime) / 1000 : (Date.now() - this.metrics.startTime) / 1000;
+    const successRate = this.metrics.toolCalls.total > 0 
+      ? ((this.metrics.toolCalls.successful / this.metrics.toolCalls.total) * 100).toFixed(1) 
+      : "0";
+
+    return [
+      `Session: ${this.metrics.sessionId}`,
+      `Duration: ${duration.toFixed(1)}s`,
+      `Tool Calls: ${this.metrics.toolCalls.total} (${successRate}% success)`,
+      `Tokens Used: ${this.metrics.tokensUsed}`,
+      `Features Completed: ${this.metrics.featuresCompleted}`,
+      `Auto-Advances: ${this.metrics.autoAdvanceCount}`,
+      `Stuck Detections: ${this.metrics.stuckDetectionCount}`,
+      `Errors: ${this.metrics.errors.total}`,
+    ].join(" | ");
+  }
+
+  exportMetrics(): string {
+    return JSON.stringify(this.metrics, null, 2);
   }
 }
 
-/**
- * Global metrics collector instance.
- */
-export const metricsCollector = new MetricsCollector();
-
-/**
- * Record metrics for a mission using the global collector.
- * @param metrics - The mission metrics to record
- */
-export function recordMetrics(metrics: MissionMetrics): void {
-  metricsCollector.recordMetrics(metrics);
-}
-
-/**
- * Get metrics summary using the global collector.
- * @returns MetricsSummary with aggregated statistics
- */
-export function getMetricsSummary(): MetricsSummary {
-  return metricsCollector.getSummary();
-}
-
-/**
- * Calculate success rate for completed missions.
- * @returns Success rate (0-1)
- */
-export function getSuccessRate(): number {
-  return metricsCollector.getSummary().successRate;
-}
-
-/**
- * Get average token usage per mission.
- * @returns Average tokens used
- */
-export function getAverageTokensPerMission(): number {
-  return metricsCollector.getSummary().averageTokensPerMission;
-}
+// Global instance
+export const sessionMetrics = SessionMetricsCollector.getInstance();

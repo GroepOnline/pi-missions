@@ -5,6 +5,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { CURRENT_SCHEMA_VERSION, DEFAULT_FEATURE_MAX_TOOL_CALLS, DEFAULT_FEATURE_MAX_WALL_CLOCK_MS, STALE_FEATURE_WARN_CLOCK_MS, type Feature, type Milestone, type MissionHistoryEntry, type MissionMetrics, type MissionMetricsSummary, type MissionState, type ToolPhase } from "./types.js";
 import { withLock } from "./lock.js";
+import { logger } from "./logger.js";
 
 export function createValidationToken(): string {
   return crypto.randomBytes(32).toString('hex');
@@ -38,7 +39,10 @@ export function missionDirSafe(id: string): string {
   const root = path.resolve(missionsRoot());
   const safeId = id.replace(/[^a-zA-Z0-9._-]/g, "-");
   const resolved = path.resolve(root, safeId);
-  if (!resolved.startsWith(root + path.sep)) throw new Error("Invalid mission id: path traversal detected");
+  if (!resolved.startsWith(root + path.sep)) {
+    logger.error("state", "Path traversal detected in mission ID", undefined, { missionId: id });
+    throw new Error("Invalid mission id: path traversal detected");
+  }
   return resolved;
 }
 
@@ -165,6 +169,7 @@ export function migrateMission(raw: unknown): MissionState {
       milestones: value.milestones ?? [{ id: "M01", title: "Migrated", description: "Migrated flat feature list", status: "active", features: v1Features }],
     };
   }
+  logger.error("state", "Unsupported mission schema version", undefined, { version });
   throw new Error(`Unsupported mission schemaVersion: ${version}`);
 }
 
@@ -191,6 +196,7 @@ export async function saveMissionSafe(mission: MissionState): Promise<void> {
       await fsAsync.writeFile(temp, JSON.stringify(mission, null, 2), "utf-8");
       await fsAsync.rename(temp, target);
     } catch (error) {
+      logger.error("state", "Failed to save mission, restoring from backup", error as Error, { missionId: mission.id });
       if (fs.existsSync(backup)) await fsAsync.copyFile(backup, target);
       throw error;
     }
@@ -203,10 +209,12 @@ export function loadMissionFromDisk(id: string): MissionState | null {
     try {
       const raw = JSON.parse(fs.readFileSync(path.join(dir, name), "utf-8"));
       return migrateMission(raw);
-    } catch {
+    } catch (error) {
       // Try next fallback.
+      logger.debug("state", `Failed to load ${name}, trying next fallback`, { missionId: id, fileName: name, error: error instanceof Error ? error.message : String(error) });
     }
   }
+  logger.warn("state", "Failed to load mission from disk", { missionId: id });
   return null;
 }
 
@@ -271,7 +279,10 @@ export function readHistory(id: string): MissionHistoryEntry[] {
   const file = path.join(missionDirSafe(id), "history.jsonl");
   if (!fs.existsSync(file)) return [];
   return fs.readFileSync(file, "utf-8").split("\n").filter(Boolean).flatMap((line) => {
-    try { return [JSON.parse(line) as MissionHistoryEntry]; } catch { return []; }
+    try { return [JSON.parse(line) as MissionHistoryEntry]; } catch (error) {
+      logger.debug("state", "Failed to parse history entry", { missionId: id, line, error: error instanceof Error ? error.message : String(error) });
+      return [];
+    }
   });
 }
 
@@ -523,8 +534,13 @@ export function autoVerifyAcceptance(feature: Feature, execFn: (cmd: string) => 
         ac.evidence = result.stdout.slice(0, 1000);
         verified++;
       }
-    } catch {
+    } catch (error) {
       // Command execution failed — leave unverified.
+      logger.debug("state", "Bash acceptance check failed", { 
+        featureId: feature.id, 
+        checkCommand: ac.checkCommand,
+        error: error instanceof Error ? error.message : String(error)
+      });
     }
   }
   return verified;
