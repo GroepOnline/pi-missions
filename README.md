@@ -22,14 +22,21 @@ Inspired by Factory Droid Missions and Codex-style goal tracking, but built as a
 
 ## 🚀 Key Features
 
-- **Long-running missions** across multiple Pi sessions  
-- **Durable local state** in `~/.pi/missions/<mission-id>/`  
-- **Smart feature queue** (`pending` → `active` → `blocked` → `done`)  
-- **Evidence capture** for completed work  
-- **Append-only history** (JSONL) for full audit trail  
-- **Session handoff** – attach/detach across sessions  
-- **Agent-callable tools** for autonomous progress  
+- **Long-running missions** across multiple Pi sessions
+- **Durable local state** in `~/.pi/missions/<mission-id>/`
+- **Smart feature queue** (`pending` → `active` → `blocked` → `done`)
+- **Evidence capture** for completed work
+- **Append-only history** (JSONL) for full audit trail
+- **Session handoff** – attach/detach across sessions
+- **Agent-callable tools** for autonomous progress
 - **Crash-safe writes** (EXDEV-safe temp + rename)
+- **File locking** – prevents concurrent modification conflicts
+- **Schema validation** – ensures data integrity with JSON schema
+- **Structured logging** – detailed debug logs for troubleshooting
+- **Session metrics** – track tokens, time, and progress per session
+- **Graceful degradation** – continues working with degraded functionality when errors occur
+- **Autonomous execution** – agents can auto-advance through features without manual intervention
+- **Mission templates** – pre-defined mission structures for common workflows
 
 ## 🛠️ Quick Start
 
@@ -63,6 +70,8 @@ pi -e ./src/index.ts
 | `/mission fork <reason>`       | Fork active feature into a new session           |
 | `/mission debug [id]`          | Inspect recent history and events                |
 | `/mission metrics`             | Show mission metrics and export to JSON           |
+| `/mission export [filename]`   | Export mission to Markdown report                |
+| `/mission templates`           | List and use mission templates                   |
 | `/mission clear`               | Detach mission from this session                 |
 
 ## 🤖 Agent Tools
@@ -82,9 +91,11 @@ All state is stored locally:
 ~/.pi/missions/<mission-id>/
 ├── plan.json          # Current plan, features, status & active pointer
 ├── plan.json.bak      # Safe backup copy
+├── plan.json.lock     # File lock for concurrent access protection
 ├── history.jsonl      # Append-only event log
 ├── evidence/          # Proof, diffs, logs, artifacts
-└── sessions/          # Session attachment & handoff metadata
+├── sessions/          # Session attachment & handoff metadata
+└── logs/              # Structured debug logs
 ```
 
 ![State Model Diagram](https://raw.githubusercontent.com/OnlineChef/pi-missions/main/assets/state-diagram.png)
@@ -93,9 +104,9 @@ All state is stored locally:
 
 1. Create mission: `/mission new "Build user authentication system"`
 2. Break it into features
-3. Let the agent work on the active feature
+3. Let the agent work on the active feature (autonomous execution will auto-advance)
 4. Capture proof: `/mission done "Implemented JWT + tests + coverage"`
-5. Move forward: `/mission next`
+5. Move forward: `/mission next` (or let autonomous execution handle it)
 6. Repeat until mission complete!
 
 ![Dashboard Mockup](https://raw.githubusercontent.com/OnlineChef/pi-missions/main/assets/dashboard.png)
@@ -110,10 +121,14 @@ npm test
 
 ## Design Principles
 
-- **Local-first** — works without any backend  
-- **Crash-tolerant** — survives interrupted sessions  
-- **Evidence-driven** — "done" only with real proof  
+- **Local-first** — works without any backend
+- **Crash-tolerant** — survives interrupted sessions
+- **Evidence-driven** — "done" only with real proof
 - **Minimal & fast** — optimized for the Pi TUI
+- **Concurrent-safe** — file locking prevents conflicts
+- **Validated** — schema validation ensures data integrity
+- **Observable** — structured logging and metrics for debugging
+- **Resilient** — graceful degradation when errors occur
 
 ## 📄 Repository Layout
 
