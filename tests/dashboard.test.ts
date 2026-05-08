@@ -806,6 +806,82 @@ describe("missionControlOverlay", () => {
     expect(captured).toBe("F002");
   });
 
+  it("E2E: Ctrl+W deletes last word from filter, Ctrl+U clears entire filter", () => {
+    const mission = createMission("CtrlW", "Test Ctrl+W delete word");
+    mission.milestones[0]!.features.push(
+      {
+        id: "F010", milestoneId: "M01", title: "Bonus 10", description: "Tenth",
+        priority: 4, dependsOn: [], acceptance: [], status: "pending", sessions: [], toolCallCount: 0,
+      },
+      {
+        id: "F011", milestoneId: "M01", title: "Bonus 11", description: "Eleventh",
+        priority: 5, dependsOn: [], acceptance: [], status: "pending", sessions: [], toolCallCount: 0,
+      },
+    );
+
+    let overlayHidden = false;
+    const tuiWithSpy: any = {
+      hideOverlay: () => { overlayHidden = true; },
+      requestRender: () => {},
+    };
+
+    // 1. Type "F003" → 1 feature, Ctrl+W → removes whole word → all 5 restored
+    const c1: any = missionControlOverlay(mission)(tuiWithSpy);
+    c1.handleInput("F");
+    c1.handleInput("0");
+    c1.handleInput("0");
+    c1.handleInput("3");
+    const afterF003 = c1.render(80);
+    expect(afterF003.some((l: string) => l.includes("🔍 Filter: F003"))).toBe(true);
+    expect(afterF003.some((l: string) => l.includes("1/5 features"))).toBe(true);
+    expect(afterF003.some((l: string) => l.includes("F010"))).toBe(false);
+
+    c1.handleInput("\x17"); // Ctrl+W
+    expect(overlayHidden).toBe(false);
+    const afterCtrlW1 = c1.render(80);
+    expect(afterCtrlW1.some((l: string) => l.includes("Filter:"))).toBe(false);
+    expect(afterCtrlW1.some((l: string) => l.includes("5 features") && !l.includes("/"))).toBe(true);
+    expect(afterCtrlW1.some((l: string) => l.includes("F001"))).toBe(true);
+    expect(afterCtrlW1.some((l: string) => l.includes("F011"))).toBe(true);
+
+    // 2. Type "hello world" → 0 features, Ctrl+W → "hello" (still 0), Ctrl+W again → empty
+    const c2: any = missionControlOverlay(mission)(tuiWithSpy);
+    c2.handleInput("h");
+    c2.handleInput("e");
+    c2.handleInput("l");
+    c2.handleInput("l");
+    c2.handleInput("o");
+    c2.handleInput(" ");
+    c2.handleInput("w");
+    c2.handleInput("o");
+    c2.handleInput("r");
+    c2.handleInput("l");
+    c2.handleInput("d");
+    const afterHelloWorld = c2.render(80);
+    expect(afterHelloWorld.some((l: string) => l.includes("🔍 Filter: hello world"))).toBe(true);
+    expect(afterHelloWorld.some((l: string) => l.includes("0/5 features"))).toBe(true);
+
+    c2.handleInput("\x17"); // Ctrl+W → removes "world"
+    const afterFirstCtrlW = c2.render(80);
+    expect(afterFirstCtrlW.some((l: string) => l.includes("🔍 Filter: hello"))).toBe(true);
+    expect(afterFirstCtrlW.some((l: string) => l.includes("0/5 features"))).toBe(true);
+
+    c2.handleInput("\x17"); // Ctrl+W again → removes "hello"
+    const afterSecondCtrlW = c2.render(80);
+    expect(afterSecondCtrlW.some((l: string) => l.includes("Filter:"))).toBe(false);
+    expect(afterSecondCtrlW.some((l: string) => l.includes("5 features") && !l.includes("/"))).toBe(true);
+
+    // 3. Ctrl+W on empty filter — no-op, no crash
+    const c3: any = missionControlOverlay(mission)(tuiWithSpy);
+    expect(() => c3.handleInput("\x17")).not.toThrow();
+    const afterEmptyCtrlW = c3.render(80);
+    expect(afterEmptyCtrlW.some((l: string) => l.includes("F001"))).toBe(true);
+    expect(afterEmptyCtrlW.some((l: string) => l.includes("Filter:"))).toBe(false);
+
+    // 4. Footer hint mentions Ctrl+W
+    expect(afterEmptyCtrlW.some((l: string) => l.includes("Ctrl+W delete word"))).toBe(true);
+  });
+
   it("E2E: Ctrl+U clears filter in one keystroke without closing overlay", () => {
     const mission = createMission("CtrlU", "Test Ctrl+U clear");
     mission.milestones[0]!.features.push(

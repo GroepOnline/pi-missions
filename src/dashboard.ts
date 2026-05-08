@@ -199,9 +199,9 @@ class MissionControl implements Component {
 
   private footerTextFor(filtered: number, total: number): string {
     if (this.filterChars) {
-      return `Keys: ↑↓ navigate  |  Enter select  |  Esc close  |  Ctrl+U clear filter  |  Type to filter  |  ${filtered}/${total} features`;
+      return `Keys: ↑↓ navigate  |  Enter select  |  Esc close  |  Ctrl+U clear filter  |  Ctrl+W delete word  |  Type to filter  |  ${filtered}/${total} features`;
     }
-    return `Keys: ↑↓ navigate  |  Enter select  |  Esc close  |  Ctrl+U clear filter  |  Type to filter  |  ${total} features`;
+    return `Keys: ↑↓ navigate  |  Enter select  |  Esc close  |  Ctrl+U clear filter  |  Ctrl+W delete word  |  Type to filter  |  ${total} features`;
   }
 
   private updateFooter(): void {
@@ -224,6 +224,15 @@ class MissionControl implements Component {
     // Backspace — remove last char from filter
     if (data === "\b" || data === "\x7f") {
       this.filterChars = this.filterChars.slice(0, -1);
+      this.list.setFilter(this.filterChars);
+      this.updateDetailForCurrentSelection();
+      this.updateFilterDisplay();
+      this.updateFooter();
+      return;
+    }
+    // Ctrl+W — delete word backward from filter
+    if (data === "\x17") {
+      this.filterChars = this.deleteWordBackward(this.filterChars);
       this.list.setFilter(this.filterChars);
       this.updateDetailForCurrentSelection();
       this.updateFilterDisplay();
@@ -253,6 +262,18 @@ class MissionControl implements Component {
     }
     // Forward all keyboard input to SelectList for navigation/confirmation
     this.list.handleInput(data);
+  }
+
+  /** Remove the last word (and any trailing spaces) from a string. */
+  private deleteWordBackward(s: string): string {
+    // Strip trailing spaces
+    let t = s;
+    while (t.length > 0 && t[t.length - 1] === " ") {
+      t = t.slice(0, -1);
+    }
+    // Find preceding space; if none, delete entire string
+    const lastSpace = t.lastIndexOf(" ");
+    return lastSpace === -1 ? "" : t.slice(0, lastSpace);
   }
 
   /** Sync the detail pane with the currently selected item after filtering. */
