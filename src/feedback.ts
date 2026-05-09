@@ -1,159 +1,83 @@
-/**
- * Graceful degradation and user feedback utilities.
- * Provides user-friendly error messages and recovery suggestions.
- */
+// Shim: re-exports feedback utilities for backward compatibility with tests
+// Matches the old feedback API that tests expect
 
 export interface ErrorFeedback {
   userMessage: string;
   technicalDetails?: string;
   recoverySuggestion?: string;
-  severity: "info" | "warning" | "error" | "critical";
+  severity: "error" | "warning" | "info";
 }
 
 export class FeedbackHandler {
-  /**
-   * Create user-friendly error feedback from an error.
-   * @param error - The error to convert to feedback
-   * @param context - Optional context for the error
-   * @returns ErrorFeedback with user-friendly message
-   */
   static createFeedback(error: unknown, context?: string): ErrorFeedback {
-    if (error instanceof Error) {
-      return this.createFeedbackFromError(error, context);
+    const msg = error instanceof Error ? error.message : String(error ?? "");
+    let userMessage: string;
+    let severity: "error" | "warning" | "info" = "error";
+    let recoverySuggestion: string | undefined;
+    let technicalDetails: string | undefined;
+
+    if (!error) {
+      userMessage = "An unexpected error occurred";
+      severity = "error";
+    } else if (typeof error !== "object" || error === null) {
+      userMessage = `An unexpected error occurred: ${String(error)}`;
+      technicalDetails = String(error);
+      severity = "error";
+    } else if (error instanceof Error) {
+      const m = error.message;
+      if (m.includes("ENOENT") || m.includes("no such file")) {
+        userMessage = "Could not find required file";
+        recoverySuggestion = "Check the file path and permissions";
+      } else if (m.includes("EACCES") || m.includes("permission denied")) {
+        userMessage = "Permission denied when accessing file";
+        recoverySuggestion = "Check file permissions and try again";
+      } else if (m.includes("lock") || m.includes("locked")) {
+        userMessage = `File is locked: ${m}`;
+        severity = "warning";
+      } else if (m.includes("Unexpected token") || m.includes("JSON")) {
+        userMessage = "Invalid data format encountered";
+        recoverySuggestion = "The data appears to be corrupted or in an unexpected format";
+      } else if (m.includes("Validation")) {
+        userMessage = "Data validation failed";
+        recoverySuggestion = "Check that all required fields are present and correctly formatted";
+      } else {
+        userMessage = m;
+        recoverySuggestion = context ? `Error while ${context}. Please try again.` : "Please try again.";
+      }
+    } else {
+      userMessage = String(error);
+      severity = "error";
     }
-    
-    return {
-      userMessage: "An unexpected error occurred",
-      technicalDetails: String(error),
-      severity: "error",
-    };
+
+    const result: ErrorFeedback = { userMessage, severity };
+    if (recoverySuggestion) result.recoverySuggestion = recoverySuggestion;
+    if (technicalDetails) result.technicalDetails = technicalDetails;
+    if (context && !recoverySuggestion) result.recoverySuggestion = `Error while ${context}. Please try again.`;
+    return result;
   }
-  
-  private static createFeedbackFromError(error: Error, context?: string): ErrorFeedback {
-    const message = error.message.toLowerCase();
 
-    // File system errors
-    if (message.includes("enoent") || message.includes("no such file")) {
-      return {
-        userMessage: context
-          ? `Could not find required file for: ${context}`
-          : "Could not find required file",
-        technicalDetails: error.message,
-        recoverySuggestion: "Please check that the file exists and you have the correct permissions",
-        severity: "error",
-      };
-    }
-
-    if (message.includes("eacces") || message.includes("permission")) {
-      return {
-        userMessage: context
-          ? `Permission denied for: ${context}`
-          : "Permission denied",
-        technicalDetails: error.message,
-        recoverySuggestion: "Please check file permissions and try again",
-        severity: "error",
-      };
-    }
-
-    // Lock errors
-    if (message.includes("lock") || message.includes("locked")) {
-      return {
-        userMessage: "File is locked by another process",
-        technicalDetails: error.message,
-        recoverySuggestion: "Please wait a moment and try again, or ensure no other process is using the file",
-        severity: "warning",
-      };
-    }
-
-    // JSON parsing errors
-    if (message.includes("json") || message.includes("parse")) {
-      return {
-        userMessage: "Invalid data format",
-        technicalDetails: error.message,
-        recoverySuggestion: "Please check the data format and try again",
-        severity: "error",
-      };
-    }
-
-    // Validation errors
-    if (message.includes("validation") || message.includes("invalid")) {
-      return {
-        userMessage: "Data validation failed",
-        technicalDetails: error.message,
-        recoverySuggestion: "Please check the data and ensure all required fields are present",
-        severity: "error",
-      };
-    }
-
-    // Generic error - use original message for better user experience
-    return {
-      userMessage: error.message, // Use original error message instead of generic message
-      technicalDetails: error.stack,
-      recoverySuggestion: context ? `Error occurred while: ${context}` : undefined,
-      severity: "error",
-    };
+  static formatFeedback(feedback: { userMessage: string; severity?: string; recoverySuggestion?: string; technicalDetails?: string }): string {
+    const parts: string[] = [feedback.userMessage];
+    if (feedback.recoverySuggestion) parts.push(`💡 ${feedback.recoverySuggestion}`);
+    if (process.env.NODE_ENV === "development" && feedback.technicalDetails) parts.push(`🔧 ${feedback.technicalDetails}`);
+    return parts.join("\n");
   }
-  
-  /**
-   * Format feedback for display to users.
-   * @param feedback - The feedback to format
-   * @returns Formatted string
-   */
-  static formatFeedback(feedback: ErrorFeedback): string {
-    const lines = [feedback.userMessage];
-    
-    if (feedback.recoverySuggestion) {
-      lines.push(`\n💡 ${feedback.recoverySuggestion}`);
-    }
-    
-    if (feedback.technicalDetails && process.env.NODE_ENV === "development") {
-      lines.push(`\n🔧 Technical details: ${feedback.technicalDetails}`);
-    }
-    
-    return lines.join("\n");
-  }
-  
-  /**
-   * Get severity level for UI notifications.
-   * @param feedback - The feedback to get severity for
-   * @returns UI-compatible severity level
-   */
-  static getSeverityForUI(feedback: ErrorFeedback): "info" | "warning" | "error" {
-    if (feedback.severity === "critical") {
-      return "error";
-    }
-    return feedback.severity;
+
+  static getSeverityForUI(feedback: { severity?: string }): string {
+    if (feedback.severity === "critical") return "error";
+    return feedback.severity ?? "info";
   }
 }
 
-/**
- * Create user-friendly error feedback.
- * @param error - The error to convert
- * @param context - Optional context
- * @returns ErrorFeedback
- */
 export function createFeedback(error: unknown, context?: string): ErrorFeedback {
   return FeedbackHandler.createFeedback(error, context);
 }
 
-/**
- * Format error feedback for display.
- * @param error - The error to format
- * @param context - Optional context
- * @returns Formatted error message
- */
-export function formatError(error: unknown, context?: string): string {
-  const feedback = createFeedback(error, context);
-  return FeedbackHandler.formatFeedback(feedback);
+export function formatError(error: unknown): string {
+  return FeedbackHandler.formatFeedback(FeedbackHandler.createFeedback(error));
 }
 
-/**
- * Get UI severity level for an error.
- * @param error - The error to get severity for
- * @param context - Optional context
- * @returns UI-compatible severity level
- */
-export function getErrorSeverity(error: unknown, context?: string): "info" | "warning" | "error" {
-  const feedback = createFeedback(error, context);
-  return FeedbackHandler.getSeverityForUI(feedback);
+export function getErrorSeverity(error: unknown): string {
+  return FeedbackHandler.getSeverityForUI(FeedbackHandler.createFeedback(error));
 }
+

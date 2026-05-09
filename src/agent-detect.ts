@@ -1,77 +1,47 @@
-/**
- * Agent detection utility for multi-agent memory sharing.
- *
- * All coding agents (Pi, Devin, Opencode, Codex) can share the same
- * mission/memory store via the MISSIONS_ROOT environment variable.
- *
- * Each agent extension should set CODING_AGENT or its own env var
- * so that session links can track which agent created them.
- */
+// Shim: re-exports agent detection for backward compatibility with tests
+// The v2 codebase includes AgentSource in core/types.ts; this provides
+// a minimal compatible agent-detect API for existing test suites.
 
-export type AgentSource = "pi" | "devin" | "opencode" | "codex" | "unknown";
+import type { AgentSource } from "./core/types.js";
 
-/**
- * Detect which coding agent is currently running.
- *
- * Priority:
- * 1. CODING_AGENT env var (explicit override)
- * 2. Agent-specific env vars
- * 3. Process inspection (package dependencies, cwd patterns)
- * 4. Fallback: "unknown"
- */
+export type { AgentSource };
+
+let cachedAgent: AgentSource | null = null;
+
 export function detectAgent(): AgentSource {
-  // 1. Explicit CODING_AGENT env var
-  const explicit = process.env.CODING_AGENT?.toLowerCase();
-  if (explicit) {
-    if (isValidAgent(explicit)) return explicit as AgentSource;
+  if (process.env.CODING_AGENT) {
+    const val = process.env.CODING_AGENT.toLowerCase();
+    if (val === "pi") return "pi";
+    if (val === "devin") return "devin";
+    if (val === "opencode") return "opencode";
+    if (val === "codex") return "codex";
   }
-
-  // 2. Agent-specific env vars
   if (process.env.PI_SESSION || process.env.PI_AGENT) return "pi";
   if (process.env.DEVIN_SESSION || process.env.DEVIN_WORKSPACE) return "devin";
   if (process.env.OPENCODE_SESSION || process.env.OPENCODE_WORKSPACE) return "opencode";
   if (process.env.CODEX_SESSION || process.env.CODEX_WORKSPACE) return "codex";
-
-  // 3. Fallback
   return "unknown";
 }
 
-/**
- * Get the agent display string for session tracking.
- */
+export function getAgent(): AgentSource {
+  if (!cachedAgent) cachedAgent = detectAgent();
+  return cachedAgent;
+}
+
+export function resetAgentCache(): void {
+  cachedAgent = null;
+}
+
+export function isValidAgent(value: string): value is AgentSource {
+  return ["pi", "devin", "opencode", "codex", "unknown"].includes(value);
+}
+
 export function agentDisplayName(agent: AgentSource): string {
   switch (agent) {
     case "pi": return "Pi Coding Agent";
     case "devin": return "Devin";
     case "opencode": return "OpenCode";
     case "codex": return "Codex";
-    case "unknown": return "Unknown Agent";
+    default: return "Unknown Agent";
   }
-}
-
-/**
- * Validate that a string is a known AgentSource.
- */
-export function isValidAgent(value: string): value is AgentSource {
-  return ["pi", "devin", "opencode", "codex", "unknown"].includes(value);
-}
-
-/**
- * Detect the agent once at module load time.
- * This is cached because the agent won't change during a session.
- */
-let _cachedAgent: AgentSource | undefined;
-
-export function getAgent(): AgentSource {
-  if (_cachedAgent === undefined) {
-    _cachedAgent = detectAgent();
-  }
-  return _cachedAgent;
-}
-
-/**
- * Reset the cached agent (for testing).
- */
-export function resetAgentCache(): void {
-  _cachedAgent = undefined;
 }

@@ -1,77 +1,43 @@
 import type { ExtensionAPI, ExtensionCommandContext } from "@mariozechner/pi-coding-agent";
-import type { Feature, MissionState, RuntimeState } from "../types.js";
-import { buildCompactionSummary, buildMissionContext } from "../context.js";
-import { getActiveFeature, getAllFeatures, linkSession } from "../state.js";
-import { getAgent } from "../agent-detect.js";
-import { handleNew, handleTemplates, PLANNING_WIZARD_PROMPT } from "./create.js";
-import { handleList, handleLoad, handleStatus, handleHelp } from "./load-list.js";
-import { handleNext, handleDone, handleBlock, handlePause, handleResume, handleClear, handleRun, handleAutopilot, handleStop } from "./lifecycle.js";
-import { handleEdit, handleFork, handleDashboard, handleDebug, handleMetrics, handleExport } from "./advanced.js";
+import type { RuntimeState } from "../core/types.js";
+import { handleNew, handleTemplates } from "./handlers.js";
+import { handleList, handleLoad, handleStatus, handleHelp } from "./handlers.js";
+import { handleNext, handleDone, handleBlock, handlePause, handleResume, handleClear, handleRun, handleAutopilot, handleStop } from "./handlers.js";
+import { handleEdit, handleFork, handleDashboard, handleDebug, handleMetrics, handleExport } from "./handlers.js";
 
-// ── Re-export all handlers so the barrel stays backwards-compatible ──────────
-export { handleNew, handleTemplates, PLANNING_WIZARD_PROMPT };
+// Re-export for consumers
+export { handleNew, handleTemplates };
 export { handleLoad, handleList, handleStatus, handleHelp };
 export { handleNext, handleDone, handleBlock, handlePause, handleResume, handleClear, handleRun, handleAutopilot, handleStop };
 export { handleEdit, handleFork, handleDashboard, handleDebug, handleMetrics, handleExport };
 
-// ── Shared helpers ──────────────────────────────────────────────────────────
+// Re-export fork helpers for backward compat test imports
+export { cloneFeatureForFork, appendForkNote, pushSessionRef, buildForkKickoffMessage, buildManualForkHandoff } from "../tools/index.js";
 
-type MissionContextMessageSessionManager = ExtensionCommandContext["sessionManager"] & {
-  appendCustomMessageEntry?: (
-    customType: string,
-    content: string,
-    display: boolean,
-    details?: Record<string, unknown>
-  ) => string;
-};
-
-export function cloneFeatureForFork(feature: Feature, id: string, title: string, notes: string): Feature {
-  return {
-    ...feature,
-    id,
-    title,
-    status: "active",
-    completedAt: undefined,
-    notes,
-    dependsOn: [...feature.dependsOn],
-    sessions: [...feature.sessions],
-    acceptance: feature.acceptance.map((ac) => ({ ...ac, verified: false, evidence: undefined })),
-  };
+// injectMissionContext wrapper: tools/index.ts takes 5 args, old tests call with 4
+import { injectMissionContext as injectMissionCtx } from "../tools/index.js";
+import { buildMissionContext } from "../utils/context.js";
+export function injectMissionContext(pi: ExtensionAPI, ctx: ExtensionCommandContext, mission: NonNullable<RuntimeState["activeMission"]>, reason: string, content?: string): void {
+  injectMissionCtx(pi, ctx, mission, reason, content ?? buildMissionContext(mission));
 }
 
-export function injectMissionContext(pi: ExtensionAPI, ctx: ExtensionCommandContext, mission: MissionState, reason: string): void {
-  const content = buildMissionContext(mission);
-  const details = {
-    missionId: mission.id,
-    reason,
-    injectedAt: Date.now(),
-  };
-
-  const sessionManager = ctx.sessionManager as MissionContextMessageSessionManager;
-  if (typeof sessionManager.appendCustomMessageEntry === "function") {
-    sessionManager.appendCustomMessageEntry("pi-mission-context", content, false, details);
-  }
-
-  pi.appendEntry("pi-mission-context", {
-    ...details,
-    content,
-  });
-}
-
-// ── main command registration ───────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════════════════
+// Main command registration
+// ═══════════════════════════════════════════════════════════════════════════
 
 export function registerMissionCommand(pi: ExtensionAPI, runtime: RuntimeState): void {
+  const subs = ["start", "new", "list", "load", "run", "pause", "resume", "stop", "clear",
+    "status", "autopilot", "help", "next", "done", "block", "edit", "fork", "debug",
+    "dashboard", "metrics", "export", "templates"];
+
   pi.registerCommand("mission", {
-    description: "Mission management: start|new|list|load|run|pause|resume|stop|clear|status|autopilot|help|next|done|block|edit|fork|debug|dashboard|metrics",
+    description: `Mission management: ${subs.join("|")}`,
     getArgumentCompletions: (prefix: string) =>
-      ["start", "new", "list", "load", "run", "pause", "resume", "stop", "clear", "status", "autopilot", "help", "next", "done", "block", "edit", "fork", "debug", "dashboard", "metrics", "export", "templates"]
-        .filter((s) => s.startsWith(prefix))
-        .map((s) => ({ value: s, label: s })),
+      subs.filter(s => s.startsWith(prefix)).map(s => ({ value: s, label: s })),
     handler: async (args: string, ctx: ExtensionCommandContext) => {
       const [sub = "status", ...rest] = args.trim().split(/\s+/).filter(Boolean);
       switch (sub) {
-        case "start": return handleNew(rest.join(" "), ctx, pi, runtime);
-        case "new": return handleNew(rest.join(" "), ctx, pi, runtime);
+        case "start": case "new": return handleNew(rest.join(" "), ctx, pi, runtime);
         case "list": return handleList(ctx, pi, runtime);
         case "load": return handleLoad(rest[0], ctx, pi, runtime);
         case "status": return handleStatus(ctx, runtime);
@@ -98,11 +64,20 @@ export function registerMissionCommand(pi: ExtensionAPI, runtime: RuntimeState):
   });
 }
 
-// ── Compaction / tree helpers ───────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════════════════
+// Compaction / tree helpers
+// ═══════════════════════════════════════════════════════════════════════════
+
+import { buildCompactionSummary } from "../utils/context.js";
+import { getActiveFeature, linkSession } from "../core/state.js";
 
 export function compactionCheckpoint(pi: ExtensionAPI, runtime: RuntimeState): void {
   if (!runtime.activeMission) return;
-  pi.appendEntry("pi-mission-compaction-checkpoint", { missionId: runtime.activeMission.id, summary: buildCompactionSummary(runtime.activeMission), timestamp: Date.now() });
+  pi.appendEntry("pi-mission-compaction-checkpoint", {
+    missionId: runtime.activeMission.id,
+    summary: buildCompactionSummary(runtime.activeMission),
+    timestamp: Date.now(),
+  });
 }
 
 export function missionSummaryForTree(runtime: RuntimeState): string | null {
@@ -113,5 +88,8 @@ export function missionSummaryForTree(runtime: RuntimeState): string | null {
 }
 
 export function saveSessionLink(runtime: RuntimeState, sessionFile: string | undefined): void {
-  if (runtime.activeMission && sessionFile) linkSession(runtime.activeMission, sessionFile, getAgent());
+  if (runtime.activeMission && sessionFile) {
+    const agent = process.env.CODING_AGENT || "unknown";
+    linkSession(runtime.activeMission, sessionFile, agent);
+  }
 }

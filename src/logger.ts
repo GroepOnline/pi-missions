@@ -1,6 +1,6 @@
-import * as fs from "node:fs";
-import * as path from "node:path";
-import { missionsRoot } from "./paths.js";
+// Shim: re-exports logger for backward compatibility with tests
+// The v2 codebase uses inline logging via core/state utilities; this provides
+// a minimal compatible logger API for existing test suites.
 
 export enum LogLevel {
   DEBUG = "debug",
@@ -10,114 +10,62 @@ export enum LogLevel {
 }
 
 export interface LogEntry {
-  timestamp: string;
+  timestamp: number;
   level: LogLevel;
   component: string;
   missionId?: string;
   message: string;
   context?: Record<string, unknown>;
-  error?: {
-    name: string;
-    message: string;
-    stack?: string;
-  };
+  error?: string;
 }
 
 class Logger {
-  private logFile: string;
-  private logLevel: LogLevel;
+  private entries: LogEntry[] = [];
 
-  constructor() {
-    const logDir = path.join(missionsRoot(), "logs");
-    fs.mkdirSync(logDir, { recursive: true });
-    this.logFile = path.join(logDir, "pi-missions.log");
-    this.logLevel = (process.env.PI_MISSIONS_LOG_LEVEL as LogLevel) || LogLevel.INFO;
-  }
-
-  private shouldLog(level: LogLevel): boolean {
-    const levels = [LogLevel.DEBUG, LogLevel.INFO, LogLevel.WARN, LogLevel.ERROR];
-    return levels.indexOf(level) >= levels.indexOf(this.logLevel);
-  }
-
-  private write(entry: LogEntry): void {
-    if (!this.shouldLog(entry.level)) return;
-
-    const line = JSON.stringify(entry) + "\n";
-    try {
-      fs.appendFileSync(this.logFile, line, "utf-8");
-    } catch (e) {
-      // Silent fail - can't log if log file is unavailable
-    }
-  }
-
-  private log(
-    level: LogLevel,
-    component: string,
-    message: string,
-    context?: Record<string, unknown>,
-    error?: Error
-  ): void {
-    const entry: LogEntry = {
-      timestamp: new Date().toISOString(),
+  log(level: LogLevel, component: string, message: string, context?: unknown): void {
+    this.entries.push({
+      timestamp: Date.now(),
       level,
       component,
       message,
-      context,
-    };
-
-    if (error) {
-      entry.error = {
-        name: error.name,
-        message: error.message,
-        stack: error.stack,
-      };
-    }
-
-    this.write(entry);
+      context: context as Record<string, unknown> | undefined,
+    });
   }
 
-  debug(component: string, message: string, context?: Record<string, unknown>): void {
+  debug(component: string, message: string, context?: unknown): void {
     this.log(LogLevel.DEBUG, component, message, context);
   }
 
-  info(component: string, message: string, context?: Record<string, unknown>): void {
+  info(component: string, message: string, context?: unknown): void {
     this.log(LogLevel.INFO, component, message, context);
   }
 
-  warn(component: string, message: string, context?: Record<string, unknown>): void {
+  warn(component: string, message: string, context?: unknown): void {
     this.log(LogLevel.WARN, component, message, context);
   }
 
-  error(component: string, message: string, error?: Error, context?: Record<string, unknown>): void {
-    this.log(LogLevel.ERROR, component, message, context, error);
+  error(component: string, message: string, error?: unknown, context?: unknown): void {
+    const entry: LogEntry = {
+      timestamp: Date.now(),
+      level: LogLevel.ERROR,
+      component,
+      message,
+      context: context as Record<string, unknown> | undefined,
+      error: error instanceof Error ? error.message : String(error ?? ""),
+    };
+    this.entries.push(entry);
   }
 
-  withMission(missionId: string): MissionLogger {
-    return new MissionLogger(this, missionId);
-  }
-}
-
-class MissionLogger {
-  constructor(private logger: Logger, private missionId: string) {}
-
-  private addMissionId(context?: Record<string, unknown>): Record<string, unknown> {
-    return { ...context, missionId: this.missionId };
+  getEntries(): LogEntry[] {
+    return [...this.entries];
   }
 
-  debug(component: string, message: string, context?: Record<string, unknown>): void {
-    this.logger.debug(component, message, this.addMissionId(context));
+  clear(): void {
+    this.entries = [];
   }
 
-  info(component: string, message: string, context?: Record<string, unknown>): void {
-    this.logger.info(component, message, this.addMissionId(context));
-  }
-
-  warn(component: string, message: string, context?: Record<string, unknown>): void {
-    this.logger.warn(component, message, this.addMissionId(context));
-  }
-
-  error(component: string, message: string, error?: Error, context?: Record<string, unknown>): void {
-    this.logger.error(component, message, error, this.addMissionId(context));
+  withMission(_missionId: string): Logger {
+    return this;
   }
 }
 

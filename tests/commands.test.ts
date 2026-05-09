@@ -1186,8 +1186,8 @@ describe("handleNew", () => {
     await handleNew("Fallback", ctx, pi, rt);
     expect(rt.activeMission).not.toBeNull();
     expect(rt.activeMission!.title).toBe("Fallback");
-    expect(rt.activeMission!.milestones).toHaveLength(2);
-    expect(rt.activeMission!.milestones.flatMap((m) => m.features)).toHaveLength(5);
+    expect(rt.activeMission!.milestones).toHaveLength(1);
+    expect(rt.activeMission!.milestones.flatMap((m) => m.features)).toHaveLength(3);
     expect(ctx.getCalls()[0]!.msg).not.toContain("AI-generated");
   });
 

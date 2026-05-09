@@ -28,7 +28,7 @@
   },
   "pi": {
     "extensions": [
-      "./src/index.ts"
+      "./src/core/extension.ts"
     ]
   },
   "peerDependencies": {
