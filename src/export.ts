@@ -5,6 +5,7 @@ import { getMissionGoalTree, goalTreeProgress, renderGoalTree } from "./mission-
 import { getAllFeatures, missionDirSafe, progress, readHistory } from "./state.js";
 import { logger } from "./logger.js";
 import { buildMissionControlSummary } from "./ui.js";
+import { acceptanceProgress, featureStatusIcon } from "./ui-primitives.js";
 
 /** Generate a structured markdown mission report. */
 export function exportMarkdown(mission: MissionState): string {
@@ -82,11 +83,10 @@ export function exportMarkdown(mission: MissionState): string {
     lines.push(`## ${ms} Milestone: ${m.title}`, "", m.description, "");
     lines.push(`| ID | Status | Priority | AC Progress | Dependencies |`, `|----|--------|----------|------------|--------------|`);
     for (const f of m.features) {
-      const icon = f.status === "done" ? "✅" : f.status === "active" ? "➡️" : f.status === "blocked" ? "⛔" : "•";
-      const acDone = f.acceptance.filter((ac) => ac.verified || ac.waived).length;
-      const acTotal = f.acceptance.length;
+      const icon = featureStatusIcon(f.status);
+      const ac = acceptanceProgress(f);
       const deps = f.dependsOn.length ? f.dependsOn.join(", ") : "—";
-      lines.push(`| ${icon} \`${f.id}\` | ${f.status} | P${f.priority} | ${acDone}/${acTotal} | ${deps} |`);
+      lines.push(`| ${icon} \`${f.id}\` | ${f.status} | P${f.priority} | ${ac.label} | ${deps} |`);
     }
     lines.push("");
 

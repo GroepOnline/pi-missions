@@ -1,14 +1,7 @@
 import { getActiveFeature, getAllFeatures, getMissionPhase, progress } from "./state.js";
 import type { Feature, MissionState } from "./types.js";
 import { findGoalPathByFeatureId, getMissionGoalTree, goalTreeProgress, renderGoalTree } from "./mission-builder.js";
-
-// ─── Helpers ────────────────────────────────────────────────────────────────
-
-function progressBar(done: number, total: number, width = 16): string {
-  if (total === 0) return "[" + "░".repeat(width) + "]";
-  const filled = Math.round((done / total) * width);
-  return "[" + "█".repeat(filled) + "░".repeat(width - filled) + "]";
-}
+import { progressBar } from "./ui-primitives.js";
 
 /** Compact phase instruction — always 1 line. */
 function phaseLine(phase: string): string {

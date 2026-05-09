@@ -1,34 +1,19 @@
 import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
 import { getActiveFeature, getAllFeatures, getNextPendingFeature, progress } from "./state.js";
 import type { Feature, MissionState, Milestone } from "./types.js";
+import { acceptanceProgress, clip, featureStatusIcon, missionStatusIcon, pendingAcceptance, progressBar } from "./ui-primitives.js";
 
 // ────────────────────────────────────────────────────────────────────────────
 // Shared helpers
 // ────────────────────────────────────────────────────────────────────────────
-
-function progressBar(done: number, total: number, width = 20): string {
-  if (total === 0) return "[░░░░░░░░░░░░░░░░░░░]";
-  const filled = Math.round((done / total) * width);
-  return "[" + "█".repeat(filled) + "░".repeat(width - filled) + "]";
-}
 
 function milestoneProgressBar(milestone: Milestone): string {
   const done = milestone.features.filter((f) => f.status === "done").length;
   return progressBar(done, milestone.features.length, 20);
 }
 
-function clip(text: string, max = 88): string {
-  return text.length > max ? `${text.slice(0, max - 1)}…` : text;
-}
-
 function countVerifiedAcceptance(feature: Feature): number {
-  return feature.acceptance.filter((ac) => ac.verified || ac.waived).length;
-}
-
-function pendingAcceptance(feature: Feature): string[] {
-  return feature.acceptance
-    .filter((ac) => !ac.verified && !ac.waived)
-    .map((ac) => ac.checkType === "bash" && ac.checkCommand ? `${ac.id}: ${ac.description} -> ${ac.checkCommand}` : `${ac.id}: ${ac.description}`);
+  return acceptanceProgress(feature).done;
 }
 
 function deriveNextAction(feature: Feature): string {
@@ -38,7 +23,7 @@ function deriveNextAction(feature: Feature): string {
   if (feature.status === "waiting") {
     return feature.dependsOn.length ? `Wait for ${feature.dependsOn.join(", ")} before resuming ${feature.id}` : `Resume ${feature.id} when external dependency clears`;
   }
-  const nextAcceptance = pendingAcceptance(feature)[0];
+  const nextAcceptance = pendingAcceptance(feature, "->")[0];
   if (nextAcceptance) return `Finish ${feature.id}: ${clip(nextAcceptance, 72)}`;
   return `Advance ${feature.id}: ${clip(feature.description || feature.title, 72)}`;
 }
@@ -85,7 +70,7 @@ export function updateFooter(ctx: ExtensionContext, mission: MissionState | null
   }
   const p = progress(mission);
   const active = getActiveFeature(mission);
-  const icon = mission.status === "paused" ? "⏸" : mission.status === "blocked" ? "⛔" : mission.status === "budget_limited" ? "⚠️" : mission.status === "complete" ? "✅" : "🎯";
+  const icon = missionStatusIcon(mission.status);
   const a = mission.autopilot;
   const autopilot = a.enabled
     ? ` · 🤖 iter ${a.iteration}/${a.maxIterations} np ${a.noProgressTurns}/${a.maxNoProgressTurns} fail ${a.consecutiveFailures}/${a.maxConsecutiveFailures}`
@@ -101,7 +86,7 @@ export function updateFooter(ctx: ExtensionContext, mission: MissionState | null
 // ────────────────────────────────────────────────────────────────────────────
 export function dashboardRows(mission: MissionState): string[] {
   const p = progress(mission);
-  const statusIcon = mission.status === "complete" ? "✅" : mission.status === "paused" ? "⏸" : mission.status === "budget_limited" ? "⚠️" : "🎯";
+  const statusIcon = missionStatusIcon(mission.status);
   const summary = buildMissionControlSummary(mission);
   const active = summary.active;
   const nextAction = active ? deriveNextAction(active) : summary.nextFeature ? `Start ${summary.nextFeature.id}: ${clip(summary.nextFeature.title, 68)}` : "No runnable feature queued";
@@ -162,18 +147,18 @@ export function dashboardRows(mission: MissionState): string[] {
     );
 
     for (const feature of sorted) {
-      const fIcon = feature.status === "done" ? "✅" : feature.status === "active" ? "➡️" : feature.status === "waiting" ? "⏳" : feature.status === "blocked" ? "⛔" : feature.status === "failed" ? "❌" : "•";
+      const fIcon = featureStatusIcon(feature.status);
       const deps = feature.dependsOn.length ? ` 🔗${feature.dependsOn.join(",")}` : "";
       const blocked = feature.status === "blocked" && feature.notes ? ` ↳ ${feature.notes.slice(0, 50)}` : "";
       const failedTag = feature.status === "failed" ? " [failed]" : "";
-      const verifiedCount = feature.acceptance.filter((ac) => ac.verified || ac.waived).length;
-      const acBadge = feature.acceptance.length ? ` [${verifiedCount}/${feature.acceptance.length} AC]` : "";
+      const ac = acceptanceProgress(feature);
+      const acBadge = feature.acceptance.length ? ` [${ac.label} AC]` : "";
 
       // Active feature — expand with details
       if (feature.status === "active") {
         rows.push(`       ${fIcon} ${feature.id} [P${feature.priority}] ${feature.title}${acBadge}${deps}`);
         rows.push(`         📝 ${feature.description}`);
-        const unverified = pendingAcceptance(feature);
+        const unverified = pendingAcceptance(feature, "->");
         for (const ac of unverified) {
           rows.push(`         ☐ ${clip(ac, 66)}`);
         }
@@ -226,7 +211,7 @@ export function statusText(mission: MissionState): string {
     const mDone = milestone.features.filter((f) => f.status === "done").length;
     lines.push(`${mi} ${milestone.id}: ${milestone.title} [${mDone}/${milestone.features.length}]`);
     for (const feature of milestone.features) {
-      const mark = feature.status === "done" ? "✅" : feature.status === "active" ? "➡️" : feature.status === "waiting" ? "⏳" : feature.status === "blocked" ? "⛔" : "•";
+      const mark = featureStatusIcon(feature.status);
       const blocked = feature.status === "blocked" && feature.notes ? ` — ${feature.notes.slice(0, 50)}` : "";
       lines.push(`  ${mark} ${feature.id}: ${feature.title} (${feature.status})${blocked}`);
     }
