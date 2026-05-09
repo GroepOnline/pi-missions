@@ -1,46 +1,46 @@
 {
-  'name': '@groepchef/pi-missions',
-  'version': '0.1.0',
-  'description': 'Long-running missions for the pi coding agent',
-  'type': 'module',
-  'private': false,
-  'keywords': [
-    'pi-package',
-    'pi-extension',
-    'missions',
-    'coding-agent'
+  "name": "@groepchef/pi-missions",
+  "version": "0.1.0",
+  "description": "Long-running missions for the pi coding agent",
+  "type": "module",
+  "private": false,
+  "keywords": [
+    "pi-package",
+    "pi-extension",
+    "missions",
+    "coding-agent"
   ],
-  'exports': {
-    '.': './src/index.ts'
+  "exports": {
+    ".": "./src/index.ts"
   },
-  'main': './src/index.ts',
-  'files': [
-    'src',
-    'README.md',
-    'PLAN.md',
-    'AUTONOMY.md'
+  "main": "./src/index.ts",
+  "files": [
+    "src",
+    "README.md",
+    "PLAN.md",
+    "AUTONOMY.md"
   ],
-  'scripts': {
-    'check': 'tsc --noEmit',
-    'lint': 'tsc --noEmit',
-    'test': 'vitest run',
-    'bench': 'vitest bench'
+  "scripts": {
+    "check": "tsc --noEmit",
+    "lint": "tsc --noEmit",
+    "test": "vitest run",
+    "bench": "vitest bench"
   },
-  'peerDependencies': {
-    '@mariozechner/pi-ai': '^0.73.1',
-    '@mariozechner/pi-coding-agent': '^0.73.1',
-    '@mariozechner/pi-tui': '^0.73.1',
-    'typebox': '^1.1.38'
+  "peerDependencies": {
+    "@mariozechner/pi-ai": "^0.73.1",
+    "@mariozechner/pi-coding-agent": "^0.73.1",
+    "@mariozechner/pi-tui": "^0.73.1",
+    "typebox": "^1.1.38"
   },
-  'dependencies': {
-    '@sinclair/typebox': '^0.31.28',
-    'proper-lockfile': '^4.1.2'
+  "dependencies": {
+    "@sinclair/typebox": "^0.31.28",
+    "proper-lockfile": "^4.1.2"
   },
-  'devDependencies': {
-    '@types/node': '^22.19.18',
-    '@types/proper-lockfile': '^4.1.2',
-    '@vitest/coverage-v8': '^2.1.9',
-    'typescript': '^5.6.0',
-    'vitest': '^2.1.0'
+  "devDependencies": {
+    "@types/node": "^22.19.18",
+    "@types/proper-lockfile": "^4.1.2",
+    "@vitest/coverage-v8": "^2.1.9",
+    "typescript": "^5.6.0",
+    "vitest": "^2.1.0"
   }
 }
