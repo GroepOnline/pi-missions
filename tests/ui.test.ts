@@ -87,11 +87,12 @@ describe("dashboardRows", () => {
       },
     ];
     const rows = dashboardRows(mission);
-    // Active should be first, then pending, then blocked, then done
-    const featureLines = rows.filter((r) => r.startsWith("       "));
-    expect(featureLines[0]).toContain("F001"); // active
-    expect(featureLines[1]).toContain("F002"); // blocked
-    expect(featureLines[2]).toContain("F003"); // done
+    // Active should be first, then blocked, then done
+    // Use regex to find feature ID lines (7-space indent + icon + ID)
+    const featureIdLines = rows.filter((r) => r.startsWith("       ") && r.includes("[P") && /F00\d/.test(r));
+    expect(featureIdLines[0]).toContain("F001"); // active
+    expect(featureIdLines[1]).toContain("F002"); // blocked
+    expect(featureIdLines[2]).toContain("F003"); // done
   });
 
   it("shows dependency info in dashboard", () => {
@@ -166,7 +167,7 @@ describe("dashboardRows", () => {
     af.status = "active";
     af.dependsOn = ["F010", "F020"];
     const rows = dashboardRows(mission);
-    expect(rows.some((r) => r.includes("Depends on: F010, F020"))).toBe(true);
+    expect(rows.some((r) => r.includes("🔗F010,F020"))).toBe(true);
   });
 
   it("active feature shows acceptance criteria details", () => {

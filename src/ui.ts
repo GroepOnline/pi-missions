@@ -3,8 +3,9 @@ import { getActiveFeature, getAllFeatures, getNextPendingFeature, progress } fro
 import type { Feature, MissionState, Milestone } from "./types.js";
 
 // ────────────────────────────────────────────────────────────────────────────
-// Progress bar helper
+// Shared helpers
 // ────────────────────────────────────────────────────────────────────────────
+
 function progressBar(done: number, total: number, width = 20): string {
   if (total === 0) return "[░░░░░░░░░░░░░░░░░░░]";
   const filled = Math.round((done / total) * width);
@@ -74,34 +75,6 @@ export function buildMissionControlSummary(mission: MissionState): MissionContro
   };
 }
 
-function activeFeatureDetails(feature: Feature): string[] {
-  const lines: string[] = [];
-  // Show description
-  if (feature.description) lines.push(`   📝 ${feature.description.slice(0, 80)}${feature.description.length > 80 ? "…" : ""}`);
-  // Show unverified acceptance criteria
-  const unverified = feature.acceptance.filter((ac) => !ac.verified && !ac.waived);
-  if (unverified.length) {
-    lines.push("   ✅ Acceptance criteria:");
-    for (const ac of unverified) {
-      const checkHint = ac.checkType === "bash" && ac.checkCommand ? ` → \`${ac.checkCommand.slice(0, 60)}\`` : "";
-      lines.push(`      ☐ ${ac.id}: ${ac.description}${checkHint}`);
-    }
-  }
-  // Show verified criteria count
-  const verified = feature.acceptance.filter((ac) => ac.verified || ac.waived).length;
-  if (verified > 0 && unverified.length === 0) lines.push(`   ✅ All ${verified} acceptance criteria verified`);
-  // Show constraints
-  if (feature.dependsOn.length) lines.push(`   🔗 Depends on: ${feature.dependsOn.join(", ")}`);
-  // Show stale / tool call warning
-  if (feature.startedAt) {
-    const elapsedMin = Math.round((Date.now() - feature.startedAt) / 60000);
-    const maxMin = Math.round((feature.maxWallClockMs ?? 30 * 60 * 1000) / 60000);
-    if (elapsedMin > 15) lines.push(`   ⏱  Active ${elapsedMin}min (max ${maxMin}min)`);
-  }
-  if (feature.toolCallCount > 100) lines.push(`   🔧 ${feature.toolCallCount} tool calls`);
-  return lines;
-}
-
 // ────────────────────────────────────────────────────────────────────────────
 // Footer — compact single-line status
 // ────────────────────────────────────────────────────────────────────────────
@@ -114,12 +87,17 @@ export function updateFooter(ctx: ExtensionContext, mission: MissionState | null
   const active = getActiveFeature(mission);
   const icon = mission.status === "paused" ? "⏸" : mission.status === "blocked" ? "⛔" : mission.status === "budget_limited" ? "⚠️" : mission.status === "complete" ? "✅" : "🎯";
   const a = mission.autopilot;
-  const autopilot = a.enabled ? ` · Autopilot ON · iter ${a.iteration}/${a.maxIterations} · no-progress ${a.noProgressTurns}/${a.maxNoProgressTurns} · failures ${a.consecutiveFailures}/${a.maxConsecutiveFailures}` : " · Autopilot OFF";
-  ctx.ui.setStatus("pi-mission", `${icon} ${mission.title} [${p.done}/${p.total} ${p.pct}%]${active ? ` — ${active.id} ${active.title}` : ""}${autopilot}`);
+  const autopilot = a.enabled
+    ? ` · 🤖 iter ${a.iteration}/${a.maxIterations} np ${a.noProgressTurns}/${a.maxNoProgressTurns} fail ${a.consecutiveFailures}/${a.maxConsecutiveFailures}`
+    : " · ⏹ autopilot off";
+  const statusLine = active
+    ? `${icon} ${mission.title} [${p.done}/${p.total} ${p.pct}%] — ${active.id} ${active.title}${autopilot}`
+    : `${icon} ${mission.title} [${p.done}/${p.total} ${p.pct}%]${autopilot}`;
+  ctx.ui.setStatus("pi-mission", statusLine);
 }
 
 // ────────────────────────────────────────────────────────────────────────────
-// Factory Droid–style mission control dashboard
+// Mission Control dashboard — string-based output for TUI and export
 // ────────────────────────────────────────────────────────────────────────────
 export function dashboardRows(mission: MissionState): string[] {
   const p = progress(mission);
@@ -168,7 +146,7 @@ export function dashboardRows(mission: MissionState): string[] {
     const mTotal = milestone.features.length;
     const mPct = mTotal ? Math.round((mDone / mTotal) * 100) : 0;
 
-    // Collapsed: skip fully-done milestones (just show summary line)
+    // Collapsed: skip fully-done milestones
     if (milestone.status === "complete" && mDone === mTotal) {
       rows.push(`  ✅ ${milestone.id}: ${milestone.title} — all ${mTotal} features done`);
       continue;
@@ -178,7 +156,6 @@ export function dashboardRows(mission: MissionState): string[] {
     rows.push(`  ${msIcon} ${milestone.id}: ${milestone.title}`);
     rows.push(`     ${milestoneProgressBar(milestone)} ${mDone}/${mTotal} — ${mPct}%`);
 
-    // Sort: active first, then pending, blocked, failed, done last
     const order: Record<string, number> = { active: 0, pending: 1, waiting: 2, blocked: 3, failed: 4, done: 5 };
     const sorted = [...milestone.features].sort(
       (a, b) => (order[a.status] ?? 5) - (order[b.status] ?? 5) || a.priority - b.priority
@@ -195,10 +172,18 @@ export function dashboardRows(mission: MissionState): string[] {
       // Active feature — expand with details
       if (feature.status === "active") {
         rows.push(`       ${fIcon} ${feature.id} [P${feature.priority}] ${feature.title}${acBadge}${deps}`);
-        const details = activeFeatureDetails(feature);
-        for (const d of details) rows.push(d);
-        rows.push(`   👉 Next action: ${deriveNextAction(feature)}`);
-        rows.push(`   🤝 Handoff: ${summary.handoff}`);
+        rows.push(`         📝 ${feature.description}`);
+        const unverified = pendingAcceptance(feature);
+        for (const ac of unverified) {
+          rows.push(`         ☐ ${clip(ac, 66)}`);
+        }
+        if (feature.startedAt) {
+          const elapsedMin = Math.round((Date.now() - feature.startedAt) / 60000);
+          if (elapsedMin > 10) rows.push(`         ⏱  Active ${elapsedMin}min`);
+        }
+        if (feature.toolCallCount > 50) rows.push(`         🔧 ${feature.toolCallCount} tool calls`);
+        rows.push(`     👉 Next action: ${deriveNextAction(feature)}`);
+        rows.push(`     🤝 Handoff: ${summary.handoff}`);
       } else {
         rows.push(`       ${fIcon} ${feature.id} [P${feature.priority}] ${feature.title}${acBadge}${deps}${blocked}${failedTag}`);
       }

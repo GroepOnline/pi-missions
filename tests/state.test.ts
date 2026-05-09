@@ -501,10 +501,10 @@ describe("exportMarkdown", () => {
     expect(md).toContain("**Goal tree**: 0/3 leaf goals (0%)");
     expect(md).toContain("**Progress**: 0/3 (0%)");
     expect(md).toContain("**Tokens used**: 500");
-    expect(md).toContain("## Mission Control Handoff");
+    expect(md).toContain("## Executive Summary");
     expect(md).toContain("## Goal Tree");
     expect(md).toContain("**Active feature**");
-    expect(md).toContain("**Handoff summary**");
+    expect(md).toContain("**Handoff**");
     expect(md).toContain("##");
   });
 
@@ -513,8 +513,8 @@ describe("exportMarkdown", () => {
     m.milestones[0].features[0]!.status = "done";
     m.milestones[0].features[0]!.completedAt = 1000;
     const md = exportMarkdown(m);
-    expect(md).toContain("### ✅ F001:");
-    expect(md).toContain("Acceptance criteria");
+    expect(md).toContain("### F001: Clarify scope and current state");
+    expect(md).toContain("**Acceptance criteria:**");
   });
 
   it("includes evidence section when evidence exists", async () => {

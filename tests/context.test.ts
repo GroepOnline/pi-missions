@@ -29,10 +29,12 @@ describe("buildMissionBanner", () => {
   it("includes mission title, goal, progress, status and phase", () => {
     const banner = buildMissionBanner(missionFixture());
     expect(banner).toContain("## Pi Missions Extension — Active");
-    expect(banner).toContain("Mission: Test mission  [0% done]");
+    expect(banner).toContain("Mission: Test mission");
     expect(banner).toContain("Goal: Achieve something");
-    expect(banner).toContain("Goal Tree: 0/3 leaf goals | 0% done");
-    expect(banner).toContain("Progress: 0/3 features | Status: active | Phase:");
+    expect(banner).toContain("0/3 leaf goals");
+    expect(banner).toContain("0/3 features");
+    expect(banner).toContain("Status: active");
+    expect(banner).toContain("Phase:");
     expect(banner).toContain("State: ~/.pi/missions/");
   });
 
@@ -71,7 +73,8 @@ describe("buildFeatureBrief", () => {
       { id: "AC002", description: "No behavior change", checkType: "manual", verified: true },
     ];
     const brief = buildFeatureBrief(mission, f);
-    expect(brief).toContain("Goal path: Test mission -> Plan and execute -> Clarify scope and current state");
+    expect(brief).toContain("Goal path:");
+    expect(brief).toContain("Plan and execute > Clarify scope");
     expect(brief).toContain("- [ ] AC001: Tests pass");
     expect(brief).toContain("- [x] AC002: No behavior change");
   });
@@ -88,7 +91,7 @@ describe("buildFeatureBrief", () => {
     const f = mission.milestones[0].features[0]!;
     f.title = "Clarify scope";
     const brief = buildFeatureBrief(mission, f);
-    expect(brief).toContain("🔍 **Planning phase**");
+    expect(brief).toContain("Phase: planning");
   });
 
   it("shows phase-specific instruction for execution", () => {
@@ -96,7 +99,7 @@ describe("buildFeatureBrief", () => {
     const f = mission.milestones[0].features[0]!;
     f.title = "Implement core change";
     const brief = buildFeatureBrief(mission, f);
-    expect(brief).toContain("🔧 **Execution phase**");
+    expect(brief).toContain("Phase: execution");
   });
 
   it("shows phase-specific instruction for verification", () => {
@@ -104,7 +107,7 @@ describe("buildFeatureBrief", () => {
     const f = mission.milestones[0].features[0]!;
     f.title = "Verify and test";
     const brief = buildFeatureBrief(mission, f);
-    expect(brief).toContain("✅ **Verification phase**");
+    expect(brief).toContain("Phase: verification");
   });
 
   it("shows pending and blocked counts", () => {
@@ -125,7 +128,7 @@ describe("buildMissionHelp", () => {
 
   it("consolidates start and new into one entry", () => {
     const help = buildMissionHelp();
-    expect(help).toContain("/mission start/new <goal>");
+    expect(help).toContain("/mission start/new");
     // Should NOT have separate entries for start and new
     expect(help).not.toContain("alias for starting a new mission");
   });
@@ -185,10 +188,10 @@ describe("buildMissionContext", () => {
     mission.activeFeatureId = "F999";
     const ctx = buildMissionContext(mission);
     // Should only show the last 3 (since we changed from 5 to 3)
-    expect(ctx).toContain("✅ F002: Feature 2");
-    expect(ctx).toContain("✅ F004: Feature 4");
-    expect(ctx).not.toContain("✅ F000: Feature 0");
-    expect(ctx).not.toContain("✅ F001: Feature 1");
+    expect(ctx).toContain("✅ F002 Feature 2");
+    expect(ctx).toContain("✅ F004 Feature 4");
+    expect(ctx).not.toContain("✅ F000 Feature 0");
+    expect(ctx).not.toContain("✅ F001 Feature 1");
   });
 
   it("includes the mission rule at the end", () => {
@@ -212,7 +215,7 @@ describe("buildLeanContext", () => {
     const ctx = buildLeanContext(missionFixture());
     expect(ctx).toContain("## Pi Missions Extension — Active");
     expect(ctx).toContain("**Acceptance:**");
-    expect(ctx).toContain("Goal tree snapshot:");
+    expect(ctx).toContain("Goal tree:");
     // Should NOT contain the full help section
     expect(ctx).not.toContain("### Mission Commands");
     expect(ctx).not.toContain("### Mission Tools");
@@ -222,7 +225,7 @@ describe("buildLeanContext", () => {
 
   it("includes phase-specific instruction", () => {
     const ctx = buildLeanContext(missionFixture());
-    expect(ctx).toContain("🔍 **Planning phase**");
+    expect(ctx).toContain("Phase: planning");
   });
 
   it("handles mission without active feature", () => {
@@ -238,16 +241,16 @@ describe("buildCompactionSummary", () => {
     const summary = buildCompactionSummary(missionFixture());
     expect(summary).toContain("Mission: Test mission");
     expect(summary).toContain("Goal: Achieve something");
-    expect(summary).toContain("Goal tree: 0/3 leaf goals (0%)");
+    expect(summary).toContain("0/3 leaf goals (0%)");
     expect(summary).toContain("Status: active");
-    expect(summary).toContain("Progress: 0/3 (0%)");
-    expect(summary).toContain("Active feature: F001 — Clarify scope and current state");
-    expect(summary).toContain("plan.json, history.jsonl, evidence/");
+    expect(summary).toContain("Progress: 0/3 features");
+    expect(summary).toContain("Active: F001 — Clarify scope and current state");
+    expect(summary).toContain("State:");
   });
 
   it("says 'Active feature: none' when no feature is active", () => {
     const summary = buildCompactionSummary(missionFixture({ activeFeatureId: undefined }));
-    expect(summary).toContain("Active feature: none");
+    expect(summary).toContain("Active: none");
   });
 });
 

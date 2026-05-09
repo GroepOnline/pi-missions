@@ -2,13 +2,14 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import type { MissionHistoryEntry, MissionState } from "./types.js";
 import { getMissionGoalTree, goalTreeProgress, renderGoalTree } from "./mission-builder.js";
-import { missionDirSafe, progress, readHistory } from "./state.js";
+import { getAllFeatures, missionDirSafe, progress, readHistory } from "./state.js";
 import { logger } from "./logger.js";
 import { buildMissionControlSummary } from "./ui.js";
 
-/** Generate a markdown report for a mission including evidence, history, and feature details. */
+/** Generate a structured markdown mission report. */
 export function exportMarkdown(mission: MissionState): string {
   const p = progress(mission);
+  const allFeatures = getAllFeatures(mission);
   const goalTree = getMissionGoalTree(mission);
   const goalProgress = goalTreeProgress(goalTree);
   const summary = buildMissionControlSummary(mission);
@@ -22,6 +23,8 @@ export function exportMarkdown(mission: MissionState): string {
   const lines: string[] = [
     `# Mission Report: ${mission.title}`,
     "",
+    "## Executive Summary",
+    "",
     `- **ID**: \`${mission.id}\``,
     `- **Status**: ${mission.status}`,
     `- **Goal**: ${mission.goal}`,
@@ -31,13 +34,13 @@ export function exportMarkdown(mission: MissionState): string {
     `- **Created**: ${new Date(mission.createdAt).toISOString()}`,
     `- **Updated**: ${new Date(mission.updatedAt).toISOString()}`,
     "",
-    "## Mission Control Handoff",
+    "### Active & Blocked",
     "",
     `- **Active feature**: ${summary.active ? `\`${summary.active.id}\` ${summary.active.title}` : "None"}`,
     `- **Blocked features**: ${summary.blocked.length}`,
     `- **Waiting features**: ${summary.waiting.length}`,
-    `- **Next runnable feature**: ${summary.nextFeature ? `\`${summary.nextFeature.id}\` ${summary.nextFeature.title}` : "None"}`,
-    `- **Handoff summary**: ${summary.handoff}`,
+    `- **Next runnable**: ${summary.nextFeature ? `\`${summary.nextFeature.id}\` ${summary.nextFeature.title}` : "None"}`,
+    `- **Handoff**: ${summary.handoff}`,
     "",
     "---",
     "",
@@ -47,25 +50,40 @@ export function exportMarkdown(mission: MissionState): string {
 
   for (const m of mission.milestones) {
     const ms = m.status === "complete" ? "✅" : m.status === "active" ? "➡️" : "•";
+    const mDone = m.features.filter((f) => f.status === "done").length;
     lines.push(`## ${ms} Milestone: ${m.title}`, "", m.description, "");
+    lines.push(`| ID | Status | Priority | AC Progress | Dependencies |`, `|----|--------|----------|------------|--------------|`);
     for (const f of m.features) {
       const icon = f.status === "done" ? "✅" : f.status === "active" ? "➡️" : f.status === "blocked" ? "⛔" : "•";
-      lines.push(`### ${icon} ${f.id}: ${f.title} (P${f.priority})`, "", f.description, "");
-      if (f.acceptance.length) {
-        lines.push("**Acceptance criteria:**", "");
-        for (const ac of f.acceptance) lines.push(`- [${ac.verified || ac.waived ? "x" : " "}] ${ac.id}: ${ac.description}`);
-        lines.push("");
+      const acDone = f.acceptance.filter((ac) => ac.verified || ac.waived).length;
+      const acTotal = f.acceptance.length;
+      const deps = f.dependsOn.length ? f.dependsOn.join(", ") : "—";
+      lines.push(`| ${icon} \`${f.id}\` | ${f.status} | P${f.priority} | ${acDone}/${acTotal} | ${deps} |`);
+    }
+    lines.push("");
+
+    for (const f of m.features) {
+      if (f.status === "done" || f.status === "active") {
+        lines.push(`### ${f.id}: ${f.title}`, "", f.description || "", "");
+        if (f.acceptance.length) {
+          lines.push("**Acceptance criteria:**", "");
+          for (const ac of f.acceptance) {
+            const mark = ac.verified || ac.waived ? "x" : " ";
+            lines.push(`- [${mark}] ${ac.id}: ${ac.description}`);
+          }
+          lines.push("");
+        }
+        if (f.dependsOn.length) lines.push(`**Dependencies:** ${f.dependsOn.join(", ")}`, "");
+        if (f.notes) lines.push(`**Notes:** ${f.notes}`, "");
+        if (f.completedAt) lines.push(`**Completed:** ${new Date(f.completedAt).toISOString()}`, "");
+        const evidenceDir = path.join(missionDirSafe(mission.id), "evidence");
+        const evidenceFile = path.join(evidenceDir, `${f.id}.md`);
+        if (fs.existsSync(evidenceFile)) {
+          const content = fs.readFileSync(evidenceFile, "utf-8").slice(0, 2000);
+          lines.push("<details>", "<summary>Evidence</summary>", "", content, "", "</details>", "");
+        }
+        lines.push("---", "");
       }
-      if (f.dependsOn.length) lines.push(`**Dependencies:** ${f.dependsOn.join(", ")}`, "");
-      if (f.notes) lines.push(`**Notes:** ${f.notes}`, "");
-      if (f.completedAt) lines.push(`**Completed:** ${new Date(f.completedAt).toISOString()}`, "");
-      const evidenceDir = path.join(missionDirSafe(mission.id), "evidence");
-      const evidenceFile = path.join(evidenceDir, `${f.id}.md`);
-      if (fs.existsSync(evidenceFile)) {
-        const content = fs.readFileSync(evidenceFile, "utf-8").slice(0, 2000);
-        lines.push("<details>", "<summary>Evidence</summary>", "", content, "", "</details>", "");
-      }
-      lines.push("---", "");
     }
   }
 

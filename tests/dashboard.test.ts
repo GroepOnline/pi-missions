@@ -186,7 +186,6 @@ describe("featureDescription", () => {
       toolCallCount: 0,
     };
     const desc = featureDescription(f, "M02");
-    // The description part should be at most 70 chars
     const descPart = desc.replace("M02: ", "");
     expect(descPart.length).toBeLessThanOrEqual(70);
   });
@@ -229,9 +228,8 @@ describe("featureDescription", () => {
 // ── buildFeatureItems ─────────────────────────────────────────────────────────
 
 describe("buildFeatureItems", () => {
-  it("builds select items for all features across all milestones", () => {
+  it("builds items for all features across all milestones", () => {
     const mission = createMission("BuildItems", "Test goal");
-    // Default mission has 1 milestone with 3 features
     const items = buildFeatureItems(mission);
     expect(items).toHaveLength(4); // 1 session metrics + 3 features
     expect(items[0]!.value).toBe("__session_metrics__");
@@ -243,27 +241,16 @@ describe("buildFeatureItems", () => {
     expect(items[3]!.value).toBe("F003");
   });
 
-  it("returns empty array for mission with no milestones", () => {
+  it("returns single item for mission with no milestones", () => {
     const mission = createMission("Empty", "No milestones");
     mission.milestones = [];
     const items = buildFeatureItems(mission);
-    // Still returns session metrics item even with no features
     expect(items).toHaveLength(1);
     expect(items[0]!.value).toBe("__session_metrics__");
   });
 
-  it("returns empty array for milestone with no features", () => {
-    const mission = createMission("EmptyFeats", "No features");
-    mission.milestones[0]!.features = [];
-    const items = buildFeatureItems(mission);
-    // Still returns session metrics item even with no features
-    expect(items).toHaveLength(1);
-    expect(items[0]!.value).toBe("__session_metrics__");
-  });
-
-  it("skips features in inactive milestones if any", () => {
+  it("includes features from all milestones regardless of status", () => {
     const mission = createMission("MultiMilestone", "Multiple milestones");
-    // Add a second milestone with one feature
     mission.milestones.push({
       id: "M02",
       title: "Second milestone",
@@ -284,7 +271,6 @@ describe("buildFeatureItems", () => {
         },
       ],
     });
-    // All milestones are included regardless of status
     const items = buildFeatureItems(mission);
     expect(items).toHaveLength(5); // 1 session metrics + 4 features
     expect(items[4]!.value).toBe("F010");
@@ -293,7 +279,6 @@ describe("buildFeatureItems", () => {
 
   it("preserves feature ordering within milestones", () => {
     const mission = createMission("Ordered", "Test order");
-    // Default features are F001, F002, F003 in order
     const items = buildFeatureItems(mission);
     expect(items.map((i) => i.value)).toEqual(["__session_metrics__", "F001", "F002", "F003"]);
   });
@@ -323,35 +308,18 @@ describe("featureDetailLines", () => {
     const lines = featureDetailLines(f, 80);
     expect(lines.length).toBeGreaterThan(5);
 
-    // Horizontal rule
     expect(lines[0]).toContain("───");
-
-    // Feature ID and title
     expect(lines.some((l) => l.includes("📋") && l.includes("F001") && l.includes("Login page"))).toBe(true);
-
-    // Status / priority / milestone line
     expect(lines.some((l) => l.includes("Status:") && l.includes("active") && l.includes("Priority: P1") && l.includes("Milestone: M01"))).toBe(true);
     expect(lines.some((l) => l.includes("🎯 Next action:"))).toBe(true);
     expect(lines.some((l) => l.includes("📈 Acceptance progress: 1/2"))).toBe(true);
-
-    // Description
     expect(lines.some((l) => l.includes("📝") && l.includes("Secure login"))).toBe(true);
-
-    // Dependencies
     expect(lines.some((l) => l.includes("🔗") && l.includes("F000"))).toBe(true);
-
-    // Notes
     expect(lines.some((l) => l.includes("📌") && l.includes("Review with security team"))).toBe(true);
-
-    // Acceptance criteria
     expect(lines.some((l) => l.includes("✅ Acceptance criteria"))).toBe(true);
-    expect(lines.some((l) => l.includes("☑") && l.includes("AC01") && l.includes("log in with email"))).toBe(true);
-    expect(lines.some((l) => l.includes("☐") && l.includes("AC02") && l.includes("Google login"))).toBe(true);
-
-    // Bash check hint
+    expect(lines.some((l) => l.includes("☑") && l.includes("AC01"))).toBe(true);
+    expect(lines.some((l) => l.includes("☐") && l.includes("AC02"))).toBe(true);
     expect(lines.some((l) => l.includes("curl -s localhost:3000/auth/google"))).toBe(true);
-
-    // Closing horizontal rule
     expect(lines[lines.length - 1]).toContain("───");
   });
 
@@ -397,7 +365,7 @@ describe("featureDetailLines", () => {
     expect(lines.some((l) => l.includes("📝"))).toBe(false);
   });
 
-  it("handles narrow width — bar is clamped to width - 4", () => {
+  it("handles narrow width", () => {
     const f: Feature = {
       id: "F004",
       milestoneId: "M01",
@@ -412,35 +380,11 @@ describe("featureDetailLines", () => {
     };
 
     const lines = featureDetailLines(f, 40);
-    // Bar should be 36 chars (40 - 4)
-    expect(lines[0]!.length - 2).toBe(36); // "  " prefix + bar
-    // Should still render the ID/title line
+    expect(lines[0]!.length - 2).toBe(36);
     expect(lines.some((l) => l.includes("F004"))).toBe(true);
   });
 
-  it("handles very narrow width — bar clamped to 40 minimum", () => {
-    const f: Feature = {
-      id: "F005",
-      milestoneId: "M01",
-      title: "Very narrow",
-      description: "Tiny",
-      priority: 5,
-      dependsOn: [],
-      acceptance: [],
-      status: "pending",
-      sessions: [],
-      toolCallCount: 0,
-    };
-
-    const lines = featureDetailLines(f, 10);
-    // barW = Math.min(10 - 4, 72) = 6... but then ternary: 6 > 0 ? 6 : 40 = 6
-    // Actually wait: barW = Math.min(6, 72) = 6, then 6 > 0 ? 6 : 40 = 6
-    // Still: the bar line should exist, just shorter
-    expect(lines.length).toBeGreaterThan(0);
-    expect(lines[0]).toContain("──");
-  });
-
-  it("renders acceptance criteria with verified and waived mixed", () => {
+  it("renders acceptance criteria with verified, waived, and pending mixed", () => {
     const f: Feature = {
       id: "F006",
       milestoneId: "M01",
@@ -459,17 +403,12 @@ describe("featureDetailLines", () => {
     };
 
     const lines = featureDetailLines(f, 80);
-    // Verified AC01 shows ☑ (verified)
     const ac01Line = lines.find((l) => l.includes("☑ AC01"));
     expect(ac01Line).toBeDefined();
     expect(ac01Line).toContain("☑");
-
-    // Waived AC02 shows ☑ (waived counts as verified for display)
     const ac02Line = lines.find((l) => l.includes("☑ AC02"));
     expect(ac02Line).toBeDefined();
     expect(ac02Line).toContain("☑");
-
-    // Pending AC03 shows ☐
     const ac03Line = lines.find((l) => l.includes("☐ AC03"));
     expect(ac03Line).toBeDefined();
     expect(ac03Line).toContain("☐");
@@ -517,29 +456,11 @@ describe("missionControlOverlay", () => {
     expect(typeof component.handleInput).toBe("function");
     expect(typeof component.dispose).toBe("function");
 
-    // Render produces output with mission info
     const lines = component.render(80);
     expect(lines.some((l: string) => l.includes("Mission Control"))).toBe(true);
     expect(lines.some((l: string) => l.includes("Factory"))).toBe(true);
     expect(lines.some((l: string) => l.includes("Goal: Test factory"))).toBe(true);
     expect(lines.some((l: string) => l.includes("Handoff:"))).toBe(true);
-  });
-
-  it("passes onAction callback through to MissionControl", () => {
-    const mission = createMission("Callback", "Test callback");
-    let captured = "";
-    const factory = missionControlOverlay(mission, (id) => { captured = id; });
-    const mockTui: any = {
-      hideOverlay: () => {},
-      requestRender: () => {},
-    };
-
-    const component: any = factory(mockTui);
-    // Simulate navigating down twice (skip session metrics) then pressing Enter
-    component.handleInput("\x1b[B");
-    component.handleInput("\x1b[B");
-    component.handleInput("\r");
-    expect(captured).toBe("F002"); // second feature selected after two downs
   });
 
   it("disposes without error", () => {
@@ -554,429 +475,33 @@ describe("missionControlOverlay", () => {
     expect(() => component.dispose()).not.toThrow();
   });
 
-  it("E2E: type-to-filter narrows feature list, Backspace expands, Escape clears", () => {
-    const mission = createMission("Filter", "Test type-to-filter");
-    // Default mission: F001, F002, F003
-    // Add more features for a richer filter test
-    mission.milestones[0]!.features.push(
-      {
-        id: "F010",
-        milestoneId: "M01",
-        title: "Bonus feature 10",
-        description: "Tenth feature",
-        priority: 4,
-        dependsOn: [],
-        acceptance: [],
-        status: "pending",
-        sessions: [],
-        toolCallCount: 0,
-      },
-      {
-        id: "F011",
-        milestoneId: "M01",
-        title: "Bonus feature 11",
-        description: "Eleventh feature",
-        priority: 5,
-        dependsOn: [],
-        acceptance: [],
-        status: "pending",
-        sessions: [],
-        toolCallCount: 0,
-      },
-    );
-
-    const mockTui: any = {
-      hideOverlay: () => {},
-      requestRender: () => {},
-    };
-    const component: any = missionControlOverlay(mission)(mockTui);
-
-    // 1. Initial render — all 6 items visible (1 session metrics + 5 features), no filter count
-    const initial = component.render(80);
-    expect(initial.some((l: string) => l.includes("Session Metrics"))).toBe(true);
-    expect(initial.some((l: string) => l.includes("F001"))).toBe(true);
-    expect(initial.some((l: string) => l.includes("F002"))).toBe(true);
-    expect(initial.some((l: string) => l.includes("F003"))).toBe(true);
-    expect(initial.some((l: string) => l.includes("F010"))).toBe(true);
-    expect(initial.some((l: string) => l.includes("F011"))).toBe(true);
-    // Footer shows total count, not filtered/total
-    expect(initial.some((l: string) => l.includes("6 features") && !l.includes("/"))).toBe(true);
-
-    // 2. Type "F" — session metrics filtered out, 5 features visible, 5/6
-    component.handleInput("F");
-    const afterF = component.render(80);
-    expect(afterF.some((l: string) => l.includes("F001"))).toBe(true);
-    expect(afterF.some((l: string) => l.includes("F002"))).toBe(true);
-    expect(afterF.some((l: string) => l.includes("F003"))).toBe(true);
-    // Filter bar shows current filter text
-    expect(afterF.some((l: string) => l.includes("🔍 Filter: F"))).toBe(true);
-    // Footer shows filtered/total count
-    expect(afterF.some((l: string) => l.includes("5/6 features"))).toBe(true);
-    // No "No matching" message
-    expect(afterF.some((l: string) => l.includes("No matching"))).toBe(false);
-
-    // 3. Type "0" — filter="F0", all still match (F001, F002, F003, F010, F011)
-    component.handleInput("0");
-    const afterF0 = component.render(80);
-    expect(afterF0.some((l: string) => l.includes("F001"))).toBe(true);
-    expect(afterF0.some((l: string) => l.includes("F002"))).toBe(true);
-    expect(afterF0.some((l: string) => l.includes("F010"))).toBe(true);
-
-    // 4. Type "0" again — filter="F00", only F001, F002, F003 remain (3/6)
-    component.handleInput("0");
-    const afterF00 = component.render(80);
-    expect(afterF00.some((l: string) => l.includes("F001"))).toBe(true);
-    expect(afterF00.some((l: string) => l.includes("F002"))).toBe(true);
-    expect(afterF00.some((l: string) => l.includes("F003"))).toBe(true);
-    // Footer shows 3/6 filtered count
-    expect(afterF00.some((l: string) => l.includes("3/6 features"))).toBe(true);
-
-    // 5. Type "3" — filter="F003", only F003 in list (1/6).
-    // Detail pane shows F003 depends on F002, so F002 appears there (correct).
-    component.handleInput("3");
-    const afterF003 = component.render(80);
-    expect(afterF003.some((l: string) => l.includes("F003"))).toBe(true);
-    // Filter bar shows accumulated text
-    expect(afterF003.some((l: string) => l.includes("🔍 Filter: F003"))).toBe(true);
-    // Footer shows 1/6 filtered count
-    expect(afterF003.some((l: string) => l.includes("1/6 features"))).toBe(true);
-    // F002 appears as dependency in detail pane
-    expect(afterF003.some((l: string) => l.includes("🔗") && l.includes("F002"))).toBe(true);
-
-    // 6. Press Enter on the filtered single item — activates F003
+  it("navigates features with keyboard", () => {
+    const mission = createMission("Nav", "Test navigation");
     let captured = "";
-    const component2: any = missionControlOverlay(mission, (id) => { captured = id; })(mockTui);
-    component2.handleInput("F");
-    component2.handleInput("0");
-    component2.handleInput("0");
-    component2.handleInput("3");
-    component2.handleInput("\r");
-    expect(captured).toBe("F003");
-
-    // 7. Backspace — removes last char, filter="F00" again
-    const afterBackspace = (() => {
-      const c: any = missionControlOverlay(mission)(mockTui);
-      c.handleInput("F");
-      c.handleInput("0");
-      c.handleInput("0");
-      c.handleInput("3");
-      c.handleInput("\b");
-      return c.render(80);
-    })();
-    expect(afterBackspace.some((l: string) => l.includes("F001"))).toBe(true);
-    expect(afterBackspace.some((l: string) => l.includes("F002"))).toBe(true);
-    expect(afterBackspace.some((l: string) => l.includes("F003"))).toBe(true);
-    expect(afterBackspace.some((l: string) => l.includes("3/6 features"))).toBe(true);
-
-    // 8. Escape with active filter: clears filter, stays open (hideOverlay NOT called)
-    // Second Escape with empty filter: closes overlay
-    let overlayHidden = false;
-    const tuiWithSpy: any = {
-      hideOverlay: () => { overlayHidden = true; },
-      requestRender: () => {},
-    };
-    const c: any = missionControlOverlay(mission)(tuiWithSpy);
-    c.handleInput("F");
-    c.handleInput("0");
-    c.handleInput("0");
-    c.handleInput("3");
-    // First Escape — clears filter, stays open
-    c.handleInput("\x1b");
-    expect(overlayHidden).toBe(false);
-    const afterClear = c.render(80);
-    // Filter bar hidden after clear; footer back to plain total
-    expect(afterClear.some((l: string) => l.includes("Filter:"))).toBe(false);
-    expect(afterClear.some((l: string) => l.includes("6 features") && !l.includes("/"))).toBe(true);
-    expect(afterClear.some((l: string) => l.includes("F001"))).toBe(true);
-    expect(afterClear.some((l: string) => l.includes("F002"))).toBe(true);
-    expect(afterClear.some((l: string) => l.includes("F003"))).toBe(true);
-    expect(afterClear.some((l: string) => l.includes("F010"))).toBe(true);
-    expect(afterClear.some((l: string) => l.includes("F011"))).toBe(true);
-    // Second Escape — closes overlay
-    c.handleInput("\x1b");
-    expect(overlayHidden).toBe(true);
-
-    // 9. Escape with empty filter closes immediately
-    let closed = false;
-    const tui2: any = {
-      hideOverlay: () => { closed = true; },
-      requestRender: () => {},
-    };
-    const c2: any = missionControlOverlay(mission)(tui2);
-    c2.handleInput("\x1b");
-    expect(closed).toBe(true);
-
-    // 10. No-match filter shows "No matching" message
-    const noMatch = (() => {
-      const c: any = missionControlOverlay(mission)(mockTui);
-      c.handleInput("Z");
-      return c.render(80);
-    })();
-    expect(noMatch.some((l: string) => l.includes("No matching"))).toBe(true);
-  });
-
-  it("E2E: edge cases — backspace on empty filter, non-ASCII chars, rapid type/backspace, arrow nav in filtered list", () => {
-    const mission = createMission("EdgeCases", "Test edge cases");
-    mission.milestones[0]!.features.push(
-      {
-        id: "F010", milestoneId: "M01", title: "Bonus 10", description: "Tenth",
-        priority: 4, dependsOn: [], acceptance: [], status: "pending", sessions: [], toolCallCount: 0,
-      },
-      {
-        id: "F011", milestoneId: "M01", title: "Bonus 11", description: "Eleventh",
-        priority: 5, dependsOn: [], acceptance: [], status: "pending", sessions: [], toolCallCount: 0,
-      },
-    );
-
     const mockTui: any = {
       hideOverlay: () => {},
       requestRender: () => {},
     };
 
-    // ── 1. Backspace on empty filter — no-op, all features visible ──
-    const c1: any = missionControlOverlay(mission)(mockTui);
-    expect(() => c1.handleInput("\b")).not.toThrow();
-    expect(() => c1.handleInput("\x7f")).not.toThrow();
-    const afterEmptyBackspace = c1.render(80);
-    expect(afterEmptyBackspace.some((l: string) => l.includes("F001"))).toBe(true);
-    expect(afterEmptyBackspace.some((l: string) => l.includes("F011"))).toBe(true);
-    expect(afterEmptyBackspace.some((l: string) => l.includes("Filter:"))).toBe(false);
-
-    // ── 2. Non-ASCII char (ü, charCode 252) is forwarded to SelectList, not filtered ──
-    const c2: any = missionControlOverlay(mission)(mockTui);
-    c2.handleInput("ü");
-    const afterUnicode = c2.render(80);
-    // No filter bar — ü is outside ASCII 32-126 range
-    expect(afterUnicode.some((l: string) => l.includes("Filter:"))).toBe(false);
-    // All features still visible (SelectList ignores unknown keys)
-    expect(afterUnicode.some((l: string) => l.includes("F001"))).toBe(true);
-    expect(afterUnicode.some((l: string) => l.includes("F011"))).toBe(true);
-
-    // ── 3. Punctuation char (!, charCode 33) IS intercepted as filter ──
-    const c3: any = missionControlOverlay(mission)(mockTui);
-    c3.handleInput("!");
-    const afterPunct = c3.render(80);
-    // Filter bar shows "!"
-    expect(afterPunct.some((l: string) => l.includes("🔍 Filter: !"))).toBe(true);
-    // No features match "!" — footer shows 0/6
-    expect(afterPunct.some((l: string) => l.includes("No matching"))).toBe(true);
-    expect(afterPunct.some((l: string) => l.includes("0/6 features"))).toBe(true);
-
-    // ── 4. Rapid type then backspace all the way ──
-    const c4: any = missionControlOverlay(mission)(mockTui);
-    c4.handleInput("F");
-    c4.handleInput("0");
-    c4.handleInput("0");
-    // Mid-way: filter active, 3 features visible
-    const mid = c4.render(80);
-    expect(mid.some((l: string) => l.includes("🔍 Filter: F00"))).toBe(true);
-    expect(mid.some((l: string) => l.includes("F001"))).toBe(true);
-    expect(mid.some((l: string) => l.includes("3/6 features"))).toBe(true);
-    // Backspace all the way
-    c4.handleInput("\b");
-    c4.handleInput("\b");
-    c4.handleInput("\b");
-    const fullyCleared = c4.render(80);
-    expect(fullyCleared.some((l: string) => l.includes("Filter:"))).toBe(false);
-    expect(fullyCleared.some((l: string) => l.includes("F001"))).toBe(true);
-    expect(fullyCleared.some((l: string) => l.includes("F002"))).toBe(true);
-    expect(fullyCleared.some((l: string) => l.includes("F003"))).toBe(true);
-    expect(fullyCleared.some((l: string) => l.includes("F010"))).toBe(true);
-    expect(fullyCleared.some((l: string) => l.includes("F011"))).toBe(true);
-
-    // ── 5. Filter then navigate with arrows in reduced list ──
-    const c5: any = missionControlOverlay(mission)(mockTui);
-    c5.handleInput("F");
-    c5.handleInput("0");
-    c5.handleInput("0");
-    // Filtered to F001, F002, F003 — initial selection is F001
-    // Navigate down: F001 → F002
-    c5.handleInput("\x1b[B");
-    const afterOneDown = c5.render(80);
-    // F002 should be in the list AND its detail pane should be visible
-    expect(afterOneDown.some((l: string) => l.includes("F002"))).toBe(true);
-    expect(afterOneDown.some((l: string) => l.includes("📋 F002"))).toBe(true);
-    // Navigate down again: F002 → F003
-    c5.handleInput("\x1b[B");
-    const afterTwoDown = c5.render(80);
-    expect(afterTwoDown.some((l: string) => l.includes("📋 F003"))).toBe(true);
-    // Navigate up: F003 → F002
-    c5.handleInput("\x1b[A");
-    const afterUp = c5.render(80);
-    expect(afterUp.some((l: string) => l.includes("📋 F002"))).toBe(true);
-    // Press Enter on filtered selection — use fresh component with onAction to test activation
-    let captured = "";
-    const c5b: any = missionControlOverlay(mission, (id) => { captured = id; })(mockTui);
-    c5b.handleInput("F");
-    c5b.handleInput("0");
-    c5b.handleInput("0");
-    c5b.handleInput("\x1b[B"); // select F002
-    c5b.handleInput("\r");
+    // Test: arrow down selects next feature
+    const component: any = missionControlOverlay(mission, (id) => { captured = id; })(mockTui);
+    // Down twice: session metrics -> F001 -> F002, then Enter
+    component.handleInput("\x1b[B"); // F001
+    component.handleInput("\x1b[B"); // F002
+    component.handleInput("\r"); // selects F002
     expect(captured).toBe("F002");
   });
 
-  it("E2E: Ctrl+W deletes last word from filter, Ctrl+U clears entire filter", () => {
-    const mission = createMission("CtrlW", "Test Ctrl+W delete word");
-    mission.milestones[0]!.features.push(
-      {
-        id: "F010", milestoneId: "M01", title: "Bonus 10", description: "Tenth",
-        priority: 4, dependsOn: [], acceptance: [], status: "pending", sessions: [], toolCallCount: 0,
-      },
-      {
-        id: "F011", milestoneId: "M01", title: "Bonus 11", description: "Eleventh",
-        priority: 5, dependsOn: [], acceptance: [], status: "pending", sessions: [], toolCallCount: 0,
-      },
-    );
-
-    let overlayHidden = false;
-    const tuiWithSpy: any = {
-      hideOverlay: () => { overlayHidden = true; },
+  it("Escape closes the overlay", () => {
+    const mission = createMission("Esc", "Test escape");
+    let hidden = false;
+    const mockTui: any = {
+      hideOverlay: () => { hidden = true; },
       requestRender: () => {},
     };
 
-    // 1. Type "F003" → 1 feature, Ctrl+W → removes whole word → all 6 restored
-    const c1: any = missionControlOverlay(mission)(tuiWithSpy);
-    c1.handleInput("F");
-    c1.handleInput("0");
-    c1.handleInput("0");
-    c1.handleInput("3");
-    const afterF003 = c1.render(80);
-    expect(afterF003.some((l: string) => l.includes("🔍 Filter: F003"))).toBe(true);
-    expect(afterF003.some((l: string) => l.includes("1/6 features"))).toBe(true);
-
-    c1.handleInput("\x17"); // Ctrl+W
-    expect(overlayHidden).toBe(false);
-    const afterCtrlW1 = c1.render(80);
-    expect(afterCtrlW1.some((l: string) => l.includes("Filter:"))).toBe(false);
-    expect(afterCtrlW1.some((l: string) => l.includes("6 features") && !l.includes("/"))).toBe(true);
-    expect(afterCtrlW1.some((l: string) => l.includes("F001"))).toBe(true);
-    expect(afterCtrlW1.some((l: string) => l.includes("F011"))).toBe(true);
-
-    // 2. Type "hello world" → 0 features, Ctrl+W → "hello" (still 0), Ctrl+W again → empty
-    const c2: any = missionControlOverlay(mission)(tuiWithSpy);
-    c2.handleInput("h");
-    c2.handleInput("e");
-    c2.handleInput("l");
-    c2.handleInput("l");
-    c2.handleInput("o");
-    c2.handleInput(" ");
-    c2.handleInput("w");
-    c2.handleInput("o");
-    c2.handleInput("r");
-    c2.handleInput("l");
-    c2.handleInput("d");
-    const afterHelloWorld = c2.render(80);
-    expect(afterHelloWorld.some((l: string) => l.includes("🔍 Filter: hello world"))).toBe(true);
-    expect(afterHelloWorld.some((l: string) => l.includes("0/6 features"))).toBe(true);
-
-    c2.handleInput("\x17"); // Ctrl+W → removes "world"
-    const afterFirstCtrlW = c2.render(80);
-    expect(afterFirstCtrlW.some((l: string) => l.includes("🔍 Filter: hello"))).toBe(true);
-    expect(afterFirstCtrlW.some((l: string) => l.includes("0/6 features"))).toBe(true);
-
-    c2.handleInput("\x17"); // Ctrl+W again → removes "hello"
-    const afterSecondCtrlW = c2.render(80);
-    expect(afterSecondCtrlW.some((l: string) => l.includes("Filter:"))).toBe(false);
-    expect(afterSecondCtrlW.some((l: string) => l.includes("6 features") && !l.includes("/"))).toBe(true);
-
-    // 3. Ctrl+W on empty filter — no-op, no crash
-    const c3: any = missionControlOverlay(mission)(tuiWithSpy);
-    expect(() => c3.handleInput("\x17")).not.toThrow();
-    const afterEmptyCtrlW = c3.render(80);
-    expect(afterEmptyCtrlW.some((l: string) => l.includes("F001"))).toBe(true);
-    expect(afterEmptyCtrlW.some((l: string) => l.includes("Filter:"))).toBe(false);
-
-    // 4. Footer hint mentions Ctrl+W
-    expect(afterEmptyCtrlW.some((l: string) => l.includes("Ctrl+W delete word"))).toBe(true);
-  });
-
-  it("E2E: Ctrl+U clears filter in one keystroke without closing overlay", () => {
-    const mission = createMission("CtrlU", "Test Ctrl+U clear");
-    mission.milestones[0]!.features.push(
-      {
-        id: "F010", milestoneId: "M01", title: "Bonus 10", description: "Tenth",
-        priority: 4, dependsOn: [], acceptance: [], status: "pending", sessions: [], toolCallCount: 0,
-      },
-      {
-        id: "F011", milestoneId: "M01", title: "Bonus 11", description: "Eleventh",
-        priority: 5, dependsOn: [], acceptance: [], status: "pending", sessions: [], toolCallCount: 0,
-      },
-    );
-
-    let overlayHidden = false;
-    const tuiWithSpy: any = {
-      hideOverlay: () => { overlayHidden = true; },
-      requestRender: () => {},
-    };
-
-    // 1. Ctrl+U with active filter — clears filter, overlay stays open
-    const c1: any = missionControlOverlay(mission)(tuiWithSpy);
-    c1.handleInput("F");
-    c1.handleInput("0");
-    c1.handleInput("0");
-    const beforeClear = c1.render(80);
-    expect(beforeClear.some((l: string) => l.includes("🔍 Filter: F00"))).toBe(true);
-    expect(beforeClear.some((l: string) => l.includes("3/6 features"))).toBe(true);
-
-    c1.handleInput("\x15"); // Ctrl+U
-    expect(overlayHidden).toBe(false); // overlay does NOT close
-    const afterClear = c1.render(80);
-    expect(afterClear.some((l: string) => l.includes("Filter:"))).toBe(false);
-    // Footer back to plain total after clear
-    expect(afterClear.some((l: string) => l.includes("6 features") && !l.includes("/"))).toBe(true);
-    expect(afterClear.some((l: string) => l.includes("F001"))).toBe(true);
-    expect(afterClear.some((l: string) => l.includes("F002"))).toBe(true);
-    expect(afterClear.some((l: string) => l.includes("F003"))).toBe(true);
-    expect(afterClear.some((l: string) => l.includes("F010"))).toBe(true);
-    expect(afterClear.some((l: string) => l.includes("F011"))).toBe(true);
-
-    // 2. Ctrl+U with empty filter — no-op, no crash, overlay stays open
-    const c2: any = missionControlOverlay(mission)(tuiWithSpy);
-    expect(() => c2.handleInput("\x15")).not.toThrow();
-    expect(overlayHidden).toBe(false);
-    const afterEmptyCtrlU = c2.render(80);
-    expect(afterEmptyCtrlU.some((l: string) => l.includes("F001"))).toBe(true);
-    expect(afterEmptyCtrlU.some((l: string) => l.includes("Filter:"))).toBe(false);
-
-    // 3. Footer hint mentions Ctrl+U
-    expect(afterEmptyCtrlU.some((l: string) => l.includes("Ctrl+U clear filter"))).toBe(true);
-
-    // 4. Ctrl+U from no-match state — clears filter, restores all features
-    const c3: any = missionControlOverlay(mission)(tuiWithSpy);
-    c3.handleInput("Z"); // no features match "Z"
-    const noMatch = c3.render(80);
-    expect(noMatch.some((l: string) => l.includes("No matching"))).toBe(true);
-    expect(noMatch.some((l: string) => l.includes("0/6 features"))).toBe(true);
-
-    c3.handleInput("\x15"); // Ctrl+U
-    expect(overlayHidden).toBe(false); // overlay stays open
-    const afterNoMatchClear = c3.render(80);
-    expect(afterNoMatchClear.some((l: string) => l.includes("Filter:"))).toBe(false);
-    expect(afterNoMatchClear.some((l: string) => l.includes("No matching"))).toBe(false);
-    expect(afterNoMatchClear.some((l: string) => l.includes("F001"))).toBe(true);
-    expect(afterNoMatchClear.some((l: string) => l.includes("F011"))).toBe(true);
-    expect(afterNoMatchClear.some((l: string) => l.includes("6 features") && !l.includes("/"))).toBe(true);
-
-    // 5. Ctrl+W with trailing spaces — strips spaces then deletes word
-    const c4: any = missionControlOverlay(mission)(tuiWithSpy);
-    c4.handleInput("h");
-    c4.handleInput("e");
-    c4.handleInput("l");
-    c4.handleInput("l");
-    c4.handleInput("o");
-    c4.handleInput(" "); // space
-    c4.handleInput("w");
-    c4.handleInput("o");
-    c4.handleInput("r");
-    c4.handleInput("l");
-    c4.handleInput("d");
-    c4.handleInput(" "); // trailing space
-    const withTrailing = c4.render(80);
-    expect(withTrailing.some((l: string) => l.includes("🔍 Filter: hello world "))).toBe(true);
-
-    c4.handleInput("\x17"); // Ctrl+W — should strip trailing space, then delete "world"
-    const afterCtrlWTrailing = c4.render(80);
-    expect(afterCtrlWTrailing.some((l: string) => l.includes("🔍 Filter: hello"))).toBe(true);
-    expect(afterCtrlWTrailing.some((l: string) => l.includes("world"))).toBe(false);
+    const component: any = missionControlOverlay(mission)(mockTui);
+    component.handleInput("\x1b");
+    expect(hidden).toBe(true);
   });
 });

@@ -127,8 +127,8 @@ describe("exportMarkdown", () => {
     expect(md).toContain("**Status**: active");
     expect(md).toContain("**Progress**: 0/3 (0%)");
     expect(md).toContain("**Tokens used**: 999");
-    expect(md).toContain("## Mission Control Handoff");
-    expect(md).toContain("**Next runnable feature**");
+    expect(md).toContain("## Executive Summary");
+    expect(md).toContain("**Next runnable**");
   });
 
   it("includes evidence in export when available", async () => {

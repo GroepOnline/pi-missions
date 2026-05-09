@@ -2,40 +2,18 @@
  * Full-screen Mission Control Dashboard
  *
  * Provides an interactive overlay dashboard for navigating and managing
- * mission features. Uses the Pi TUI component system for keyboard-driven
- * navigation with SelectList for feature browsing.
+ * mission features. Uses the Pi TUI component system with a static
+ * render layout — no SelectList dependency.
  *
  * Activated via:
  *   /mission dashboard   → full-screen overlay
- *   ctrl+shift+m         → full-screen overlay (same as /mission dashboard)
+ *   ctrl+shift+m         → full-screen overlay
  */
-import type { Component, SelectItem, TUI } from "@mariozechner/pi-tui";
-import { Box, SelectList, Spacer, Text } from "@mariozechner/pi-tui";
-import { getFeatureById, progress } from "./state.js";
-import type { Feature, MissionState } from "./types.js";
+import type { Component, TUI } from "@mariozechner/pi-tui";
+import { progress } from "./state.js";
+import type { Feature, Milestone, MissionState } from "./types.js";
 import { sessionMetrics } from "./metrics.js";
 import { buildMissionControlSummary } from "./ui.js";
-
-// ── Inline theme type (SelectListTheme may not be exported by pi-tui) ──────
-interface SelectListTheme {
-  selectedPrefix: (text: string) => string;
-  selectedText: (text: string) => string;
-  description: (text: string) => string;
-  scrollInfo: (text: string) => string;
-  noMatch: (text: string) => string;
-}
-
-// ────────────────────────────────────────────────────────────────────────────
-// Theme for the SelectList — minimal styling
-// ────────────────────────────────────────────────────────────────────────────
-
-const selectTheme: SelectListTheme = {
-  selectedPrefix: (_text: string): string => "▸ ",
-  selectedText: (text: string): string => text,
-  description: (text: string): string => `  ${text}`,
-  scrollInfo: (text: string): string => text,
-  noMatch: (text: string): string => text,
-};
 
 // ────────────────────────────────────────────────────────────────────────────
 // Helpers
@@ -47,6 +25,7 @@ const STATUS_ICONS: Record<string, string> = {
   blocked: "⛔",
   failed: "❌",
   pending: "•",
+  waiting: "⏳",
 };
 
 function statusIcon(status: string): string {
@@ -55,6 +34,12 @@ function statusIcon(status: string): string {
 
 function clip(text: string, max = 72): string {
   return text.length > max ? `${text.slice(0, max - 1)}…` : text;
+}
+
+function progressBar(done: number, total: number, width = 16): string {
+  if (total === 0) return "[" + "░".repeat(width) + "]";
+  const filled = Math.round((done / total) * width);
+  return "[" + "█".repeat(filled) + "░".repeat(width - filled) + "]";
 }
 
 function pendingAcceptance(feature: Feature): string[] {
@@ -83,9 +68,8 @@ export function featureDescription(f: Feature, milestoneId: string): string {
   return `${milestoneId}: ${desc}${deps}`;
 }
 
-export function buildFeatureItems(mission: MissionState): SelectItem[] {
-  const items: SelectItem[] = [];
-  // Add session metrics item at the top
+export function buildFeatureItems(mission: MissionState): { value: string; label: string; description: string }[] {
+  const items: { value: string; label: string; description: string }[] = [];
   items.push({
     value: "__session_metrics__",
     label: "📊 Session Metrics",
@@ -140,10 +124,10 @@ export function sessionMetricsLines(width: number): string[] {
   const successRate = metrics.toolCalls.total === 0 ? 100 : (metrics.toolCalls.successful / metrics.toolCalls.total) * 100;
   lines.push(`  Session: ${metrics.sessionId}`);
   lines.push(`  Health: ${metrics.errors.total === 0 ? "clean" : `${metrics.errors.total} errors`}  |  Tool success: ${successRate.toFixed(1)}%`);
-  lines.push(`  Throughput: ${metrics.featuresCompleted} features complete  |  ${metrics.toolCalls.total} tool calls  |  ${metrics.tokensUsed} tokens`);
-  lines.push(`  Duration: ${duration.toFixed(1)}s  |  Auto-advances: ${metrics.autoAdvanceCount}  |  Stuck detections: ${metrics.stuckDetectionCount}`);
+  lines.push(`  Throughput: ${metrics.featuresCompleted} features  |  ${metrics.toolCalls.total} tool calls  |  ${metrics.tokensUsed} tokens`);
+  lines.push(`  Duration: ${duration.toFixed(1)}s  |  Auto-advances: ${metrics.autoAdvanceCount}  |  Stuck: ${metrics.stuckDetectionCount}`);
   if (metrics.errors.total > 0) {
-    lines.push(`  Error Categories:`);
+    lines.push(`  Error categories:`);
     for (const [category, count] of Object.entries(metrics.errors.byCategory)) {
       lines.push(`    - ${category}: ${count}`);
     }
@@ -153,219 +137,178 @@ export function sessionMetricsLines(width: number): string[] {
 }
 
 // ────────────────────────────────────────────────────────────────────────────
+// Render helpers
+// ────────────────────────────────────────────────────────────────────────────
+
+function milestoneSection(milestone: Milestone, activeFeatureId: string | undefined, width: number): string[] {
+  const lines: string[] = [];
+  const mDone = milestone.features.filter((f) => f.status === "done").length;
+  const mTotal = milestone.features.length;
+  const msIcon = milestone.status === "complete" ? "✅" : milestone.status === "active" ? "➡️" : "•";
+
+  // Collapsed: fully-done milestones get one summary line
+  if (milestone.status === "complete" && mDone === mTotal) {
+    lines.push(`  ${msIcon} ${milestone.id}: ${milestone.title} — all ${mTotal} features done`);
+    return lines;
+  }
+
+  // Expanded milestone
+  lines.push(`  ${msIcon} ${milestone.id}: ${milestone.title}  ${progressBar(mDone, mTotal, 12)} ${mDone}/${mTotal}`);
+
+  const order: Record<string, number> = { active: 0, pending: 1, waiting: 2, blocked: 3, failed: 4, done: 5 };
+  const sorted = [...milestone.features].sort(
+    (a, b) => (order[a.status] ?? 5) - (order[b.status] ?? 5) || a.priority - b.priority,
+  );
+
+  for (const feature of sorted) {
+    const icon = statusIcon(feature.status);
+    const deps = feature.dependsOn.length ? ` 🔗${feature.dependsOn.join(",")}` : "";
+    const blocked = feature.status === "blocked" && feature.notes ? `  ↳ ${clip(feature.notes, 44)}` : "";
+    const verified = feature.acceptance.filter((ac) => ac.verified || ac.waived).length;
+    const acBadge = feature.acceptance.length ? ` [${verified}/${feature.acceptance.length} AC]` : "";
+
+    if (feature.id === activeFeatureId) {
+      // Active feature — full detail
+      lines.push(`    ${icon} ${feature.id} [P${feature.priority}] ${feature.title}${acBadge}${deps}`);
+      if (feature.description) lines.push(`      📝 ${feature.description}`);
+      lines.push(`      🎯 ${featureNextAction(feature)}`);
+      const unverified = pendingAcceptance(feature);
+      for (const ac of unverified) {
+        lines.push(`      ☐ ${clip(ac, 66)}`);
+      }
+      if (feature.startedAt) {
+        const elapsedMin = Math.round((Date.now() - feature.startedAt) / 60000);
+        if (elapsedMin > 10) lines.push(`      ⏱  Active ${elapsedMin}min`);
+      }
+      if (feature.toolCallCount > 50) lines.push(`      🔧 ${feature.toolCallCount} tool calls`);
+    } else {
+      lines.push(`    ${icon} ${feature.id} [P${feature.priority}] ${feature.title}${acBadge}${deps}${blocked}`);
+    }
+  }
+  return lines;
+}
+
+// ────────────────────────────────────────────────────────────────────────────
 // MissionControl — interactive overlay component
 // ────────────────────────────────────────────────────────────────────────────
 
 class MissionControl implements Component {
-  private container: Box;
-  private list: SelectList;
-  private detailBox: Box;
   private mission: MissionState;
   private tui: TUI;
   private onAction?: (featureId: string) => void;
-  private filterChars = "";
+  private selectedIdx = 0;
+  private flatItems: { value: string; label: string; description: string }[] = [];
   private width = 80;
-  private filterText: Text;
-  private footerText: Text;
 
   constructor(mission: MissionState, tui: TUI, onAction?: (featureId: string) => void) {
     this.mission = mission;
     this.tui = tui;
     this.onAction = onAction;
-
-    const p = progress(mission);
-    const summary = buildMissionControlSummary(mission);
-    const statusIco =
-      mission.status === "complete" ? "✅"
-      : mission.status === "paused" ? "⏸"
-      : mission.status === "budget_limited" ? "⚠️"
-      : "🎯";
-
-    const items = buildFeatureItems(mission);
-
-    // Header
-    const header = new Box(1, 0);
-    header.addChild(new Text(`${statusIco} Mission Control — ${mission.title}`));
-    header.addChild(new Text(`Goal: ${clip(mission.goal || "No mission goal captured", 88)}`));
-    header.addChild(new Text(`Focus: ${summary.active ? `${summary.active.id} ${summary.active.title}` : "No active feature"}  |  Progress: ${p.done}/${p.total} (${p.pct}%)`));
-    header.addChild(new Text(`Blocked/Waiting: ${summary.blocked.length}/${summary.waiting.length}  |  Handoff: ${clip(summary.handoff, 76)}`));
-
-    // Filter indicator (shown only when filterChars is non-empty)
-    this.filterText = new Text("", 1, 0);
-
-    // Feature list
-    this.list = new SelectList(items, Math.min(items.length, 15), selectTheme);
-    this.list.onSelectionChange = (item: SelectItem) => this.updateDetail(item);
-    this.list.onCancel = () => this.tui.hideOverlay();
-    this.list.onSelect = (item: SelectItem) => {
-      if (item.value !== "__session_metrics__") {
-        this.onAction?.(item.value);
-      }
-      this.tui.hideOverlay();
-    };
-
-    // Detail pane — initially shows first item (session metrics or first feature)
-    this.detailBox = new Box(0, 0);
-    if (items.length > 0) {
-      if (items[0]!.value === "__session_metrics__") {
-        for (const line of sessionMetricsLines(this.width)) {
-          this.detailBox.addChild(new Text(line));
-        }
-      } else {
-        const firstFeature = getFeatureById(mission, items[0]!.value);
-        if (firstFeature) {
-          for (const line of featureDetailLines(firstFeature, this.width)) {
-            this.detailBox.addChild(new Text(line));
-          }
-        }
-      }
-    }
-
-    // Footer — dynamic text updated when filter changes
-    this.footerText = new Text(this.footerTextFor(items.length, items.length), 1, 0);
-    const footer = new Box(1, 0);
-    footer.addChild(this.footerText);
-
-    // Container
-    this.container = new Box(1, 1);
-    this.container.addChild(header);
-    this.container.addChild(this.filterText);
-    this.container.addChild(this.list);
-    this.container.addChild(new Spacer(1));
-    this.container.addChild(this.detailBox);
-    this.container.addChild(new Spacer(1));
-    this.container.addChild(footer);
+    this.flatItems = buildFeatureItems(mission);
   }
 
-  private updateDetail(item: SelectItem): void {
-    this.detailBox.clear();
-    if (item.value === "__session_metrics__") {
-      for (const line of sessionMetricsLines(this.width)) {
-        this.detailBox.addChild(new Text(line));
+  private renderDashboardLines(): string[] {
+    const p = progress(this.mission);
+    const summary = buildMissionControlSummary(this.mission);
+    const statusIco =
+      this.mission.status === "complete" ? "✅"
+      : this.mission.status === "paused" ? "⏸"
+      : this.mission.status === "budget_limited" ? "⚠️"
+      : "🎯";
+
+    const lines: string[] = [
+      `${statusIco} Mission Control — ${this.mission.title}`,
+      `  Goal: ${clip(this.mission.goal || "No mission goal captured", 88)}`,
+      `  Focus: ${summary.active ? `${summary.active.id} ${summary.active.title}` : "No active feature"}  |  Progress: ${p.done}/${p.total} (${p.pct}%)`,
+      `  Blocked/Waiting: ${summary.blocked.length}/${summary.waiting.length}  |  Handoff: ${clip(summary.handoff, 76)}`,
+    ];
+    if (summary.active) lines.push(`  Next: ${featureNextAction(summary.active)}`);
+
+    lines.push("", `${this.selectedIdx === 0 ? "→" : " "} 📊 Session Metrics`);
+    for (const line of sessionMetricsLines(this.width).slice(2, -1)) lines.push(`  ${line.trimStart()}`);
+
+    lines.push("", `  Milestones  ${progressBar(p.done, p.total, 12)} ${p.done}/${p.total} (${p.pct}%)`, "");
+
+    let itemIdx = 1;
+    for (const milestone of this.mission.milestones) {
+      const mDone = milestone.features.filter((f) => f.status === "done").length;
+      const mTotal = milestone.features.length;
+      const msIcon = milestone.status === "complete" ? "✅" : milestone.status === "active" ? "➡️" : "•";
+      lines.push(`  ${msIcon} ${milestone.id}: ${milestone.title}  ${progressBar(mDone, mTotal, 12)} ${mDone}/${mTotal}`);
+
+      const order: Record<string, number> = { active: 0, pending: 1, waiting: 2, blocked: 3, failed: 4, done: 5 };
+      const sorted = [...milestone.features].sort((a, b) => (order[a.status] ?? 5) - (order[b.status] ?? 5) || a.priority - b.priority);
+      for (const feature of sorted) {
+        const selected = itemIdx === this.selectedIdx;
+        const prefix = selected ? "→" : " ";
+        const verified = feature.acceptance.filter((ac) => ac.verified || ac.waived).length;
+        const acBadge = feature.acceptance.length ? ` [${verified}/${feature.acceptance.length} AC]` : "";
+        const deps = feature.dependsOn.length ? ` 🔗${feature.dependsOn.join(",")}` : "";
+        lines.push(`${prefix}   ${statusIcon(feature.status)} ${feature.id} [P${feature.priority}] ${feature.title}${acBadge}${deps}`);
+
+        if (selected || feature.id === this.mission.activeFeatureId) {
+          lines.push(`      ${feature.id}: ${feature.title}`);
+          if (feature.description) lines.push(`      ${clip(feature.description, 88)}`);
+          lines.push(`      Next: ${featureNextAction(feature)}`);
+          for (const ac of pendingAcceptance(feature).slice(0, 4)) lines.push(`      ☐ ${clip(ac, 82)}`);
+          if (feature.startedAt) {
+            const elapsedMin = Math.round((Date.now() - feature.startedAt) / 60000);
+            if (elapsedMin > 10) lines.push(`      Active ${elapsedMin}min`);
+          }
+          if (feature.toolCallCount > 50) lines.push(`      ${feature.toolCallCount} tool calls`);
+          if (feature.notes) lines.push(`      Note: ${clip(feature.notes, 82)}`);
+        }
+        itemIdx++;
       }
-    } else {
-      const feature = getFeatureById(this.mission, item.value);
-      if (!feature) return;
-      for (const line of featureDetailLines(feature, this.width)) {
-        this.detailBox.addChild(new Text(line));
-      }
+      lines.push("");
     }
-    this.detailBox.invalidate();
-    this.tui.requestRender();
+
+    lines.push("  Keys: ↑↓/j/k navigate  |  Enter select  |  Esc close");
+    return lines;
   }
 
   // ── Component interface ──────────────────────────────────────────────────
 
   render(width: number): string[] {
     this.width = width;
-    return this.container.render(width);
+    return this.renderDashboardLines();
   }
 
   invalidate(): void {
-    this.container.invalidate();
-  }
-
-  private updateFilterDisplay(): void {
-    if (this.filterChars) {
-      this.filterText.setText(`🔍 Filter: ${this.filterChars}`);
-    } else {
-      this.filterText.setText("");
-    }
-    this.container.invalidate();
-    // Note: updateDetailForCurrentSelection() already calls requestRender()
-    // when invoked alongside this method in handleInput.
-  }
-
-  private footerTextFor(filtered: number, total: number): string {
-    if (this.filterChars) {
-      return `Keys: ↑↓ navigate  |  Enter select  |  Esc close  |  Ctrl+U clear filter  |  Ctrl+W delete word  |  Type to filter  |  ${filtered}/${total} features`;
-    }
-    return `Keys: ↑↓ navigate  |  Enter select  |  Esc close  |  Ctrl+U clear filter  |  Ctrl+W delete word  |  Type to filter  |  ${total} features`;
-  }
-
-  private updateFooter(): void {
-    const listAny = this.list as any;
-    this.footerText.setText(
-      this.footerTextFor(listAny.filteredItems.length, listAny.items.length),
-    );
+    // Plain renderer: state changes are reflected on the next render call.
   }
 
   handleInput(data: string): boolean {
-    // Type-to-filter: intercept printable characters to filter the feature list
-    if (data.length === 1 && data.charCodeAt(0) >= 32 && data.charCodeAt(0) <= 126) {
-      this.filterChars += data;
-      (this.list as any).setFilter(this.filterChars);
-      this.updateDetailForCurrentSelection();
-      this.updateFilterDisplay();
-      this.updateFooter();
+    if (data === "\x1b[B" || data === "j") {
+      this.selectedIdx = Math.min(this.selectedIdx + 1, this.flatItems.length - 1);
+      this.invalidate();
+      this.tui.requestRender();
       return true;
     }
-    // Backspace — remove last char from filter
-    if (data === "\b" || data === "\x7f") {
-      this.filterChars = this.filterChars.slice(0, -1);
-      (this.list as any).setFilter(this.filterChars);
-      this.updateDetailForCurrentSelection();
-      this.updateFilterDisplay();
-      this.updateFooter();
+    if (data === "\x1b[A" || data === "k") {
+      this.selectedIdx = Math.max(this.selectedIdx - 1, 0);
+      this.invalidate();
+      this.tui.requestRender();
       return true;
     }
-    // Ctrl+W — delete word backward from filter
-    if (data === "\x17") {
-      this.filterChars = this.deleteWordBackward(this.filterChars);
-      (this.list as any).setFilter(this.filterChars);
-      this.updateDetailForCurrentSelection();
-      this.updateFilterDisplay();
-      this.updateFooter();
-      return true;
-    }
-    // Ctrl+U — clear filter in one keystroke (always stays open)
-    if (data === "\x15") {
-      this.filterChars = "";
-      (this.list as any).setFilter("");
-      this.updateDetailForCurrentSelection();
-      this.updateFilterDisplay();
-      this.updateFooter();
-      return true;
-    }
-    // Escape: if filter is active, clear it and stay open.
-    // If filter is already empty, forward to SelectList (closes overlay).
-    if (data === "\x1b") {
-      if (this.filterChars.length > 0) {
-        this.filterChars = "";
-        (this.list as any).setFilter("");
-        this.updateDetailForCurrentSelection();
-        this.updateFilterDisplay();
-        this.updateFooter();
+    if (data === "\r" || data === "\n") {
+      const item = this.flatItems[this.selectedIdx];
+      if (item && item.value !== "__session_metrics__") {
+        this.onAction?.(item.value);
+        this.tui.hideOverlay();
         return true;
       }
+      return true;
     }
-    // Forward all keyboard input to SelectList for navigation/confirmation
-    return (this.list as any).handleInput(data);
-  }
-
-  /** Remove the last word (and any trailing spaces) from a string. */
-  private deleteWordBackward(s: string): string {
-    // Strip trailing spaces
-    let t = s;
-    while (t.length > 0 && t[t.length - 1] === " ") {
-      t = t.slice(0, -1);
+    if (data === "\x1b") {
+      this.tui.hideOverlay();
+      return true;
     }
-    // Find preceding space; if none, delete entire string
-    const lastSpace = t.lastIndexOf(" ");
-    return lastSpace === -1 ? "" : t.slice(0, lastSpace);
-  }
-
-  /** Sync the detail pane with the currently selected item after filtering. */
-  private updateDetailForCurrentSelection(): void {
-    const item = (this.list as any).getSelectedItem();
-    if (item) {
-      this.updateDetail(item);
-      this.invalidate();
-    }
+    return false;
   }
 
   dispose(): void {
-    this.container.clear();
+    // No resources to release.
   }
 }
 
