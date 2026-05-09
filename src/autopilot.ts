@@ -2,6 +2,7 @@ import type { ExtensionAPI, ExtensionCommandContext } from "@mariozechner/pi-cod
 import type { MissionState, Feature, RuntimeState } from "./types.js";
 import { getActiveFeature, getFeatureById, getNextPendingFeature, saveMissionSafe, appendHistory, autoBlockBlockedFeatures, autoUnblockResolved } from "./state.js";
 import { updateFooter } from "./ui.js";
+import { getCompletionDetector } from "./completion.js";
 
 export interface ContinuationDecision {
   continue: boolean;
@@ -80,14 +81,50 @@ export async function processAgentEndForAutopilot(
   const mission = runtime.activeMission;
   if (!mission || !mission.autopilot?.enabled) return;
   const feature = getActiveFeature(mission);
-  const text = event.messages?.[0]?.content?.[0]?.text || "";
+  // Aggregate ALL text across all messages (not just first fragment)
+  const text = (event.messages ?? [])
+    .flatMap((m: any) => Array.isArray(m.content) ? m.content : [])
+    .filter((c: any) => c?.type === "text" && typeof c.text === "string")
+    .map((c: any) => c.text)
+    .join("\n");
   const lower = text.toLowerCase();
+
+  // Detect aborted/cancelled operations as no-progress
+  const wasAborted = /\b(operation aborted|operation cancelled|action cancelled)\b/i.test(text);
+
+  // Detect text loop: use shared completion detector which accumulates across turns
+  const detector = getCompletionDetector();
+  // Note: turn_end already records text output to the detector, so we skip recordTextOutput here
+  const textLoop = detector.detectTextLoop();
+  const inTextLoop = textLoop.isStuck;
+
+  // Detect "needs to ask user" pattern without actual tool call
+  const wantsToAskUser = /\b(need to ask the user|should ask the user|must ask the user)\b/i.test(lower) &&
+    !lower.includes("mission_ask_user");
+
   // Improved blocker detection
   const isBlocked = 
     mission.status === "blocked" ||
     (feature && feature.status === "blocked") ||
     lower.includes("mission_block_self") ||
-    /\b(blocked|block self|self-block|stuck|cannot proceed|deadlock|need external|api key|permission|error)\b/i.test(text);
+    /\b(blocked|block self|self-block|stuck|cannot proceed|deadlock|need external|api key|permission)\b/i.test(lower);
+
+  // Stop autopilot if text loop detected (model is looping without making progress)
+  if (inTextLoop || wasAborted) {
+    mission.autopilot.noProgressTurns += (inTextLoop ? 2 : 0) + (wasAborted ? 1 : 0);
+  }
+
+  // Stop if model wants to ask user but isn't using the tool
+  if (wantsToAskUser) {
+    mission.autopilot.enabled = false;
+    mission.autopilot.lastStopReason = "needs_user_decision";
+    mission.autopilot.lastStopMessage = text.slice(0, 200);
+    appendHistory(mission, { event: "autopilot_stopped", note: "needs_user_decision (model wants to ask)" });
+    await saveMissionSafe(mission);
+    updateFooter(ctx, mission);
+    return;
+  }
+
   if (isBlocked) {
     mission.autopilot.enabled = false;
     mission.autopilot.lastStopReason = "blocked";

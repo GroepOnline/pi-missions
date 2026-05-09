@@ -197,6 +197,10 @@ export interface RuntimeState {
   currentPhase: ToolPhase;
   /** Last active feature id, to detect feature switches. */
   lastFeatureId?: string;
+  /** Completion detection action to inject on next agent start. Reset after injection. */
+  pendingCompletionAction?: "auto_done" | "suggest_done" | "continue" | "ask_user";
+  /** Reason for the pending completion action, injected into model context. */
+  pendingCompletionReason?: string;
 }
 
 export type ToolPhase = "planning" | "execution" | "verification";

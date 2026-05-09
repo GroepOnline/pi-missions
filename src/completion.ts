@@ -10,10 +10,13 @@ import type { Feature, MissionState, CompletionSignal, CompletionDetectionResult
  */
 export class CompletionDetector {
   private recentToolCalls: Array<{ tool: string; success: boolean; timestamp: number }> = [];
+  private recentTextOutputs: Array<{ hash: string; timestamp: number }> = [];
   private readonly MAX_RECENT_TOOLS = 20;
+  private readonly MAX_RECENT_TEXTS = 10;
   private readonly ERROR_FREE_STREAK_THRESHOLD = 5;
   private readonly STUCK_FAILURE_THRESHOLD = 3; // Number of consecutive failures to consider stuck
   private readonly STUCK_REPEAT_PATTERN_THRESHOLD = 5; // Number of repeated patterns to consider stuck
+  private readonly TEXT_LOOP_SIMILARITY_THRESHOLD = 4; // Similar text outputs in a row = stuck
 
   /**
    * Record a tool call for pattern analysis
@@ -26,10 +29,24 @@ export class CompletionDetector {
   }
 
   /**
-   * Clear the tool call history (e.g., when starting a new feature)
+   * Record a text output for loop detection
+   */
+  recordTextOutput(text: string): void {
+    if (!text || text.length < 20) return;
+    // Use a simple hash of first 100 chars to detect near-duplicates
+    const hash = text.slice(0, 100).toLowerCase().replace(/\s+/g, " ").trim();
+    this.recentTextOutputs.push({ hash, timestamp: Date.now() });
+    if (this.recentTextOutputs.length > this.MAX_RECENT_TEXTS) {
+      this.recentTextOutputs.shift();
+    }
+  }
+
+  /**
+   * Clear the tool call and text history (e.g., when starting a new feature)
    */
   clearToolCallHistory(): void {
     this.recentToolCalls = [];
+    this.recentTextOutputs = [];
   }
 
   /**
@@ -159,6 +176,53 @@ export class CompletionDetector {
     }
 
     return null;
+  }
+
+  /**
+   * Detect if the agent is stuck in a text loop (repeating near-identical outputs)
+   */
+  detectTextLoop(): { isStuck: boolean; reason: string; suggestedAction: "continue" | "block_self" } {
+    if (this.recentTextOutputs.length < this.TEXT_LOOP_SIMILARITY_THRESHOLD) {
+      return { isStuck: false, reason: "Insufficient text history", suggestedAction: "continue" };
+    }
+
+    const recent = this.recentTextOutputs.slice(-this.TEXT_LOOP_SIMILARITY_THRESHOLD);
+
+    // Check if all recent text outputs have the same hash (near-identical)
+    const uniqueHashes = new Set(recent.map(t => t.hash));
+    if (uniqueHashes.size <= 2) {
+      return {
+        isStuck: true,
+        reason: `Text loop detected: ${uniqueHashes.size} unique outputs in last ${this.TEXT_LOOP_SIMILARITY_THRESHOLD} turns`,
+        suggestedAction: "block_self"
+      };
+    }
+
+    // Check for explicit stuck phrases in recent outputs
+    const stuckPhrases = [
+      "i've been stuck in a loop",
+      "i need to ask the user directly",
+      "actually, let me just provide a final summary",
+      "operation aborted",
+    ];
+    let stuckPhraseCount = 0;
+    for (const t of recent) {
+      for (const phrase of stuckPhrases) {
+        if (t.hash.includes(phrase)) {
+          stuckPhraseCount++;
+          break;
+        }
+      }
+    }
+    if (stuckPhraseCount >= 3) {
+      return {
+        isStuck: true,
+        reason: `Stuck phrases detected in ${stuckPhraseCount}/${this.TEXT_LOOP_SIMILARITY_THRESHOLD} recent turns`,
+        suggestedAction: "block_self"
+      };
+    }
+
+    return { isStuck: false, reason: "No text loop detected", suggestedAction: "continue" };
   }
 
   /**

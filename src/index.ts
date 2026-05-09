@@ -111,12 +111,29 @@ export default function piMissions(pi: ExtensionAPI): void {
     const mission = runtime.activeMission;
     if (!mission || mission.status !== "active") return;
     updateFooter(ctx, mission);
-    return { message: { customType: "pi-mission-context", content: buildLeanContext(mission), display: false } };
+    let lean = buildLeanContext(mission);
+
+    // Inject pending completion action from previous agent_end detection
+    if (runtime.pendingCompletionAction === "ask_user") {
+      const reason = runtime.pendingCompletionReason?.replace(/^(Medium|Low) confidence - /i, "") || "completion is unclear";
+      lean += `\n\n🚨 **STOP AND CALL THE TOOL**: ${reason}. You MUST call the **mission_ask_user** tool RIGHT NOW with your question to the user. Do NOT describe what you want to ask — invoke the tool directly.`;
+    } else if (runtime.pendingCompletionAction === "suggest_done") {
+      const reason = runtime.pendingCompletionReason || "feature may be complete";
+      lean += `\n\n💡 **Heads up**: ${reason}. Consider using **mission_feature_done** if you have concrete evidence.`;
+    }
+    runtime.pendingCompletionAction = undefined;
+    runtime.pendingCompletionReason = undefined;
+
+    return { message: { customType: "pi-mission-context", content: lean, display: false } };
   });
 
   // ── Tool call policy enforcement ────────────────────────────────────────────
 
   pi.on("before_agent_start", async () => {
+    // Safety: always clear stale completion flags, even if no active mission
+    runtime.pendingCompletionAction = undefined;
+    runtime.pendingCompletionReason = undefined;
+
     runtime.phaseToolCallCount = 0;
     if (runtime.activeMission) {
       runtime.currentPhase = getMissionPhase(runtime.activeMission);
@@ -260,25 +277,61 @@ export default function piMissions(pi: ExtensionAPI): void {
     const leafId = ctx.sessionManager.getLeafId();
     const active = getActiveFeature(mission);
     if (leafId && active) pi.setLabel(leafId, `🎯 ${active.title}`);
-    
+
+    // Feed last agent text output to completion detector for text-loop analysis
+    const detector = getCompletionDetector();
+    try {
+      const entries = ctx.sessionManager.getEntries() as Array<Record<string, unknown>>;
+      const lastAssistant = entries
+        .filter((e: any) => e?.role === "assistant")
+        .slice(-1);
+      const content = lastAssistant[0]?.content;
+      if (Array.isArray(content)) {
+        const text = content
+          .filter((c: any) => c?.type === "text" && typeof c.text === "string")
+          .map((c: any) => c.text)
+          .join("\n");
+        if (text) detector.recordTextOutput(text);
+      } else if (typeof content === "string") {
+        detector.recordTextOutput(content);
+      }
+    } catch { /* best-effort */ }
+
     // Check if agent is stuck
     if (active && active.status === "active") {
-      const detector = getCompletionDetector();
       const stuckDetection = detector.detectStuck();
-      if (stuckDetection.isStuck && stuckDetection.suggestedAction === "block_self") {
+      const textLoop = detector.detectTextLoop();
+
+      // Prioritize text loop — it's the most common silent failure mode
+      const effectiveStuck = textLoop.isStuck ? textLoop : stuckDetection;
+
+      if (effectiveStuck.isStuck && effectiveStuck.suggestedAction === "block_self") {
         sessionMetrics.recordStuckDetection();
         appendHistory(mission, { 
           event: "stuck_detected", 
           featureId: active.id, 
-          note: stuckDetection.reason, 
+          note: effectiveStuck.reason, 
           details: { 
-            suggestedAction: stuckDetection.suggestedAction 
+            suggestedAction: effectiveStuck.suggestedAction,
+            source: textLoop.isStuck ? "text_loop" : "tool_pattern"
           } 
         });
-        ctx.ui.notify(`⚠️ Stuck pattern detected: ${stuckDetection.reason}. Consider using mission_block_self if you cannot proceed.`, "warning");
+
+        // Force-block the feature — don't just notify
+        active.status = "blocked";
+        active.notes = `Auto-blocked: ${effectiveStuck.reason}`;
+        mission.status = "blocked";
+        mission.autopilot.enabled = false;
+        mission.autopilot.lastStopReason = "blocked";
+        mission.autopilot.lastStopMessage = effectiveStuck.reason;
+
+        ctx.ui.notify(`🚫 Auto-blocked: ${effectiveStuck.reason}. Feature ${active.id} blocked.`, "warning");
+        await saveMissionSafe(mission);
+      } else if (effectiveStuck.isStuck) {
+        ctx.ui.notify(`⚠️ Stuck pattern detected: ${effectiveStuck.reason}. Consider using mission_block_self if you cannot proceed.`, "warning");
       }
     }
-    
+
     await saveMissionSafe(mission);
     updateFooter(ctx, mission);
   });
@@ -349,14 +402,19 @@ export default function piMissions(pi: ExtensionAPI): void {
       await saveMissionSafe(mission);
       updateFooter(ctx, mission);
     } else if (detectionResult.suggestedAction === "suggest_done") {
-      // Suggest completion to user (legacy behavior)
+      // Flag for injection + show legacy notification
+      runtime.pendingCompletionAction = "suggest_done";
+      runtime.pendingCompletionReason = detectionResult.reason;
       if (completionSignal(text)) {
         ctx.ui.notify(`Feature '${feature.title}' looks complete. Use /mission done or mission_feature_done.`, "info");
       } else {
         ctx.ui.notify(`Feature '${feature.title}' may be complete (${detectionResult.confidence} confidence). ${detectionResult.reason}`, "info");
       }
     } else if (detectionResult.suggestedAction === "ask_user") {
-      ctx.ui.notify(`Feature '${feature.title}' completion unclear (${detectionResult.confidence} confidence). ${detectionResult.reason}`, "info");
+      // Flag the runtime so before_agent_start injects an explicit ask_user instruction
+      runtime.pendingCompletionAction = "ask_user";
+      runtime.pendingCompletionReason = detectionResult.reason;
+      ctx.ui.notify(`Feature '${feature.title}' completion unclear (${detectionResult.confidence} confidence). ${detectionResult.reason} — model will be prompted to use mission_ask_user.`, "info");
     }
     // If suggestedAction is "continue", do nothing
   });

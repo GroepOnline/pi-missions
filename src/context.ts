@@ -179,7 +179,12 @@ export function buildLeanContext(mission: MissionState): string {
   const tree = renderGoalTree(getMissionGoalTree(mission), 3);
   parts.push("", `🎯 Goal tree: ${tree.join(" | ")}`);
 
-  parts.push("", "Use /mission status for full overview.");
+  parts.push(
+    "",
+    "Use /mission status for full overview.",
+    "",
+    "**Tools**: mission_feature_done, mission_next_feature, mission_ask_user, mission_block_self, mission_fork, mission_error_status, mission_retry_error",
+  );
 
   return parts.join("\n");
 }
