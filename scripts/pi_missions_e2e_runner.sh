@@ -106,6 +106,16 @@ cleanup_artifacts() {
   tmux kill-session -t "$SESSION_NAME" 2>/dev/null || true
   echo "[CLEANUP] Removing test mission artifacts..."
   find "$HOME/.pi/missions" -maxdepth 3 \( -iname '*e2e*' -o -iname '*pi-missions-e2e*' \) -print -exec rm -rf {} + 2>/dev/null || true
+  # Re-install pi-missions if it was auto-removed to prevent dual loading
+  if [[ "$PI_REMOVED" == "yes" && -n "$PI_INSTALL_PATH" ]]; then
+    echo "[CLEANUP] Re-installing pi-missions to pi list..."
+    if pi install "$PI_INSTALL_PATH" -l 2>&1; then
+      log_step "Phase5-Cleanup" "Re-installed pi-missions to pi list" "PASS"
+    else
+      log_step "Phase5-Cleanup" "Re-installed pi-missions to pi list" "FAIL" "pi install failed"
+      echo "[WARN] pi install failed. Run 'pi install $PI_INSTALL_PATH -l' manually to restore."
+    fi
+  fi
   echo "[CLEANUP] Done."
 }
 
@@ -146,6 +156,24 @@ if [[ -f "$PROJECT_DIR/src/index.ts" ]]; then
 else
   log_step "Phase1-Setup" "Extension entrypoint exists" "FAIL" "src/index.ts missing"
   exit 1
+fi
+
+# Auto-uninstall from pi list to prevent dual-loading tool conflicts:
+# When pi-missions is in 'pi list', Pi auto-loads it from the project dir.
+# Combined with explicit 'pi -e ./src/index.ts', this causes duplicate tool
+# registration (all 7 tools conflict: mission_feature_done, etc.).
+# We remove it before the test and re-install afterward.
+PI_REMOVED=""
+PI_INSTALL_PATH=""
+if pi list 2>/dev/null | grep -qE "$(basename "$PROJECT_DIR")"; then
+  echo "[SETUP] Auto-removing local pi-missions from pi list to prevent dual loading..."
+  # Capture the path as shown in pi list for accurate re-install
+  PI_INSTALL_PATH=$(pi list 2>/dev/null | grep -E "projects/$(basename "$PROJECT_DIR")" | awk '{print $1}' | head -1)
+  if [[ -n "$PI_INSTALL_PATH" ]]; then
+    pi remove "$PI_INSTALL_PATH" 2>/dev/null || true
+    PI_REMOVED="yes"
+    log_step "Phase1-Setup" "Auto-removed pi-missions from pi list" "PASS"
+  fi
 fi
 
 # Start tmux session
