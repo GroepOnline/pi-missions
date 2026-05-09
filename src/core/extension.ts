@@ -25,13 +25,13 @@ export type { ToolCallEvent, ToolResultEvent };
 // Session entry types — avoids unsafe Record<string, unknown> casts
 // ═══════════════════════════════════════════════════════════════════════════
 
-interface SessionEntryData {
+export interface SessionEntryData {
   missionId?: unknown;
   validationToken?: unknown;
   [key: string]: unknown;
 }
 
-interface SessionEntry {
+export interface SessionEntry {
   type?: unknown;
   customType?: unknown;
   data?: SessionEntryData | null;
@@ -39,7 +39,7 @@ interface SessionEntry {
   content?: unknown;
 }
 
-interface ActiveMissionEntry {
+export interface ActiveMissionEntry {
   missionId: string;
   validationToken?: string;
 }
@@ -49,7 +49,7 @@ interface ActiveMissionEntry {
  * Handles both the native Pi API format (type: 'pi-mission-active') and the
  * test mock format (type: 'custom', customType: 'pi-mission-active').
  */
-function latestActiveEntry(entries: SessionEntry[]): ActiveMissionEntry | null {
+export function latestActiveEntry(entries: SessionEntry[]): ActiveMissionEntry | null {
   for (const e of [...entries].reverse()) {
     if (e.type === 'pi-mission-active' && e.data && typeof e.data === 'object') {
       if (typeof e.data.missionId === 'string') {
@@ -75,7 +75,7 @@ function latestActiveEntry(entries: SessionEntry[]): ActiveMissionEntry | null {
 // Typed hook emitter — lets us register untyped Pi events safely
 // ═══════════════════════════════════════════════════════════════════════════
 
-type PiEventHandler = (...args: unknown[]) => unknown;
+export type PiEventHandler = (...args: unknown[]) => unknown;
 
 /**
  * Registers a Pi extension event handler.
@@ -85,7 +85,7 @@ type PiEventHandler = (...args: unknown[]) => unknown;
  * valid at runtime but not present in the public types. Casting through unknown
  * preserves type safety for the handler while accepting any event name.
  */
-function hook(pi: ExtensionAPI, event: string, handler: PiEventHandler): void {
+export function hook(pi: ExtensionAPI, event: string, handler: PiEventHandler): void {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   (pi as unknown as { on(event: string, handler: PiEventHandler): void }).on(event, handler);
 }
