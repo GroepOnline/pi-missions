@@ -59,6 +59,16 @@ export const MISSION_TEMPLATES: MissionTemplate[] = [
     goal: "Implement or improve CI/CD pipeline.",
     constraints: "Ensure robust pipeline configuration. Verify with test runs.",
   },
+  {
+    id: "security-audit", label: "Security Audit", description: "Find and fix security vulnerabilities",
+    goal: "Identify security vulnerabilities in a module, API, or workflow and document findings.",
+    constraints: "Do not make permanent changes without explicit user approval. Document all findings with evidence. Prioritize critical/high severity issues.",
+  },
+  {
+    id: "performance-opt", label: "Performance Optimization", description: "Improve performance of existing code",
+    goal: "Identify and eliminate performance bottlenecks in a module or subsystem.",
+    constraints: "Measure before and after. Do not degrade correctness or readability. Target meaningful improvements (≥20% speedup or ≥50% memory reduction).",
+  },
 ];
 
 export function createMissionFromTemplate(templateId: string, title: string): MissionState | null {

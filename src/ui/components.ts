@@ -6,6 +6,14 @@ import {
   clip, featureStatusIcon, missionStatusIcon, pendingAcceptance, progressBar,
 } from "../utils/context.js";
 
+function phaseLine(phase: string): string {
+  switch (phase) {
+    case "planning": return "🔍 Phase: planning — explore, read, clarify. Avoid writes. Read-only bash.";
+    case "verification": return "✅ Phase: verification — run checks, capture evidence, report exact gaps.";
+    default: return "🔧 Phase: execution — smallest change that satisfies acceptance criteria.";
+  }
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 // Mission Control Summary
 // ═══════════════════════════════════════════════════════════════════════════
@@ -21,6 +29,10 @@ export interface MissionControlSummary {
 function milestoneProgressBar(milestone: Milestone): string {
   const done = milestone.features.filter(f => f.status === "done").length;
   return progressBar(done, milestone.features.length, 20);
+}
+
+function milestoneProgressBarSimple(done: number, total: number, width = 16): string {
+  return progressBar(done, total, width);
 }
 
 function deriveNextAction(feature: Feature): string {
@@ -91,6 +103,7 @@ export function dashboardRows(mission: MissionState): string[] {
     : s.nextFeature ? `Start ${s.nextFeature.id}: ${clip(s.nextFeature.title, 68)}` : "No runnable feature";
   const acDone = active ? acceptanceProgress(active).done : 0;
   const acTotal = active?.acceptance.length ?? 0;
+  const phase = getMissionPhase(mission);
 
   const rows: string[] = [
     "",
@@ -104,6 +117,7 @@ export function dashboardRows(mission: MissionState): string[] {
     `     Handoff: Carry over: ${s.handoff.startsWith("Carry over: ") ? s.handoff.slice(12) : s.handoff}`,
     `     Status: ${mission.status} | Tokens: ${mission.tokensUsed.toLocaleString()} | Autopilot: ${mission.autopilot.enabled ? "ON" : "OFF"} (${mission.autopilot.mode})`,
     "  " + "─".repeat(76),
+    `  ${phaseLine(phase)}`,
     "",
   ];
 
@@ -121,13 +135,14 @@ export function dashboardRows(mission: MissionState): string[] {
     rows.push("");
   }
 
-  for (const m of mission.milestones) {
+  // ── Milestone list: collapse done milestones (show last 2 done fully, rest as single line) ──
+  const doneMilestones = mission.milestones.filter(m => m.status === "complete" && m.features.every(f => f.status === "done"));
+  const undoneMilestones = mission.milestones.filter(m => m.status !== "complete" || !m.features.every(f => f.status === "done"));
+
+  // Show all non-done + active milestones fully
+  for (const m of undoneMilestones) {
     const mDone = m.features.filter(f => f.status === "done").length;
     const mTotal = m.features.length;
-    if (m.status === "complete" && mDone === mTotal) {
-      rows.push(`  ✅ ${m.id}: ${m.title} — all ${mTotal} features done`);
-      continue;
-    }
     const mi = m.status === "active" ? "➡️" : m.status === "complete" ? "✅" : "•";
     rows.push(`  ${mi} ${m.id}: ${m.title}`);
     rows.push(`     ${milestoneProgressBar(m)} ${mDone}/${mTotal}`);
@@ -156,6 +171,30 @@ export function dashboardRows(mission: MissionState): string[] {
       } else {
         rows.push(`       ${fi} ${f.id} [P${f.priority}] ${f.title}${badge}${deps}${blocked}${failed}`);
       }
+    }
+    rows.push("");
+  }
+
+  // Collapse done milestones: show count + last 2 with full summary
+  if (doneMilestones.length > 0) {
+    const showFull = doneMilestones.slice(-2); // last 2 done milestones shown fully
+    const collapsed = doneMilestones.slice(0, -2); // rest shown as single line
+    if (showFull.length > 1) {
+      // Multiple done milestones: show collapsed header, last 2 with progress bar
+      rows.push(`  ✅ ${doneMilestones.length} completed milestones (collapsed)`);
+      for (const m of showFull) {
+        const mDone = m.features.filter(f => f.status === "done").length;
+        const mTotal = m.features.length;
+        rows.push(`     ${milestoneProgressBarSimple(mDone, mTotal, 16)} ${m.id}: ${m.title} [${mDone}/${mTotal}]`);
+      }
+      if (collapsed.length > 0) {
+        rows.push(`     +${collapsed.length} earlier milestone(s): ${collapsed.map(m => m.id).join(", ")}`);
+      }
+    } else {
+      // Single done milestone: use original format "✅ M01: ... — all X features done"
+      const m = showFull[0]!;
+      const mTotal = m.features.length;
+      rows.push(`  ✅ ${m.id}: ${m.title} — all ${mTotal} features done`);
     }
     rows.push("");
   }
@@ -203,16 +242,4 @@ export function statusText(mission: MissionState): string {
     }
   }
   return lines.join("\n");
-}
-
-// ═══════════════════════════════════════════════════════════════════════════
-// Phase line helper
-// ═══════════════════════════════════════════════════════════════════════════
-
-export function phaseLine(phase: string): string {
-  switch (phase) {
-    case "planning": return "🔍 Phase: planning — explore, read, clarify. Avoid writes. Read-only bash.";
-    case "verification": return "✅ Phase: verification — run checks, capture evidence, report exact gaps.";
-    default: return "🔧 Phase: execution — smallest change that satisfies acceptance criteria.";
-  }
 }
