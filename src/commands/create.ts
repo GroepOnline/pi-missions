@@ -66,10 +66,11 @@ export async function handleNew(titleArg: string, ctx: ExtensionCommandContext, 
   let parsedMission = null as ReturnType<typeof createStructuredMission> | null;
   let usedWizard = false;
 
-  if ((pi as any).sendUserMessage) {
+  const piWithSend = pi as ExtensionAPI & { sendUserMessage?: (message: string, opts?: { timeoutMs: number }) => Promise<unknown> };
+  if (piWithSend.sendUserMessage) {
     try {
       ctx.ui.notify("🤖 Planning wizard generating milestones…", "info");
-      const response = await (pi as any).sendUserMessage(planningPrompt, { timeoutMs: 60_000 });
+      const response = await piWithSend.sendUserMessage(planningPrompt, { timeoutMs: 60_000 });
       const text = typeof response === "string" ? response : (response?.content ?? JSON.stringify(response));
       const jsonMatch = String(text).match(/\{[\s\S]*\}/);
       if (jsonMatch) {

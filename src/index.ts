@@ -58,7 +58,6 @@ export default function piMissions(pi: ExtensionAPI): void {
         logger.info("index", "Loading legacy mission format from session", { missionId });
       } else {
         logger.warn("index", "Unrecognized mission ID format", { missionId });
-        console.warn(`[pi-missions] Unrecognized mission ID format: ${missionId}`);
       }
     }
     
@@ -67,7 +66,6 @@ export default function piMissions(pi: ExtensionAPI): void {
     
     if (!mission) {
       logger.warn("index", "Mission not found on disk", { missionId });
-      console.warn(`[pi-missions] Mission not found on disk: ${missionId}`);
       ctx.ui?.notify(
         `⚠️ Mission '${missionId}' not found on disk. Use /mission new or /mission load.`,
         "warning"
@@ -78,7 +76,6 @@ export default function piMissions(pi: ExtensionAPI): void {
     // Validate event token if present
     if (validationToken && validationToken !== mission.validationToken) {
       logger.warn("index", "Invalid validation token for mission", { missionId });
-      console.warn(`[pi-missions] Invalid validation token for mission: ${missionId}`);
       ctx.ui?.notify(
         `⚠️ Invalid mission event token. Event may be corrupted or tampered with.`,
         "warning"

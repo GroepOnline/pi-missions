@@ -1,77 +1,14 @@
 import type { ExtensionAPI, ExtensionCommandContext } from "@mariozechner/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import { appendHistory, autoUnblockResolved, getActiveFeature, getFeatureById, getMilestoneById, getNextPendingFeature, loadMissionFromDisk, saveMissionSafe } from "./state.js";
-import type { Feature, RuntimeState } from "./types.js";
+import type { RuntimeState } from "./types.js";
 import { updateFooter } from "./ui.js";
 import { getCompletionDetector } from "./completion.js";
 import { getErrorRecoveryEngine } from "./recovery.js";
 import { activateNextFeature, completeActiveFeature } from "./transitions.js";
 import { cloneFeatureForFork } from "./commands/index.js";
-
-type ForkSessionManager = ExtensionCommandContext["sessionManager"] & {
-  getLeafId?: () => string | null;
-  getSessionFile?: () => string | undefined;
-};
-
-type ForkReplacementContext = ExtensionCommandContext & {
-  sendUserMessage?: (message: string) => Promise<unknown>;
-};
-
-function appendForkNote(existing: string | undefined, lines: string[]): string {
-  const block = lines.filter(Boolean).join("\n");
-  return [existing?.trim(), block].filter(Boolean).join("\n\n");
-}
-
-function pushSessionRef(feature: Feature, ref: string | undefined | null): void {
-  if (!ref || feature.sessions.includes(ref)) return;
-  feature.sessions.push(ref);
-}
-
-function buildForkKickoffMessage(
-  missionTitle: string,
-  sourceFeature: Feature,
-  forkedFeature: Feature,
-  reason: string,
-  subtask: string | undefined,
-  parentSessionFile: string | undefined,
-): string {
-  return [
-    `Continue mission "${missionTitle}" in this forked session.`,
-    `Forked from ${sourceFeature.id} - ${sourceFeature.title}.`,
-    `Active fork feature: ${forkedFeature.id} - ${forkedFeature.title}.`,
-    `Reason: ${reason}.`,
-    subtask ? `Subtask: ${subtask}.` : "",
-    forkedFeature.description,
-    "",
-    "Immediate handoff:",
-    `1. Focus only on ${forkedFeature.id}.`,
-    "2. Record concrete evidence and decisions back into the mission state.",
-    "3. Keep the original feature blocked until this fork resolves the issue.",
-    parentSessionFile ? `Parent session: ${parentSessionFile}` : "Parent session: unavailable",
-  ].filter(Boolean).join("\n");
-}
-
-function buildManualForkHandoff(
-  missionTitle: string,
-  sourceFeature: Feature,
-  forkedFeature: Feature,
-  reason: string,
-  subtask: string | undefined,
-  parentLeafId: string | null,
-  parentSessionFile: string | undefined,
-): string {
-  return [
-    `🔀 Fork feature created for mission ${missionTitle}.`,
-    `Source feature blocked: ${sourceFeature.id}`,
-    `Active fork feature: ${forkedFeature.id} - ${forkedFeature.title}`,
-    `Reason: ${reason}`,
-    subtask ? `Subtask: ${subtask}` : "",
-    parentLeafId ? `Current leaf: ${parentLeafId}` : "Current leaf: unavailable",
-    parentSessionFile ? `Current session: ${parentSessionFile}` : "Current session: unavailable",
-    "",
-    "Action: open or clone a new Pi session from this point and continue with the forked feature.",
-  ].filter(Boolean).join("\n");
-}
+import type { ForkSessionManager, ForkReplacementContext } from "./fork-utils.js";
+import { appendForkNote, pushSessionRef, buildForkKickoffMessage, buildManualForkHandoff } from "./fork-utils.js";
 
 export function registerMissionTools(pi: ExtensionAPI, runtime: RuntimeState): void {
   pi.registerTool({
@@ -394,7 +331,6 @@ export function registerMissionTools(pi: ExtensionAPI, runtime: RuntimeState): v
         feature,
         forked,
         forkReason,
-        params.subtask,
         parentLeafId,
         parentSessionFile,
       );

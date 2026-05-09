@@ -14,68 +14,8 @@ import { sessionMetrics } from "../metrics.js";
 import { listMissions, computeMissionMetrics, calculateMetricsSummary } from "../state.js";
 import { exportMarkdown } from "../export.js";
 import { createFeedback, formatError, getErrorSeverity } from "../feedback.js";
-
-type ForkSessionManager = ExtensionCommandContext["sessionManager"] & {
-  getLeafId?: () => string | null;
-  getSessionFile?: () => string | undefined;
-};
-
-type ForkReplacementContext = ExtensionCommandContext & {
-  sendUserMessage?: (message: string) => Promise<unknown>;
-};
-
-function appendForkNote(existing: string | undefined, lines: string[]): string {
-  const block = lines.filter(Boolean).join("\n");
-  return [existing?.trim(), block].filter(Boolean).join("\n\n");
-}
-
-function pushSessionRef(feature: Feature, ref: string | undefined | null): void {
-  if (!ref || feature.sessions.includes(ref)) return;
-  feature.sessions.push(ref);
-}
-
-function buildForkKickoffMessage(
-  missionTitle: string,
-  sourceFeature: Feature,
-  forkedFeature: Feature,
-  reason: string,
-  parentSessionFile: string | undefined,
-): string {
-  return [
-    `Continue mission "${missionTitle}" in this forked session.`,
-    `Forked from ${sourceFeature.id} - ${sourceFeature.title}.`,
-    `Active fork feature: ${forkedFeature.id} - ${forkedFeature.title}.`,
-    `Reason: ${reason}.`,
-    forkedFeature.description,
-    "",
-    "Immediate handoff:",
-    `1. Treat ${forkedFeature.id} as the active implementation path.`,
-    `2. Capture evidence and decisions back into the mission history.`,
-    `3. Keep the original feature blocked until this fork proves out or is merged back.`,
-    parentSessionFile ? `Parent session: ${parentSessionFile}` : "Parent session: unavailable",
-  ].join("\n");
-}
-
-function buildManualForkHandoff(
-  missionTitle: string,
-  sourceFeature: Feature,
-  forkedFeature: Feature,
-  reason: string,
-  parentLeafId: string | null,
-  parentSessionFile: string | undefined,
-): string {
-  return [
-    `🌿 Fork feature created: ${forkedFeature.title}`,
-    `Mission: ${missionTitle}`,
-    `Source feature blocked: ${sourceFeature.id}`,
-    `Active fork feature: ${forkedFeature.id}`,
-    `Reason: ${reason}`,
-    parentLeafId ? `Current leaf: ${parentLeafId}` : "Current leaf: unavailable",
-    parentSessionFile ? `Current session: ${parentSessionFile}` : "Current session: unavailable",
-    "",
-    "Next step: open or clone a new Pi session from this point and continue with the forked feature context above.",
-  ].join("\n");
-}
+import type { ForkSessionManager, ForkReplacementContext } from "../fork-utils.js";
+import { appendForkNote, pushSessionRef, buildForkKickoffMessage, buildManualForkHandoff } from "../fork-utils.js";
 
 // ── /mission edit ───────────────────────────────────────────────────────────
 
@@ -166,7 +106,7 @@ export async function handleFork(reason: string, ctx: ExtensionCommandContext, r
     },
   });
   await saveMissionSafe(mission);
-  const kickoffMessage = buildForkKickoffMessage(mission.title, feature, forked, forkReason, parentSessionFile);
+  const kickoffMessage = buildForkKickoffMessage(mission.title, feature, forked, forkReason, undefined, parentSessionFile);
   if (!parentLeafId) {
     ctx.ui.notify(buildManualForkHandoff(mission.title, feature, forked, forkReason, parentLeafId, parentSessionFile), "warning");
     return;
@@ -217,7 +157,7 @@ export async function handleDashboard(ctx: ExtensionCommandContext, runtime: Run
     return;
   }
   let selectedFeatureId: string | null = null;
-  const ui = ctx.ui as any;
+  const ui = ctx.ui;
   if (ui?.custom) {
     await ui.custom(
       missionControlOverlay(mission, (featureId) => { selectedFeatureId = featureId; }),

@@ -1,5 +1,5 @@
 import type { ExtensionAPI, ExtensionCommandContext } from "@mariozechner/pi-coding-agent";
-import type { MissionState, Feature, RuntimeState } from "./types.js";
+import type { MissionState, Feature, RuntimeState, StopReason } from "./types.js";
 import { getActiveFeature, getFeatureById, getNextPendingFeature, saveMissionSafe, appendHistory, autoBlockBlockedFeatures, autoUnblockResolved } from "./state.js";
 import { updateFooter } from "./ui.js";
 import { getCompletionDetector } from "./completion.js";
@@ -59,7 +59,7 @@ Stop conditions: mission complete, user stop, blocker, max iterations, etc.
 export async function triggerMissionContinuation(pi: ExtensionAPI, ctx: ExtensionCommandContext, mission: MissionState): Promise<void> {
   const decision = shouldContinueMission(mission, ctx);
   if (!decision.continue) {
-    mission.autopilot.lastStopReason = decision.reason as any;
+    mission.autopilot.lastStopReason = decision.reason as StopReason ?? undefined;
     await saveMissionSafe(mission);
     updateFooter(ctx, mission);
     return;
@@ -152,7 +152,7 @@ export async function processAgentEndForAutopilot(
     await triggerMissionContinuation(pi, ctx, mission);
   } else {
     mission.autopilot.enabled = false;
-    mission.autopilot.lastStopReason = decision.reason as any;
+    mission.autopilot.lastStopReason = decision.reason as StopReason ?? undefined;
     appendHistory(mission, { event: "autopilot_stopped", note: decision.reason });
     await saveMissionSafe(mission);
     updateFooter(ctx, mission);

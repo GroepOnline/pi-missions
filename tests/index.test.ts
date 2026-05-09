@@ -186,8 +186,8 @@ describe("piMissions extension registration", () => {
       expect(notifyCalls.length).toBeGreaterThanOrEqual(1);
       expect(notifyCalls[0]!.msg).toContain("not found on disk");
       expect(notifyCalls[0]!.level).toBe("warning");
-      // console.warn should have been called about unrecognized format
-      expect(consoleWarnCalls.some((args: string[]) => args.some((a) => typeof a === "string" && a.includes("Unrecognized")))).toBe(true);
+      // console.warn is no longer used — the code now uses structured logger.warn instead
+      expect(consoleWarnCalls.length).toBe(0);
       // Should NOT set session name (no mission loaded)
       expect(pi.getLabels().length).toBe(0);
     } finally {

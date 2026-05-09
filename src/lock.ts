@@ -2,21 +2,14 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import * as lockfile from "proper-lockfile";
 import { missionsRoot } from "./paths.js";
+import { missionDirSafe } from "./state.js";
 
 export interface LockOptions {
   stale?: number;
 }
 
-function missionDirSafeLocal(missionId: string): string {
-  const root = path.resolve(missionsRoot());
-  const safeId = missionId.replace(/[^a-zA-Z0-9._-]/g, "-");
-  const resolved = path.resolve(root, safeId);
-  if (!resolved.startsWith(root + path.sep)) throw new Error("Invalid mission id: path traversal detected");
-  return resolved;
-}
-
 export async function acquireMissionLock(missionId: string, options: LockOptions = {}): Promise<() => Promise<void>> {
-  const dir = missionDirSafeLocal(missionId);
+  const dir = missionDirSafe(missionId);
   fs.mkdirSync(dir, { recursive: true });
   return lockfile.lock(path.join(dir, ".lock"), {
     retries: { retries: 10, minTimeout: 100, maxTimeout: 500 },
@@ -40,7 +33,7 @@ export async function withLock<T>(lockPath: string, callback: () => Promise<T> |
 }
 
 export async function withMissionLock<T>(missionId: string, callback: () => Promise<T> | T, options?: LockOptions): Promise<T> {
-  return withLock(path.join(missionDirSafeLocal(missionId), ".lock"), callback, options);
+  return withLock(path.join(missionDirSafe(missionId), ".lock"), callback, options);
 }
 
 export async function cleanupStaleLocks(): Promise<void> {
