@@ -165,15 +165,26 @@ fi
 # We remove it before the test and re-install afterward.
 PI_REMOVED=""
 PI_INSTALL_PATH=""
-if pi list 2>/dev/null | grep -qE "$(basename "$PROJECT_DIR")"; then
-  echo "[SETUP] Auto-removing local pi-missions from pi list to prevent dual loading..."
-  # Capture the path as shown in pi list for accurate re-install
-  PI_INSTALL_PATH=$(pi list 2>/dev/null | grep -E "projects/$(basename "$PROJECT_DIR")" | awk '{print $1}' | head -1)
-  if [[ -n "$PI_INSTALL_PATH" ]]; then
-    pi remove "$PI_INSTALL_PATH" 2>/dev/null || true
+# Capture the exact path string shown in pi list for pi-missions, so we can
+# re-install it exactly as it was. pi list can show '..', '../../projects/pi-missions',
+# or an absolute path depending on the CWD context. We grep on basename to find
+# the entry regardless of how the path is formatted.
+PI_INSTALL_PATH=$(pi list 2>/dev/null | grep -E "$(basename "$PROJECT_DIR")" | awk '{print $1}' | head -1)
+if [[ -n "$PI_INSTALL_PATH" ]]; then
+  echo "[SETUP] Auto-removing pi-missions ($PI_INSTALL_PATH) from pi list to prevent dual loading..."
+  # Try multiple path formats since pi list display paths may differ from CWD
+  pi remove "$PI_INSTALL_PATH" 2>/dev/null || \
+  pi remove "$(basename "$PROJECT_DIR")" 2>/dev/null || true
+  # Verify removal actually worked
+  if pi list 2>/dev/null | grep -qE "$(basename "$PROJECT_DIR")"; then
+    echo "[SETUP] WARNING: pi-missions still in pi list after removal attempt"
+    PI_REMOVED=""
+  else
     PI_REMOVED="yes"
     log_step "Phase1-Setup" "Auto-removed pi-missions from pi list" "PASS"
   fi
+else
+  echo "[SETUP] pi-missions not in pi list — no auto-remove needed"
 fi
 
 # Start tmux session
