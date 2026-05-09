@@ -74,8 +74,12 @@ export async function handleFork(reason: string, ctx: ExtensionCommandContext, r
     ctx.ui.notify(`🌿 Fork feature created: ${forked.title} (no session leaf available to fork)`, "warning");
     return;
   }
+  if (!ctx.fork) {
+    ctx.ui.notify(`🌿 Fork feature created: ${forked.title} (fork API not available)`, "warning");
+    return;
+  }
   await ctx.fork(leafId, {
-    withSession: async (forkCtx) => forkCtx.ui.notify(`🌿 Fork active: ${forked.title}`, "info"),
+    withSession: async (forkCtx: any) => forkCtx.ui.notify(`🌿 Fork active: ${forked.title}`, "info"),
   });
 }
 
@@ -89,10 +93,13 @@ export async function handleDashboard(ctx: ExtensionCommandContext, runtime: Run
     return;
   }
   let selectedFeatureId: string | null = null;
-  await ctx.ui.custom(
-    missionControlOverlay(mission, (featureId) => { selectedFeatureId = featureId; }),
-    { overlay: true },
-  );
+  const ui = ctx.ui as any;
+  if (ui?.custom) {
+    await ui.custom(
+      missionControlOverlay(mission, (featureId) => { selectedFeatureId = featureId; }),
+      { overlay: true },
+    );
+  }
   if (selectedFeatureId) {
     const feature = getFeatureById(mission, selectedFeatureId);
     if (feature && mission.activeFeatureId !== selectedFeatureId) {

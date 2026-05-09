@@ -1,4 +1,4 @@
-import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import type { ExtensionAPI, ExtensionCommandContext } from "@mariozechner/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import { appendHistory, autoUnblockResolved, autoVerifyAcceptance, getActiveFeature, getAllFeatures, getNextPendingFeature, saveEvidence, saveMissionSafe } from "./state.js";
 import type { MissionState, RuntimeState } from "./types.js";
@@ -21,7 +21,7 @@ export function registerMissionTools(pi: ExtensionAPI, runtime: RuntimeState): v
       evidence: Type.String({ description: "Completion evidence, e.g. test output or summary of changes" }),
       notes: Type.Optional(Type.String({ description: "Optional notes" })),
     }),
-    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+    async execute(_toolCallId: string, params: any, _signal: any, _onUpdate: any, ctx: ExtensionCommandContext) {
       const mission = runtime.activeMission;
       const feature = mission ? getActiveFeature(mission) : null;
       if (!mission || !feature) return { isError: true, content: [{ type: "text" as const, text: "No active mission feature." }], details: {} };
@@ -55,7 +55,7 @@ export function registerMissionTools(pi: ExtensionAPI, runtime: RuntimeState): v
     label: "Mission Next Feature",
     description: "Advance to the next pending mission feature.",
     parameters: Type.Object({}),
-    async execute(_toolCallId, _params, _signal, _onUpdate, ctx) {
+    async execute(_toolCallId: string, _params: any, _signal: any, _onUpdate: any, ctx: ExtensionCommandContext) {
       const mission = runtime.activeMission;
       if (!mission) return { isError: true, content: [{ type: "text" as const, text: "No active mission." }], details: {} };
       const current = getActiveFeature(mission);
@@ -116,7 +116,7 @@ export function registerMissionTools(pi: ExtensionAPI, runtime: RuntimeState): v
         description: "Additional context to help the user understand why this question is being asked." 
       }))
     }),
-    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+    async execute(_toolCallId: string, params: any, _signal: any, _onUpdate: any, ctx: ExtensionCommandContext) {
       const mission = runtime.activeMission;
       if (!mission) throw new Error("No active mission. Cannot ask user.");
       mission.autopilot.enabled = false;
@@ -224,7 +224,7 @@ export function registerMissionTools(pi: ExtensionAPI, runtime: RuntimeState): v
       reason: Type.String({ description: "Reason for blocking the feature" }),
       context: Type.Optional(Type.String({ description: "Additional context about the block" })),
     }),
-    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+    async execute(_toolCallId: string, params: any, _signal: any, _onUpdate: any, ctx: ExtensionCommandContext) {
       const mission = runtime.activeMission;
       const feature = mission ? getActiveFeature(mission) : null;
       if (!mission || !feature) throw new Error("No active mission feature.");
@@ -277,7 +277,7 @@ export function registerMissionTools(pi: ExtensionAPI, runtime: RuntimeState): v
       reason: Type.String({ description: "Reason for forking" }),
       subtask: Type.Optional(Type.String({ description: "Specific subtask to focus on in the forked session" })),
     }),
-    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+    async execute(_toolCallId: string, params: any, _signal: any, _onUpdate: any, ctx: ExtensionCommandContext) {
       const mission = runtime.activeMission;
       const feature = mission ? getActiveFeature(mission) : null;
       if (!mission || !feature) throw new Error("No active mission feature.");
@@ -323,7 +323,7 @@ export function registerMissionTools(pi: ExtensionAPI, runtime: RuntimeState): v
         enum: ["feature", "mission"]
       })),
     }),
-    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+    async execute(_toolCallId: string, params: any, _signal: any, _onUpdate: any, ctx: ExtensionCommandContext) {
       const mission = runtime.activeMission;
       if (!mission) throw new Error("No active mission.");
       
@@ -393,7 +393,7 @@ export function registerMissionTools(pi: ExtensionAPI, runtime: RuntimeState): v
     parameters: Type.Object({
       errorId: Type.Optional(Type.String({ description: "Specific error ID to retry (from mission_error_status). If not provided, clears all errors for current feature." })),
     }),
-    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+    async execute(_toolCallId: string, params: any, _signal: any, _onUpdate: any, ctx: ExtensionCommandContext) {
       const mission = runtime.activeMission;
       const feature = mission ? getActiveFeature(mission) : null;
       if (!mission || !feature) throw new Error("No active mission feature.");

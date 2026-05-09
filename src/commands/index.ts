@@ -61,9 +61,9 @@ export function injectMissionContext(pi: ExtensionAPI, ctx: ExtensionCommandCont
 
 export function registerMissionCommand(pi: ExtensionAPI, runtime: RuntimeState): void {
   pi.registerCommand("mission", {
-    description: "Mission management: start|new|list|load|run|pause|resume|stop|status|autopilot|next|done|block|edit|fork|help|debug|dashboard|metrics",
+    description: "Mission management: start|new|list|load|run|pause|resume|stop|clear|status|autopilot|help|next|done|block|edit|fork|debug|dashboard|metrics",
     getArgumentCompletions: (prefix: string) =>
-      ["start", "new", "list", "load", "run", "pause", "resume", "stop", "status", "autopilot", "help", "next", "done", "block", "edit", "fork", "debug", "dashboard", "metrics", "export", "templates"]
+      ["start", "new", "list", "load", "run", "pause", "resume", "stop", "clear", "status", "autopilot", "help", "next", "done", "block", "edit", "fork", "debug", "dashboard", "metrics", "export", "templates"]
         .filter((s) => s.startsWith(prefix))
         .map((s) => ({ value: s, label: s })),
     handler: async (args: string, ctx: ExtensionCommandContext) => {

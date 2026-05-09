@@ -93,7 +93,7 @@ export async function processAgentEndForAutopilot(
     mission.autopilot.lastStopReason = "blocked";
     mission.autopilot.lastStopMessage = text.slice(0, 200);
     if (feature) feature.status = "blocked";
-    appendHistory(mission, { event: "autopilot_stopped", reason: "blocked" });
+    appendHistory(mission, { event: "autopilot_stopped", note: "blocked" });
     await saveMissionSafe(mission);
     updateFooter(ctx, mission);
     return;
@@ -116,7 +116,7 @@ export async function processAgentEndForAutopilot(
   } else {
     mission.autopilot.enabled = false;
     mission.autopilot.lastStopReason = decision.reason as any;
-    appendHistory(mission, { event: "autopilot_stopped", reason: decision.reason });
+    appendHistory(mission, { event: "autopilot_stopped", note: decision.reason });
     await saveMissionSafe(mission);
     updateFooter(ctx, mission);
   }

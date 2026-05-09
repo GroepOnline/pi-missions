@@ -9,11 +9,20 @@
  *   /mission dashboard   → full-screen overlay
  *   ctrl+shift+m         → full-screen overlay (same as /mission dashboard)
  */
-import type { Component, SelectItem, SelectListTheme, TUI } from "@mariozechner/pi-tui";
+import type { Component, SelectItem, TUI } from "@mariozechner/pi-tui";
 import { Box, SelectList, Spacer, Text } from "@mariozechner/pi-tui";
 import { getFeatureById, progress } from "./state.js";
 import type { Feature, MissionState } from "./types.js";
 import { sessionMetrics } from "./metrics.js";
+
+// ── Inline theme type (SelectListTheme may not be exported by pi-tui) ──────
+interface SelectListTheme {
+  selectedPrefix: (text: string) => string;
+  selectedText: (text: string) => string;
+  description: (text: string) => string;
+  scrollInfo: (text: string) => string;
+  noMatch: (text: string) => string;
+}
 
 // ────────────────────────────────────────────────────────────────────────────
 // Theme for the SelectList — minimal styling
@@ -258,57 +267,57 @@ class MissionControl implements Component {
     );
   }
 
-  handleInput(data: string): void {
+  handleInput(data: string): boolean {
     // Type-to-filter: intercept printable characters to filter the feature list
     if (data.length === 1 && data.charCodeAt(0) >= 32 && data.charCodeAt(0) <= 126) {
       this.filterChars += data;
-      this.list.setFilter(this.filterChars);
+      (this.list as any).setFilter(this.filterChars);
       this.updateDetailForCurrentSelection();
       this.updateFilterDisplay();
       this.updateFooter();
-      return;
+      return true;
     }
     // Backspace — remove last char from filter
     if (data === "\b" || data === "\x7f") {
       this.filterChars = this.filterChars.slice(0, -1);
-      this.list.setFilter(this.filterChars);
+      (this.list as any).setFilter(this.filterChars);
       this.updateDetailForCurrentSelection();
       this.updateFilterDisplay();
       this.updateFooter();
-      return;
+      return true;
     }
     // Ctrl+W — delete word backward from filter
     if (data === "\x17") {
       this.filterChars = this.deleteWordBackward(this.filterChars);
-      this.list.setFilter(this.filterChars);
+      (this.list as any).setFilter(this.filterChars);
       this.updateDetailForCurrentSelection();
       this.updateFilterDisplay();
       this.updateFooter();
-      return;
+      return true;
     }
     // Ctrl+U — clear filter in one keystroke (always stays open)
     if (data === "\x15") {
       this.filterChars = "";
-      this.list.setFilter("");
+      (this.list as any).setFilter("");
       this.updateDetailForCurrentSelection();
       this.updateFilterDisplay();
       this.updateFooter();
-      return;
+      return true;
     }
     // Escape: if filter is active, clear it and stay open.
     // If filter is already empty, forward to SelectList (closes overlay).
     if (data === "\x1b") {
       if (this.filterChars.length > 0) {
         this.filterChars = "";
-        this.list.setFilter("");
+        (this.list as any).setFilter("");
         this.updateDetailForCurrentSelection();
         this.updateFilterDisplay();
         this.updateFooter();
-        return;
+        return true;
       }
     }
     // Forward all keyboard input to SelectList for navigation/confirmation
-    this.list.handleInput(data);
+    return (this.list as any).handleInput(data);
   }
 
   /** Remove the last word (and any trailing spaces) from a string. */
@@ -325,7 +334,7 @@ class MissionControl implements Component {
 
   /** Sync the detail pane with the currently selected item after filtering. */
   private updateDetailForCurrentSelection(): void {
-    const item = this.list.getSelectedItem();
+    const item = (this.list as any).getSelectedItem();
     if (item) {
       this.updateDetail(item);
       this.invalidate();
@@ -348,6 +357,6 @@ class MissionControl implements Component {
 export function missionControlOverlay(
   mission: MissionState,
   onAction?: (featureId: string) => void,
-): (tui: TUI) => Component & { dispose(): void } {
+): (tui: TUI) => any {
   return (tui: TUI) => new MissionControl(mission, tui, onAction);
 }

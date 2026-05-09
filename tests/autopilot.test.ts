@@ -85,7 +85,7 @@ describe("autopilot engine", () => {
     const prompt = buildAutopilotContinuationPrompt(m);
     expect(prompt).toContain("Enterprise mission");
     expect(prompt).toContain("F001");
-    expect(prompt).toContain("Stop after this turn");
+    expect(prompt).toContain("After this turn");
   });
 
   it("sends follow-up when allowed", async () => {
@@ -108,7 +108,7 @@ describe("autopilot engine", () => {
   it("agent_end triggers follow-up when autopilot remains active", async () => {
     const m = createMission("A", "B");
     m.autopilot.enabled = true;
-    const runtime = { activeMission: m, autoSaveInterval: null };
+    const runtime = { activeMission: m, autoSaveInterval: null, phaseToolCallCount: 0, currentPhase: "execution" as const, lastFeatureId: undefined };
     const pi = { sendUserMessage: vi.fn().mockResolvedValue(undefined) } as any;
     const event = { messages: [{ content: [{ type: "text", text: "Updated files and made progress." }] }] };
     await processAgentEndForAutopilot(pi, ctx(), event, runtime);
@@ -118,7 +118,7 @@ describe("autopilot engine", () => {
   it("agent_end stops on blocker", async () => {
     const m = createMission("A", "B");
     m.autopilot.enabled = true;
-    const runtime = { activeMission: m, autoSaveInterval: null };
+    const runtime = { activeMission: m, autoSaveInterval: null, phaseToolCallCount: 0, currentPhase: "execution" as const, lastFeatureId: undefined };
     const pi = { sendUserMessage: vi.fn().mockResolvedValue(undefined) } as any;
     const event = { messages: [{ content: [{ type: "text", text: "blocked: need API key" }] }] };
     await processAgentEndForAutopilot(pi, ctx(), event, runtime);
