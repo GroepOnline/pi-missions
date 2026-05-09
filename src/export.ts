@@ -13,6 +13,11 @@ export function exportMarkdown(mission: MissionState): string {
   const goalTree = getMissionGoalTree(mission);
   const goalProgress = goalTreeProgress(goalTree);
   const summary = buildMissionControlSummary(mission);
+  const evidenceDir = path.join(missionDirSafe(mission.id), "evidence");
+  const evidenceItems = allFeatures.flatMap((feature) => {
+    const evidenceFile = path.join(evidenceDir, `${feature.id}.md`);
+    return fs.existsSync(evidenceFile) ? [{ feature, evidenceFile }] : [];
+  });
   let history: MissionHistoryEntry[] = [];
   try {
     history = readHistory(mission.id).slice(-50);
@@ -41,6 +46,29 @@ export function exportMarkdown(mission: MissionState): string {
     `- **Waiting features**: ${summary.waiting.length}`,
     `- **Next runnable**: ${summary.nextFeature ? `\`${summary.nextFeature.id}\` ${summary.nextFeature.title}` : "None"}`,
     `- **Handoff**: ${summary.handoff}`,
+    "",
+    "### Next Action",
+    "",
+    summary.active
+      ? `Continue \`${summary.active.id}\` — ${summary.active.title}.`
+      : summary.nextFeature
+        ? `Start \`${summary.nextFeature.id}\` — ${summary.nextFeature.title}.`
+        : "No runnable feature is queued.",
+    "",
+    "### Blockers",
+    "",
+    summary.blocked.length || summary.waiting.length
+      ? [
+          ...summary.blocked.map((feature) => `- ⛔ \`${feature.id}\` ${feature.title}: ${feature.notes ?? "No blocker note"}`),
+          ...summary.waiting.map((feature) => `- ⏳ \`${feature.id}\` ${feature.title}: waiting on ${feature.dependsOn.join(", ") || "external dependency"}`),
+        ].join("\n")
+      : "- None",
+    "",
+    "### Evidence Index",
+    "",
+    evidenceItems.length
+      ? evidenceItems.map(({ feature }) => `- \`${feature.id}\` ${feature.title}`).join("\n")
+      : "- No evidence files saved yet",
     "",
     "---",
     "",
@@ -76,7 +104,6 @@ export function exportMarkdown(mission: MissionState): string {
         if (f.dependsOn.length) lines.push(`**Dependencies:** ${f.dependsOn.join(", ")}`, "");
         if (f.notes) lines.push(`**Notes:** ${f.notes}`, "");
         if (f.completedAt) lines.push(`**Completed:** ${new Date(f.completedAt).toISOString()}`, "");
-        const evidenceDir = path.join(missionDirSafe(mission.id), "evidence");
         const evidenceFile = path.join(evidenceDir, `${f.id}.md`);
         if (fs.existsSync(evidenceFile)) {
           const content = fs.readFileSync(evidenceFile, "utf-8").slice(0, 2000);

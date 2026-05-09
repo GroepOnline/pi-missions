@@ -492,6 +492,45 @@ describe("missionControlOverlay", () => {
     expect(captured).toBe("F002");
   });
 
+  it("filters features with slash search, clears with escape, then closes", () => {
+    const mission = createMission("Search", "Test dashboard search");
+    let hidden = false;
+    let captured = "";
+    const mockTui: any = {
+      hideOverlay: () => { hidden = true; },
+      requestRender: () => {},
+    };
+
+    const component: any = missionControlOverlay(mission, (id) => { captured = id; })(mockTui);
+    component.handleInput("/");
+    component.handleInput("F");
+    component.handleInput("0");
+    component.handleInput("0");
+    component.handleInput("2");
+
+    const filtered = component.render(80);
+    expect(filtered.some((line: string) => line.includes("Filter: F002"))).toBe(true);
+    expect(filtered.some((line: string) => line.includes("→") && line.includes("F002"))).toBe(true);
+    expect(filtered.some((line: string) => line.includes(" F001 ["))).toBe(false);
+
+    component.handleInput("\r");
+    expect(captured).toBe("F002");
+    expect(hidden).toBe(true);
+
+    hidden = false;
+    const component2: any = missionControlOverlay(mission)(mockTui);
+    component2.handleInput("/");
+    component2.handleInput("z");
+    component2.handleInput("z");
+    component2.handleInput("z");
+    expect(component2.render(80).some((line: string) => line.includes("No matching features"))).toBe(true);
+    component2.handleInput("\x1b");
+    expect(hidden).toBe(false);
+    expect(component2.render(80).some((line: string) => line.includes("Filter: x"))).toBe(false);
+    component2.handleInput("\x1b");
+    expect(hidden).toBe(true);
+  });
+
   it("Escape closes the overlay", () => {
     const mission = createMission("Esc", "Test escape");
     let hidden = false;

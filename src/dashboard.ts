@@ -198,6 +198,8 @@ class MissionControl implements Component {
   private onAction?: (featureId: string) => void;
   private selectedIdx = 0;
   private flatItems: { value: string; label: string; description: string }[] = [];
+  private filter = "";
+  private searchMode = false;
   private width = 80;
 
   constructor(mission: MissionState, tui: TUI, onAction?: (featureId: string) => void) {
@@ -207,9 +209,22 @@ class MissionControl implements Component {
     this.flatItems = buildFeatureItems(mission);
   }
 
+  private visibleItems(): { value: string; label: string; description: string }[] {
+    if (!this.filter) return this.flatItems;
+    const q = this.filter.toLowerCase();
+    return this.flatItems.filter((item) => item.value !== "__session_metrics__" && `${item.value} ${item.label} ${item.description}`.toLowerCase().includes(q));
+  }
+
+  private clampSelection(): void {
+    const visible = this.visibleItems();
+    this.selectedIdx = Math.max(0, Math.min(this.selectedIdx, Math.max(visible.length - 1, 0)));
+  }
+
   private renderDashboardLines(): string[] {
     const p = progress(this.mission);
     const summary = buildMissionControlSummary(this.mission);
+    const visible = this.visibleItems();
+    const selectedValue = visible[this.selectedIdx]?.value;
     const statusIco =
       this.mission.status === "complete" ? "✅"
       : this.mission.status === "paused" ? "⏸"
@@ -223,23 +238,32 @@ class MissionControl implements Component {
       `  Blocked/Waiting: ${summary.blocked.length}/${summary.waiting.length}  |  Handoff: ${clip(summary.handoff, 76)}`,
     ];
     if (summary.active) lines.push(`  Next: ${featureNextAction(summary.active)}`);
+    if (this.filter) lines.push(`  Filter: ${this.filter}  (${visible.length}/${Math.max(this.flatItems.length - 1, 0)} features)`);
+    else lines.push(`  Filter: / to search`);
 
-    lines.push("", `${this.selectedIdx === 0 ? "→" : " "} 📊 Session Metrics`);
-    for (const line of sessionMetricsLines(this.width).slice(2, -1)) lines.push(`  ${line.trimStart()}`);
+    if (!this.filter) {
+      lines.push("", `${selectedValue === "__session_metrics__" ? "→" : " "} 📊 Session Metrics`);
+      for (const line of sessionMetricsLines(this.width).slice(2, -1)) lines.push(`  ${line.trimStart()}`);
+    }
 
     lines.push("", `  Milestones  ${progressBar(p.done, p.total, 12)} ${p.done}/${p.total} (${p.pct}%)`, "");
 
-    let itemIdx = 1;
+    if (this.filter && visible.length === 0) {
+      lines.push(`  No matching features for "${this.filter}"`, "");
+    }
+
     for (const milestone of this.mission.milestones) {
       const mDone = milestone.features.filter((f) => f.status === "done").length;
       const mTotal = milestone.features.length;
       const msIcon = milestone.status === "complete" ? "✅" : milestone.status === "active" ? "➡️" : "•";
-      lines.push(`  ${msIcon} ${milestone.id}: ${milestone.title}  ${progressBar(mDone, mTotal, 12)} ${mDone}/${mTotal}`);
-
       const order: Record<string, number> = { active: 0, pending: 1, waiting: 2, blocked: 3, failed: 4, done: 5 };
       const sorted = [...milestone.features].sort((a, b) => (order[a.status] ?? 5) - (order[b.status] ?? 5) || a.priority - b.priority);
-      for (const feature of sorted) {
-        const selected = itemIdx === this.selectedIdx;
+      const shownFeatures = this.filter ? sorted.filter((feature) => visible.some((item) => item.value === feature.id)) : sorted;
+      if (!shownFeatures.length) continue;
+
+      lines.push(`  ${msIcon} ${milestone.id}: ${milestone.title}  ${progressBar(mDone, mTotal, 12)} ${mDone}/${mTotal}`);
+      for (const feature of shownFeatures) {
+        const selected = feature.id === selectedValue;
         const prefix = selected ? "→" : " ";
         const verified = feature.acceptance.filter((ac) => ac.verified || ac.waived).length;
         const acBadge = feature.acceptance.length ? ` [${verified}/${feature.acceptance.length} AC]` : "";
@@ -249,6 +273,7 @@ class MissionControl implements Component {
         if (selected || feature.id === this.mission.activeFeatureId) {
           lines.push(`      ${feature.id}: ${feature.title}`);
           if (feature.description) lines.push(`      ${clip(feature.description, 88)}`);
+          lines.push(`      AC: ${verified}/${feature.acceptance.length}${feature.dependsOn.length ? `  |  deps: ${feature.dependsOn.join(", ")}` : ""}${feature.sessions.length ? `  |  sessions: ${feature.sessions.length}` : ""}`);
           lines.push(`      Next: ${featureNextAction(feature)}`);
           for (const ac of pendingAcceptance(feature).slice(0, 4)) lines.push(`      ☐ ${clip(ac, 82)}`);
           if (feature.startedAt) {
@@ -258,12 +283,11 @@ class MissionControl implements Component {
           if (feature.toolCallCount > 50) lines.push(`      ${feature.toolCallCount} tool calls`);
           if (feature.notes) lines.push(`      Note: ${clip(feature.notes, 82)}`);
         }
-        itemIdx++;
       }
       lines.push("");
     }
 
-    lines.push("  Keys: ↑↓/j/k navigate  |  Enter select  |  Esc close");
+    lines.push("  Keys: ↑↓/j/k navigate  |  Enter select  |  / search  |  Backspace/Ctrl+U clear  |  Esc close");
     return lines;
   }
 
@@ -279,8 +303,40 @@ class MissionControl implements Component {
   }
 
   handleInput(data: string): boolean {
+    if (data === "/") {
+      this.searchMode = true;
+      this.filter = "";
+      this.selectedIdx = 0;
+      this.tui.requestRender();
+      return true;
+    }
+    if (this.searchMode && data.length === 1 && data.charCodeAt(0) >= 32 && data.charCodeAt(0) <= 126) {
+      this.filter += data;
+      this.selectedIdx = 0;
+      this.clampSelection();
+      this.tui.requestRender();
+      return true;
+    }
+    if (data === "\b" || data === "\x7f") {
+      if (this.filter) {
+        this.filter = this.filter.slice(0, -1);
+        this.selectedIdx = 0;
+        this.clampSelection();
+        this.tui.requestRender();
+        return true;
+      }
+      return true;
+    }
+    if (data === "\x15") {
+      this.filter = "";
+      this.searchMode = false;
+      this.selectedIdx = 0;
+      this.tui.requestRender();
+      return true;
+    }
     if (data === "\x1b[B" || data === "j") {
-      this.selectedIdx = Math.min(this.selectedIdx + 1, this.flatItems.length - 1);
+      this.clampSelection();
+      this.selectedIdx = Math.min(this.selectedIdx + 1, Math.max(this.visibleItems().length - 1, 0));
       this.invalidate();
       this.tui.requestRender();
       return true;
@@ -292,7 +348,7 @@ class MissionControl implements Component {
       return true;
     }
     if (data === "\r" || data === "\n") {
-      const item = this.flatItems[this.selectedIdx];
+      const item = this.visibleItems()[this.selectedIdx];
       if (item && item.value !== "__session_metrics__") {
         this.onAction?.(item.value);
         this.tui.hideOverlay();
@@ -301,6 +357,13 @@ class MissionControl implements Component {
       return true;
     }
     if (data === "\x1b") {
+      if (this.filter || this.searchMode) {
+        this.filter = "";
+        this.searchMode = false;
+        this.selectedIdx = 0;
+        this.tui.requestRender();
+        return true;
+      }
       this.tui.hideOverlay();
       return true;
     }
