@@ -5,11 +5,11 @@ import {
   autoBlockBlockedFeatures,
   autoUnblockResolved,
   detectStaleFeature,
-  exportMarkdown,
   buildWorkerPrompt,
   getAllFeatures,
   getActiveFeature,
 } from "../src/state.js";
+import { exportMarkdown } from "../src/export.js";
 import type { Feature, MissionState } from "../src/types.js";
 import * as crypto from "node:crypto";
 

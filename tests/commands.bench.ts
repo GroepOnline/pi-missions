@@ -3,8 +3,9 @@ import {
   cloneFeatureForFork,
   missionSummaryForTree,
   saveSessionLink,
-} from "../src/commands.js";
-import { createMission, exportMarkdown } from "../src/state.js";
+} from "../src/commands/index.js";
+import { exportMarkdown } from "../src/export.js";
+import { createMission } from "../src/state.js";
 import type { RuntimeState } from "../src/types.js";
 
 function createLargeMission(): import("../src/types.js").MissionState {
@@ -39,17 +40,17 @@ describe("command helpers", () => {
   });
 
   bench("missionSummaryForTree (active mission + feature)", () => {
-    const rt: RuntimeState = { activeMission: m, autoSaveInterval: null };
+    const rt: RuntimeState = { activeMission: m, autoSaveInterval: null, phaseToolCallCount: 0, currentPhase: "execution", lastFeatureId: undefined };
     missionSummaryForTree(rt);
   });
 
   bench("missionSummaryForTree (no mission)", () => {
-    const rt: RuntimeState = { activeMission: null, autoSaveInterval: null };
+    const rt: RuntimeState = { activeMission: null, autoSaveInterval: null, phaseToolCallCount: 0, currentPhase: "execution", lastFeatureId: undefined };
     missionSummaryForTree(rt);
   });
 
   bench("saveSessionLink (no mission)", () => {
-    const rt: RuntimeState = { activeMission: null, autoSaveInterval: null };
+    const rt: RuntimeState = { activeMission: null, autoSaveInterval: null, phaseToolCallCount: 0, currentPhase: "execution", lastFeatureId: undefined };
     saveSessionLink(rt, "/tmp/session.jsonl");
   });
 

@@ -1,10 +1,10 @@
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
-import { completionSignal, buildMissionContext } from "./context.js";
-import { processAgentEndForAutopilot } from "./autopilot.js";
-import { compactionCheckpoint, handleDashboard, missionSummaryForTree, registerMissionCommand, saveSessionLink } from "./commands.js";
+import { completionSignal, buildLeanContext } from "./context.js";
+import { compactionCheckpoint, handleDashboard, missionSummaryForTree, registerMissionCommand, saveSessionLink } from "./commands/index.js";
 import { appendHistory, autoBlockBlockedFeatures, getActiveFeature, getMissionPhase, isValidMissionId, loadMissionFromDisk, saveEvidence, saveMissionSafe, getNextPendingFeature, getAllFeatures } from "./state.js";
 import type { RuntimeState, ToolPhase } from "./types.js";
 import { TOOL_POLICIES } from "./types.js";
+import { isReadOnlyPlanningBash } from "./planning-bash.js";
 import { registerMissionTools } from "./tools.js";
 import { updateFooter } from "./ui.js";
 import { getCompletionDetector, resetCompletionDetector } from "./completion.js";
@@ -13,8 +13,14 @@ import { cleanupStaleLocks } from "./lock.js";
 import { logger } from "./logger.js";
 import { sessionMetrics, SessionMetricsCollector } from "./metrics.js";
 
+import { toolResultErrorMessage, type ToolCallEvent, type ToolResultEvent } from "./planning-bash.js";
+import { processAgentEndForAutopilot } from "./autopilot.js";
+
+// Re-export types needed for downstream consumers
+export type { ToolCallEvent, ToolResultEvent };
+
 export default function piMissions(pi: ExtensionAPI): void {
-  const runtime: RuntimeState = { activeMission: null, autoSaveInterval: null };
+  const runtime: RuntimeState = { activeMission: null, autoSaveInterval: null, phaseToolCallCount: 0, currentPhase: "execution", lastFeatureId: undefined };
 
   registerMissionCommand(pi, runtime);
   registerMissionTools(pi, runtime);
@@ -100,21 +106,20 @@ export default function piMissions(pi: ExtensionAPI): void {
     const mission = runtime.activeMission;
     if (!mission || mission.status !== "active") return;
     updateFooter(ctx, mission);
-    return { message: { customType: "pi-mission-context", content: buildMissionContext(mission), display: false } };
+    return { message: { customType: "pi-mission-context", content: buildLeanContext(mission), display: false } };
   });
 
   // ── Tool call policy enforcement ────────────────────────────────────────────
-  let phaseToolCallCount = 0;
-  let currentPhase: ToolPhase = "execution";
 
   pi.on("before_agent_start", async () => {
-    phaseToolCallCount = 0;
+    runtime.phaseToolCallCount = 0;
     if (runtime.activeMission) {
-      currentPhase = getMissionPhase(runtime.activeMission);
+      runtime.currentPhase = getMissionPhase(runtime.activeMission);
       
       // Reset completion detector when starting a new feature
       const feature = getActiveFeature(runtime.activeMission);
       if (feature && feature.status === "active") {
+        runtime.lastFeatureId = feature.id;
         const detector = getCompletionDetector();
         detector.clearToolCallHistory();
         
@@ -125,82 +130,84 @@ export default function piMissions(pi: ExtensionAPI): void {
     }
   });
 
-  pi.on("tool_call", async (event: { toolName: string; success?: boolean; error?: any }) => {
+  pi.on("tool_call", async (event: ToolCallEvent) => {
     if (!runtime.activeMission) return;
-    
-    // Record tool call for completion detection
-    const detector = getCompletionDetector();
-    const success = event.success !== false;
-    detector.recordToolCall(event.toolName, success);
-    
-    // Record metrics
-    sessionMetrics.recordToolCall(event.toolName, success);
-    
-    // Handle error recovery if tool call failed
-    if (!success && event.error) {
-      const feature = getActiveFeature(runtime.activeMission);
-      const recovery = getErrorRecoveryEngine();
-      
-      const errorContext = {
-        toolName: event.toolName,
-        featureId: feature?.id,
-        missionId: runtime.activeMission.id,
-        timestamp: Date.now(),
-        errorType: event.error.name || "Error",
-        errorMessage: event.error.message || String(event.error),
-        stackTrace: event.error.stack,
-      };
-      
-      const { action, shouldRetry, retryAfter, record } = recovery.handleError(errorContext);
-      
-      // Record error in metrics
-      sessionMetrics.recordError(record.category);
-      
-      // Log error to mission history
-      logger.error("index", "Tool call failed, error recovery triggered", event.error, {
-        toolName: event.toolName,
-        featureId: feature?.id,
-        missionId: runtime.activeMission.id,
-        recoveryAction: action,
-        errorCategory: record.category,
-        errorSeverity: record.severity,
-      });
-      
-      appendHistory(runtime.activeMission, {
-        event: "error_detected",
-        featureId: feature?.id,
-        note: `${event.toolName} failed: ${errorContext.errorMessage}`,
-        details: {
-          category: record.category,
-          severity: record.severity,
-          action,
-          shouldRetry,
-          retryAfter,
-          retryCount: record.retryCount,
-        },
-      });
-      
-      // Apply recovery action
-      if (action === "block") {
-        return { block: true, reason: `Tool '${event.toolName}' failed with ${record.category} error: ${errorContext.errorMessage}` };
-      } else if (action === "ask_user") {
-        // Don't block, but notify user
-        // Note: We can't directly notify here, but the error will be visible in the agent output
-      } else if (action === "retry" && shouldRetry && retryAfter) {
-        // Don't block, let the agent retry naturally
-        // The retry delay is informational
-      }
-    }
-    
+
+    // Recompute on every call so later preflights see state changes that have
+    // already landed, for example after mission_next_feature ran in a previous
+    // turn or command. Pi preflights sibling tool calls before executing them,
+    // so same-message feature switches intentionally take effect next turn.
+    runtime.currentPhase = getMissionPhase(runtime.activeMission);
     // Enforce tool policy
-    const policy = TOOL_POLICIES[currentPhase];
-    if (!policy.allowedTools.includes(event.toolName)) {
-      return { block: true, reason: `Tool '${event.toolName}' not allowed in ${currentPhase} phase. Allowed: ${policy.allowedTools.join(", ")}` };
+    const policy = TOOL_POLICIES[runtime.currentPhase];
+    const allowedByPolicy = policy.allowedTools.includes(event.toolName);
+    const userAllowsPlanningBash = runtime.activeMission.userPreferences?.allowBashInPlanning === true;
+    const allowedPlanningBash = runtime.currentPhase === "planning" && event.toolName === "bash" && (userAllowsPlanningBash || isReadOnlyPlanningBash(event.input));
+    if (!allowedByPolicy && !allowedPlanningBash) {
+      if (runtime.currentPhase === "planning" && event.toolName === "bash") {
+        return { block: true, reason: "Tool 'bash' is only allowed in planning phase for single read-only commands: pwd, ls, find, grep, rg, cat, sed -n, head, tail, wc, git status/diff/show/log." };
+      }
+      return { block: true, reason: `Tool '${event.toolName}' not allowed in ${runtime.currentPhase} phase. Allowed: ${policy.allowedTools.join(", ")}` };
     }
-    phaseToolCallCount++;
-    if (phaseToolCallCount > policy.maxToolCalls) {
-      return { block: true, reason: `Max tool calls (${policy.maxToolCalls}) exceeded for ${currentPhase} phase.` };
+    runtime.phaseToolCallCount++;
+    if (runtime.phaseToolCallCount > policy.maxToolCalls) {
+      return { block: true, reason: `Max tool calls (${policy.maxToolCalls}) exceeded for ${runtime.currentPhase} phase.` };
     }
+  });
+
+  pi.on("tool_result", async (event: ToolResultEvent) => {
+    if (!runtime.activeMission) return;
+
+    const feature = getActiveFeature(runtime.activeMission);
+    const detector = getCompletionDetector();
+    if (feature?.id && feature.id !== runtime.lastFeatureId) {
+      detector.clearToolCallHistory();
+      getErrorRecoveryEngine().clearErrorsForFeature(feature.id);
+      runtime.lastFeatureId = feature.id;
+    }
+
+    const success = !event.isError;
+    detector.recordToolCall(event.toolName, success);
+    sessionMetrics.recordToolCall(event.toolName, success);
+
+    if (!event.isError) return;
+
+    const recovery = getErrorRecoveryEngine();
+    const errorMessage = toolResultErrorMessage(event);
+    const errorContext = {
+      toolName: event.toolName,
+      featureId: feature?.id,
+      missionId: runtime.activeMission.id,
+      timestamp: Date.now(),
+      errorType: "ToolResultError",
+      errorMessage,
+    };
+
+    const { action, shouldRetry, retryAfter, record } = recovery.handleError(errorContext);
+    sessionMetrics.recordError(record.category);
+
+    logger.error("index", "Tool result failed, error recovery triggered", new Error(errorMessage), {
+      toolName: event.toolName,
+      featureId: feature?.id,
+      missionId: runtime.activeMission.id,
+      recoveryAction: action,
+      errorCategory: record.category,
+      errorSeverity: record.severity,
+    });
+
+    appendHistory(runtime.activeMission, {
+      event: "error_detected",
+      featureId: feature?.id,
+      note: `${event.toolName} failed: ${errorMessage}`,
+      details: {
+        category: record.category,
+        severity: record.severity,
+        action,
+        shouldRetry,
+        retryAfter,
+        retryCount: record.retryCount,
+      },
+    });
   });
 
   // ── Keyboard shortcuts ──────────────────────────────────────────────────────

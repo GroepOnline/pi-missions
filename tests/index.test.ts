@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import piMissions from "../src/index.js";
-import { createMission, saveMissionSafe, getActiveFeature, loadMissionFromDisk } from "../src/state.js";
+import { createMission, saveMissionSafe, getActiveFeature, loadMissionFromDisk, readHistory } from "../src/state.js";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -61,6 +61,8 @@ describe("piMissions extension registration", () => {
     expect(pi.getCommands()).toHaveLength(1);
     expect(pi.getCommands()[0]!.name).toBe("mission");
     expect(pi.getCommands()[0]!.description).toContain("Mission management");
+    expect(pi.getCommands()[0]!.description).toContain("start");
+    expect(pi.getCommands()[0]!.getArgumentCompletions("sta")).toContainEqual({ value: "start", label: "start" });
 
     expect(pi.getTools()).toHaveLength(7);
     expect(pi.getTools()[0]!.name).toBe("mission_feature_done");
@@ -88,6 +90,7 @@ describe("piMissions extension registration", () => {
       "session_before_tree",
       "before_agent_start",
       "tool_call",
+      "tool_result",
       "turn_end",
       "agent_end",
       "session_before_compact",
@@ -98,6 +101,38 @@ describe("piMissions extension registration", () => {
       expect(pi.getHooks()[hook]).toBeDefined();
       expect(pi.getHooks()[hook]!.length).toBeGreaterThanOrEqual(1);
     }
+  });
+
+  it("dispatches /mission start through the mission creation path", async () => {
+    const pi = mkPi();
+    const notifications: any[] = [];
+    const customMessages: any[] = [];
+    const ctx = {
+      sessionManager: {
+        getEntries: () => [],
+        getLeafId: () => null,
+        appendCustomMessageEntry: (customType: string, content: string, display: boolean, details: Record<string, unknown>) => {
+          customMessages.push({ customType, content, display, details });
+          return `custom-message-${customMessages.length}`;
+        },
+      },
+      ui: {
+        setStatus: () => {},
+        notify: (msg: string, level: string) => { notifications.push({ msg, level }); },
+      },
+      getContextUsage: () => null,
+      fork: async () => {},
+    };
+
+    piMissions(pi);
+    await pi.getCommands()[0]!.handler("start Alias Mission", ctx);
+
+    expect(notifications[0]!.msg).toContain("Mission created");
+    expect(pi.getEntries().some((entry: any) => entry.type === "pi-mission-active")).toBe(true);
+    expect(pi.getEntries().some((entry: any) => entry.type === "pi-mission-context")).toBe(true);
+    expect(customMessages[0]!.customType).toBe("pi-mission-context");
+    expect(customMessages[0]!.content).toContain("## Pi Missions Extension — Active");
+    expect(customMessages[0]!.details.reason).toBe("mission_started");
   });
 
   it("session_start hook auto-loads mission from entries", async () => {
@@ -121,6 +156,147 @@ describe("piMissions extension registration", () => {
     expect(sessionStartHandler).toBeDefined();
     // Invoke the handler to cover the callback body
     await sessionStartHandler({}, ctx);
+  });
+
+  it("session_start hook warns and returns on invalid mission ID format", async () => {
+    const pi = mkPi();
+    const notifyCalls: any[] = [];
+    const consoleWarnCalls: any[] = [];
+    const originalConsoleWarn = console.warn;
+
+    try {
+      console.warn = (...args: any[]) => { consoleWarnCalls.push(args); };
+
+      const entries = [
+        { type: "custom", customType: "pi-mission-active", data: { missionId: "not-a-valid-id", validationToken: "abc" } },
+      ];
+
+      const ctx = {
+        sessionManager: { getEntries: () => entries, getLeafId: () => null },
+        ui: { setStatus: () => {}, notify: (msg: string, level: string) => { notifyCalls.push({ msg, level }); } },
+        getContextUsage: () => null,
+        fork: async () => {},
+      };
+
+      piMissions(pi);
+      const sessionStartHandler = pi.getHooks()["session_start"]![0];
+      await sessionStartHandler({}, ctx);
+
+      // Should warn about invalid ID format
+      expect(notifyCalls.length).toBeGreaterThanOrEqual(1);
+      expect(notifyCalls[0]!.msg).toContain("Invalid mission ID format");
+      expect(notifyCalls[0]!.level).toBe("warning");
+      // Should NOT set session name (no mission loaded)
+      expect(pi.getLabels().length).toBe(0);
+    } finally {
+      console.warn = originalConsoleWarn;
+    }
+  });
+
+  it("session_start hook warns and returns when mission not found on disk", async () => {
+    const pi = mkPi();
+    const notifyCalls: any[] = [];
+
+    const entries = [
+      { type: "custom", customType: "pi-mission-active", data: { missionId: "pim:20250101000000000:nonexistent-mission-xyz", validationToken: "abc" } },
+    ];
+
+    const ctx = {
+      sessionManager: { getEntries: () => entries, getLeafId: () => null },
+      ui: { setStatus: () => {}, notify: (msg: string, level: string) => { notifyCalls.push({ msg, level }); } },
+      getContextUsage: () => null,
+      fork: async () => {},
+    };
+
+    piMissions(pi);
+    const sessionStartHandler = pi.getHooks()["session_start"]![0];
+    await sessionStartHandler({}, ctx);
+
+    // Should warn about mission not found
+    expect(notifyCalls.length).toBeGreaterThanOrEqual(1);
+    expect(notifyCalls[0]!.msg).toContain("not found on disk");
+    expect(notifyCalls[0]!.level).toBe("warning");
+    // Should NOT set session name
+    expect(pi.getLabels().length).toBe(0);
+  });
+
+  it("session_start hook warns and returns on validation token mismatch", async () => {
+    const m = createMission("TokenMismatch", "Token mismatch guardrail test");
+    await saveMissionSafe(m);
+
+    const pi = mkPi();
+    const notifyCalls: any[] = [];
+
+    // Use a different validation token than what's stored on disk
+    const entries = [
+      { type: "custom", customType: "pi-mission-active", data: { missionId: m.id, validationToken: "wrong-token-0000000000000000000000000000000000000000000000000000000000000000" } },
+    ];
+
+    const ctx = {
+      sessionManager: { getEntries: () => entries, getLeafId: () => null },
+      ui: { setStatus: () => {}, notify: (msg: string, level: string) => { notifyCalls.push({ msg, level }); } },
+      getContextUsage: () => null,
+      fork: async () => {},
+    };
+
+    piMissions(pi);
+    const sessionStartHandler = pi.getHooks()["session_start"]![0];
+    await sessionStartHandler({}, ctx);
+
+    // Should warn about invalid validation token
+    expect(notifyCalls.length).toBeGreaterThanOrEqual(1);
+    expect(notifyCalls[0]!.msg).toContain("Invalid mission event token");
+    expect(notifyCalls[0]!.level).toBe("warning");
+    // Should NOT set session name (token mismatch prevented activation)
+    expect(pi.getLabels().length).toBe(0);
+  });
+
+  it("session_start hook activates mission when token matches", async () => {
+    const m = createMission("ValidToken", "Valid token activation test");
+    await saveMissionSafe(m);
+
+    const pi = mkPi();
+    let sessionNameSet: string | null = null;
+    const overrides = {
+      setSessionName: (name: string) => { sessionNameSet = name; },
+    };
+    // Create pi with setSessionName override
+    const pip = mkPi(overrides);
+
+    const entries = [
+      { type: "custom", customType: "pi-mission-active", data: { missionId: m.id, validationToken: m.validationToken } },
+    ];
+
+    const ctx = {
+      sessionManager: { getEntries: () => entries, getLeafId: () => null },
+      ui: { setStatus: () => {}, notify: () => {} },
+      getContextUsage: () => null,
+      fork: async () => {},
+    };
+
+    piMissions(pip);
+    const sessionStartHandler = pip.getHooks()["session_start"]![0];
+    await sessionStartHandler({}, ctx);
+
+    // When token matches and mission is valid, setSessionName is called
+    expect(sessionNameSet).toBe(`🎯 ${m.title}`);
+  });
+
+  it("session_start hook handles empty entries gracefully", async () => {
+    const pi = mkPi();
+
+    const ctx = {
+      sessionManager: { getEntries: () => [], getLeafId: () => null },
+      ui: { setStatus: () => {}, notify: () => {} },
+      getContextUsage: () => null,
+      fork: async () => {},
+    };
+
+    piMissions(pi);
+    const sessionStartHandler = pi.getHooks()["session_start"]![0];
+    // Should not throw
+    await sessionStartHandler({}, ctx);
+    expect(pi.getLabels().length).toBe(0);
   });
 
   it("tool_call hook blocks disallowed tools in research phase", async () => {
@@ -157,6 +333,135 @@ describe("piMissions extension registration", () => {
     expect(result).toBeDefined();
     expect(result!.block).toBe(true);
     expect(result!.reason).toContain("not allowed");
+  });
+
+  it("tool_call hook allows read-only bash exploration in planning phase", async () => {
+    const pi = mkPi();
+    const m = createMission("ToolPolicy", "Tool policy test");
+    await saveMissionSafe(m);
+
+    piMissions(pi);
+
+    const sessionStartHandler = pi.getHooks()["session_start"]![0];
+    const entries = [
+      { type: "custom", customType: "pi-mission-active", data: { missionId: m.id, validationToken: m.validationToken } },
+    ];
+    const ctx = {
+      sessionManager: { getEntries: () => entries, getLeafId: () => null },
+      ui: { setStatus: () => {}, notify: () => {} },
+      getContextUsage: () => null,
+      fork: async () => {},
+    };
+    await sessionStartHandler({}, ctx);
+
+    for (const handler of pi.getHooks()["before_agent_start"] || []) {
+      await handler({}, ctx);
+    }
+
+    const toolCallHandler = pi.getHooks()["tool_call"]![0];
+    await expect(toolCallHandler({ toolName: "bash", input: { command: "ls -la src/" } })).resolves.toBeUndefined();
+    await expect(toolCallHandler({ toolName: "bash", input: { command: "rg -n \"getMissionPhase\" src" } })).resolves.toBeUndefined();
+    await expect(toolCallHandler({ toolName: "bash", input: { command: "sed -n 1,20p src/index.ts" } })).resolves.toBeUndefined();
+    await expect(toolCallHandler({ toolName: "bash", input: { command: "git status --short" } })).resolves.toBeUndefined();
+  });
+
+  it("tool_call hook blocks mutating bash in planning phase", async () => {
+    const pi = mkPi();
+    const m = createMission("ToolPolicy", "Tool policy test");
+    await saveMissionSafe(m);
+
+    piMissions(pi);
+
+    const sessionStartHandler = pi.getHooks()["session_start"]![0];
+    const entries = [
+      { type: "custom", customType: "pi-mission-active", data: { missionId: m.id, validationToken: m.validationToken } },
+    ];
+    const ctx = {
+      sessionManager: { getEntries: () => entries, getLeafId: () => null },
+      ui: { setStatus: () => {}, notify: () => {} },
+      getContextUsage: () => null,
+      fork: async () => {},
+    };
+    await sessionStartHandler({}, ctx);
+
+    for (const handler of pi.getHooks()["before_agent_start"] || []) {
+      await handler({}, ctx);
+    }
+
+    const toolCallHandler = pi.getHooks()["tool_call"]![0];
+    const result = await toolCallHandler({ toolName: "bash", input: { command: "touch nope" } });
+    expect(result).toBeDefined();
+    expect(result.block).toBe(true);
+    expect(result.reason).toContain("only allowed in planning phase");
+
+    for (const command of ["find . -delete", "find . -exec rm {} +", "sed -n -i 1p src/index.ts", "ls -la > out.txt", "ls\nrm -rf /", "echo ok\rwhoami"]) {
+      const blocked = await toolCallHandler({ toolName: "bash", input: { command } });
+      expect(blocked).toBeDefined();
+      expect(blocked.block).toBe(true);
+      expect(blocked.reason).toContain("only allowed in planning phase");
+    }
+  });
+
+  it("tool_result hook records real tool failures after execution", async () => {
+    const pi = mkPi();
+    const m = createMission("ToolResult", "Tool result test");
+    await saveMissionSafe(m);
+
+    piMissions(pi);
+
+    const entries = [
+      { type: "custom", customType: "pi-mission-active", data: { missionId: m.id, validationToken: m.validationToken } },
+    ];
+    const ctx = {
+      sessionManager: { getEntries: () => entries, getLeafId: () => null },
+      ui: { setStatus: () => {}, notify: () => {} },
+      getContextUsage: () => null,
+      fork: async () => {},
+    };
+    await pi.getHooks()["session_start"]![0]({}, ctx);
+
+    const toolResultHandler = pi.getHooks()["tool_result"]![0];
+    await toolResultHandler({
+      toolName: "bash",
+      toolCallId: "call-1",
+      input: { command: "npm test" },
+      content: [{ type: "text", text: "permission denied" }],
+      isError: true,
+    });
+
+    const history = readHistory(m.id);
+    expect(history.some((entry) => entry.event === "error_detected" && entry.note?.includes("permission denied"))).toBe(true);
+  });
+
+  it("tool_call hook recalculates phase after an already-applied mission_next_feature transition", async () => {
+    const pi = mkPi();
+    const m = createMission("ToolPolicy", "Tool policy test");
+    getActiveFeature(m)!.status = "done";
+    await saveMissionSafe(m);
+
+    piMissions(pi);
+
+    const sessionStartHandler = pi.getHooks()["session_start"]![0];
+    const entries = [
+      { type: "custom", customType: "pi-mission-active", data: { missionId: m.id, validationToken: m.validationToken } },
+    ];
+    const ctx = {
+      sessionManager: { getEntries: () => entries, getLeafId: () => null },
+      ui: { setStatus: () => {}, notify: () => {} },
+      getContextUsage: () => null,
+      fork: async () => {},
+    };
+    await sessionStartHandler({}, ctx);
+
+    for (const handler of pi.getHooks()["before_agent_start"] || []) {
+      await handler({}, ctx);
+    }
+
+    const nextTool = pi.getTools().find((tool: any) => tool.name === "mission_next_feature");
+    await nextTool.execute("call-next", {}, null, () => {}, ctx);
+
+    const toolCallHandler = pi.getHooks()["tool_call"]![0];
+    await expect(toolCallHandler({ toolName: "bash", input: { command: "npm test" } })).resolves.toBeUndefined();
   });
 
   it("tool_call hook blocks when max tool calls exceeded", async () => {
@@ -322,7 +627,7 @@ describe("piMissions extension registration", () => {
     expect(pi.getEntries()[0]!.type).toBe("pi-mission-compaction-checkpoint");
   });
 
-  it("before_agent_start hook builds mission context", async () => {
+  it("before_agent_start hook builds lean mission context", async () => {
     const m = createMission("Context", "Context test");
     await saveMissionSafe(m);
 
@@ -349,9 +654,16 @@ describe("piMissions extension registration", () => {
     // Invoke both handlers to cover the callback bodies
     for (const handler of pi.getHooks()["before_agent_start"] || []) {
       const result = await handler({}, ctx);
-      // First handler returns message context
+      // First handler returns lean context message
       if (result && result.message) {
         expect(result.message.customType).toBe("pi-mission-context");
+        // Lean context has banner but NOT full help
+        expect(result.message.content).toContain("## Pi Missions Extension — Active");
+        expect(result.message.content).toContain("**Acceptance:**");
+        expect(result.message.content).toContain("Use /mission status for full overview");
+        // Should NOT contain the full commands/tools reference
+        expect(result.message.content).not.toContain("### Mission Commands");
+        expect(result.message.content).not.toContain("### Mission Tools");
       }
     }
   });

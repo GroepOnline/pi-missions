@@ -1,25 +1,41 @@
-import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { TUI } from "@mariozechner/pi-tui";
-import { cloneFeatureForFork, compactionCheckpoint, handleBlock, handleClear, handleDashboard, handleDebug, handleDone, handleEdit, handleExport, handleFork, handleList, handleLoad, handleNew, handleNext, handlePause, handleResume, handleStatus, handleTemplates, missionSummaryForTree, saveSessionLink } from "../src/commands.js";
+import { cloneFeatureForFork, compactionCheckpoint, handleBlock, handleClear, handleDashboard, handleDebug, handleDone, handleEdit, handleExport, handleFork, handleList, handleLoad, handleNew, handleNext, handlePause, handleResume, handleStatus, handleTemplates, injectMissionContext, missionSummaryForTree, saveSessionLink } from "../src/commands/index.js";
 import { missionControlOverlay } from "../src/dashboard.js";
-import { appendHistory, autoBlockBlockedFeatures, createMission, exportMarkdown, loadMissionFromDisk, saveEvidence, saveMissionSafe } from "../src/state.js";
+import { appendHistory, autoBlockBlockedFeatures, createMission, loadMissionFromDisk, saveEvidence, saveMissionSafe } from "../src/state.js";
+import { exportMarkdown } from "../src/export.js";
 import type { MissionState, RuntimeState } from "../src/types.js";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 
 const tmpRoot = path.join(os.tmpdir(), `pi-missions-cmd-test-${process.pid}`);
+const originalHome = process.env.HOME;
+
+beforeEach(() => {
+  process.env.HOME = tmpRoot;
+  if (fs.existsSync(tmpRoot)) fs.rmSync(tmpRoot, { recursive: true, force: true });
+  fs.mkdirSync(tmpRoot, { recursive: true });
+});
+
+afterAll(() => {
+  process.env.HOME = originalHome;
+  if (fs.existsSync(tmpRoot)) fs.rmSync(tmpRoot, { recursive: true, force: true });
+});
 
 function runtimeFixture(missionOverride: Partial<ReturnType<typeof createMission>> = {}): RuntimeState {
   return {
     activeMission: { ...createMission("Tree mission", "Goal"), ...missionOverride },
     autoSaveInterval: null,
+    phaseToolCallCount: 0,
+    currentPhase: "execution",
+    lastFeatureId: undefined,
   };
 }
 
 describe("missionSummaryForTree", () => {
   it("returns null when no mission is active", () => {
-    expect(missionSummaryForTree({ activeMission: null, autoSaveInterval: null })).toBeNull();
+    expect(missionSummaryForTree({ activeMission: null, autoSaveInterval: null, phaseToolCallCount: 0, currentPhase: "execution", lastFeatureId: undefined })).toBeNull();
   });
 
   it("returns mission title when no feature is active", () => {
@@ -38,7 +54,7 @@ describe("saveSessionLink", () => {
   it("does nothing when no mission is active", () => {
     // Should not throw.
     expect(() =>
-      saveSessionLink({ activeMission: null, autoSaveInterval: null }, "/some/session.jsonl")
+      saveSessionLink({ activeMission: null, autoSaveInterval: null, phaseToolCallCount: 0, currentPhase: "execution", lastFeatureId: undefined }, "/some/session.jsonl")
     ).not.toThrow();
   });
 
@@ -52,7 +68,7 @@ describe("compactionCheckpoint", () => {
   it("does nothing when no mission is active", () => {
     const mockPi = { appendEntry: () => { throw new Error("should not be called"); } };
     expect(() =>
-      compactionCheckpoint(mockPi as any, { activeMission: null, autoSaveInterval: null })
+      compactionCheckpoint(mockPi as any, { activeMission: null, autoSaveInterval: null, phaseToolCallCount: 0, currentPhase: "execution", lastFeatureId: undefined })
     ).not.toThrow();
   });
 
@@ -64,6 +80,27 @@ describe("compactionCheckpoint", () => {
     expect(calls).toHaveLength(1);
     expect(calls[0]![0]).toBe("pi-mission-compaction-checkpoint");
     expect(calls[0]![1].missionId).toBe(rt.activeMission!.id);
+  });
+});
+
+describe("injectMissionContext", () => {
+  it("appends full mission context to Pi session state and LLM context", () => {
+    const pi = mkPi();
+    const ctx = mkCtx();
+    const mission = createMission("Context Mission", "Keep Pi informed");
+    injectMissionContext(pi, ctx, mission, "test");
+    expect(pi.getEntries()).toHaveLength(1);
+    expect(pi.getEntries()[0]!.type).toBe("pi-mission-context");
+    expect(pi.getEntries()[0]!.data.missionId).toBe(mission.id);
+    expect(pi.getEntries()[0]!.data.reason).toBe("test");
+    expect(pi.getEntries()[0]!.data.content).toContain("## Pi Missions Extension — Active");
+    expect(pi.getEntries()[0]!.data.content).toContain("### How To Work This Mission");
+
+    expect(ctx.getCustomMessages()).toHaveLength(1);
+    expect(ctx.getCustomMessages()[0]!.customType).toBe("pi-mission-context");
+    expect(ctx.getCustomMessages()[0]!.content).toContain("## Pi Missions Extension — Active");
+    expect(ctx.getCustomMessages()[0]!.display).toBe(false);
+    expect(ctx.getCustomMessages()[0]!.details.reason).toBe("test");
   });
 });
 
@@ -191,7 +228,7 @@ describe("handleStatus", () => {
 
   it("notifies 'no active mission' when none is set", async () => {
     const ctx = mockCtx();
-    const rt: RuntimeState = { activeMission: null, autoSaveInterval: null };
+    const rt: RuntimeState =      { activeMission: null, autoSaveInterval: null, phaseToolCallCount: 0, currentPhase: "execution", lastFeatureId: undefined };
     await handleStatus(ctx as any, rt);
     expect(ctx.getCalls()).toHaveLength(1);
     expect(ctx.getCalls()[0]!.msg).toContain("No active mission");
@@ -227,6 +264,7 @@ describe("handleStatus", () => {
 function mkCtx(overrides: Record<string, any> = {}): any {
   const calls: any[] = [];
   const widgets: Record<string, string[]> = {};
+  const customMessages: any[] = [];
   let lastCustom: { factory: any; options: any } | null = null;
   return {
     ui: {
@@ -239,12 +277,20 @@ function mkCtx(overrides: Record<string, any> = {}): any {
       editor: async () => null,
       confirm: async () => true,
     },
-    sessionManager: { getLeafId: () => null, getEntries: () => [] },
+    sessionManager: {
+      getLeafId: () => null,
+      getEntries: () => [],
+      appendCustomMessageEntry: (customType: string, content: string, display: boolean, details: Record<string, unknown>) => {
+        customMessages.push({ customType, content, display, details });
+        return `custom-message-${customMessages.length}`;
+      },
+    },
     hasUI: false,
     fork: async () => {},
     getCalls: () => calls,
     getWidgets: () => widgets,
     getLastCustom: () => lastCustom,
+    getCustomMessages: () => customMessages,
     ...overrides,
   };
 }
@@ -280,7 +326,7 @@ describe("handleBlock", () => {
 
   it("notifies when no active mission", async () => {
     const ctx = mkCtx();
-    const rt: RuntimeState = { activeMission: null, autoSaveInterval: null };
+    const rt: RuntimeState =      { activeMission: null, autoSaveInterval: null, phaseToolCallCount: 0, currentPhase: "execution", lastFeatureId: undefined };
     await handleBlock("reason", ctx, rt);
     expect(ctx.getCalls()[0]!.msg).toContain("No active feature");
   });
@@ -296,7 +342,7 @@ describe("handlePause", () => {
 
   it("notifies when no active mission", async () => {
     const ctx = mkCtx();
-    const rt: RuntimeState = { activeMission: null, autoSaveInterval: null };
+    const rt: RuntimeState =      { activeMission: null, autoSaveInterval: null, phaseToolCallCount: 0, currentPhase: "execution", lastFeatureId: undefined };
     await handlePause(ctx, rt);
     expect(ctx.getCalls()[0]!.msg).toContain("No active mission");
   });
@@ -313,7 +359,7 @@ describe("handleResume", () => {
 
   it("notifies when no active mission", async () => {
     const ctx = mkCtx();
-    const rt: RuntimeState = { activeMission: null, autoSaveInterval: null };
+    const rt: RuntimeState =      { activeMission: null, autoSaveInterval: null, phaseToolCallCount: 0, currentPhase: "execution", lastFeatureId: undefined };
     await handleResume(ctx, rt);
     expect(ctx.getCalls()[0]!.msg).toContain("No active mission");
   });
@@ -372,7 +418,7 @@ describe("handleNext", () => {
 
   it("warns when mission is absent", async () => {
     const ctx = mkCtx();
-    const rt: RuntimeState = { activeMission: null, autoSaveInterval: null };
+    const rt: RuntimeState =      { activeMission: null, autoSaveInterval: null, phaseToolCallCount: 0, currentPhase: "execution", lastFeatureId: undefined };
     await handleNext(ctx, rt);
     expect(ctx.getCalls()[0]!.msg).toContain("No active mission");
   });
@@ -393,7 +439,7 @@ describe("handleDone", () => {
 
   it("warns when no active feature", async () => {
     const ctx = mkCtx();
-    const rt: RuntimeState = { activeMission: null, autoSaveInterval: null };
+    const rt: RuntimeState =      { activeMission: null, autoSaveInterval: null, phaseToolCallCount: 0, currentPhase: "execution", lastFeatureId: undefined };
     await handleDone("", ctx, rt);
     expect(ctx.getCalls()[0]!.msg).toContain("No active feature");
   });
@@ -435,7 +481,7 @@ describe("handleExport", () => {
 
   it("warns when no active mission", async () => {
     const ctx = mkCtx();
-    const rt: RuntimeState = { activeMission: null, autoSaveInterval: null };
+    const rt: RuntimeState =      { activeMission: null, autoSaveInterval: null, phaseToolCallCount: 0, currentPhase: "execution", lastFeatureId: undefined };
     await handleExport(undefined, ctx, rt);
     expect(ctx.getCalls()[0]!.msg).toContain("No active mission");
   });
@@ -467,14 +513,14 @@ describe("handleDebug", () => {
     const ctx = mkCtx();
     const rt = runtimeFixture();
     await saveMissionSafe(rt.activeMission!);
-    await handleDebug(rt.activeMission!.id, ctx, { activeMission: null, autoSaveInterval: null });
+    await handleDebug(rt.activeMission!.id, ctx, { activeMission: null, autoSaveInterval: null, phaseToolCallCount: 0, currentPhase: "execution", lastFeatureId: undefined });
     const w = ctx.getWidgets()["pi-mission-debug"];
     expect(w).toBeDefined();
   });
 
   it("warns when no mission to debug", async () => {
     const ctx = mkCtx();
-    await handleDebug(undefined, ctx, { activeMission: null, autoSaveInterval: null });
+    await handleDebug(undefined, ctx, { activeMission: null, autoSaveInterval: null, phaseToolCallCount: 0, currentPhase: "execution", lastFeatureId: undefined });
     expect(ctx.getCalls()[0]!.msg).toContain("No mission to debug");
   });
 });
@@ -595,7 +641,7 @@ describe("handleDashboard", () => {
 
   it("warns when no mission", async () => {
     const ctx = mkCtx();
-    await handleDashboard(ctx, { activeMission: null, autoSaveInterval: null });
+    await handleDashboard(ctx, { activeMission: null, autoSaveInterval: null, phaseToolCallCount: 0, currentPhase: "execution", lastFeatureId: undefined });
     expect(ctx.getCalls()[0]!.msg).toContain("No active mission");
   });
 });
@@ -647,7 +693,7 @@ describe("handleList", () => {
         confirm: async () => true,
       },
     });
-    const rt: RuntimeState = { activeMission: null, autoSaveInterval: null };
+    const rt: RuntimeState =      { activeMission: null, autoSaveInterval: null, phaseToolCallCount: 0, currentPhase: "execution", lastFeatureId: undefined };
     const pi = mkPi();
     await handleList(ctx, pi, rt);
     expect(rt.activeMission).not.toBeNull();
@@ -689,12 +735,13 @@ describe("handleLoad", () => {
     const m = createMission("Loadable", "Test load");
     await saveMissionSafe(m);
     const ctx = mkCtx();
-    const rt: RuntimeState = { activeMission: null, autoSaveInterval: null };
+    const rt: RuntimeState =      { activeMission: null, autoSaveInterval: null, phaseToolCallCount: 0, currentPhase: "execution", lastFeatureId: undefined };
     const pi = mkPi();
     await handleLoad(m.id, ctx, pi, rt);
     expect(rt.activeMission).not.toBeNull();
     expect(rt.activeMission!.id).toBe(m.id);
     expect(ctx.getCalls()[0]!.msg).toContain("Loaded mission");
+    expect(pi.getEntries().some((entry: any) => entry.type === "pi-mission-context")).toBe(true);
   });
 });
 
@@ -794,17 +841,21 @@ describe("handleTemplates", () => {
 
   it("scaffolds a template mission", async () => {
     const ctx = mkCtx();
-    const rt: RuntimeState = { activeMission: null, autoSaveInterval: null };
+    const rt: RuntimeState =      { activeMission: null, autoSaveInterval: null, phaseToolCallCount: 0, currentPhase: "execution", lastFeatureId: undefined };
     const pi = mkPi();
     await handleTemplates("scaffold", "refactor", "Refactor Service", ctx, pi, rt);
     expect(ctx.getCalls()[0]!.msg).toContain("created from 'refactor'");
     expect(rt.activeMission).not.toBeNull();
     expect(rt.activeMission!.title).toContain("Refactor Service");
+    const contextEntry = pi.getEntries().find((entry: any) => entry.type === "pi-mission-context");
+    expect(contextEntry).toBeDefined();
+    expect(contextEntry!.data.reason).toBe("mission_started_from_template");
+    expect(ctx.getCustomMessages()[0]!.details.reason).toBe("mission_started_from_template");
   });
 
   it("scaffold with unknown template shows error", async () => {
     const ctx = mkCtx();
-    const rt: RuntimeState = { activeMission: null, autoSaveInterval: null };
+    const rt: RuntimeState =      { activeMission: null, autoSaveInterval: null, phaseToolCallCount: 0, currentPhase: "execution", lastFeatureId: undefined };
     const pi = mkPi();
     await handleTemplates("scaffold", "nonexistent", "", ctx, pi, rt);
     expect(ctx.getCalls()[0]!.msg).toContain("Unknown template");
@@ -862,7 +913,7 @@ describe("handleDashboard already-active branch", () => {
 describe("handleFork", () => {
   it("warns when no active feature", async () => {
     const ctx = mkCtx();
-    const rt: RuntimeState = { activeMission: null, autoSaveInterval: null };
+    const rt: RuntimeState =      { activeMission: null, autoSaveInterval: null, phaseToolCallCount: 0, currentPhase: "execution", lastFeatureId: undefined };
     await handleFork("reason", ctx, rt);
     expect(ctx.getCalls()[0]!.msg).toContain("No active feature");
   });
@@ -911,17 +962,22 @@ describe("handleNew", () => {
 
   it("creates mission without wizard when pi has no sendUserMessage", async () => {
     const ctx = mkCtx();
-    const rt: RuntimeState = { activeMission: null, autoSaveInterval: null };
+    const rt: RuntimeState =      { activeMission: null, autoSaveInterval: null, phaseToolCallCount: 0, currentPhase: "execution", lastFeatureId: undefined };
     const pi = mkPi();
     await handleNew("Test Mission", ctx, pi, rt);
     expect(rt.activeMission).not.toBeNull();
     expect(rt.activeMission!.title).toBe("Test Mission");
     expect(ctx.getCalls()[0]!.msg).toContain("Mission created");
+    const contextEntry = pi.getEntries().find((entry: any) => entry.type === "pi-mission-context");
+    expect(contextEntry).toBeDefined();
+    expect(contextEntry!.data.content).toContain("### How To Work This Mission");
+    expect(ctx.getCustomMessages()[0]!.customType).toBe("pi-mission-context");
+    expect(ctx.getCustomMessages()[0]!.content).toContain("## Pi Missions Extension — Active");
   });
 
   it("uses wizard when sendUserMessage returns valid JSON mission", async () => {
     const ctx = mkCtx();
-    const rt: RuntimeState = { activeMission: null, autoSaveInterval: null };
+    const rt: RuntimeState =      { activeMission: null, autoSaveInterval: null, phaseToolCallCount: 0, currentPhase: "execution", lastFeatureId: undefined };
     const pi = mkPi({
       sendUserMessage: async () => JSON.stringify({
         title: "Wizard Mission",
@@ -958,7 +1014,7 @@ describe("handleNew", () => {
 
   it("falls back to default mission when wizard JSON is invalid", async () => {
     const ctx = mkCtx();
-    const rt: RuntimeState = { activeMission: null, autoSaveInterval: null };
+    const rt: RuntimeState =      { activeMission: null, autoSaveInterval: null, phaseToolCallCount: 0, currentPhase: "execution", lastFeatureId: undefined };
     const pi = mkPi({ sendUserMessage: async () => "not valid json { bad" });
     await handleNew("Fallback", ctx, pi, rt);
     expect(rt.activeMission).not.toBeNull();
@@ -968,7 +1024,7 @@ describe("handleNew", () => {
 
   it("falls back when wizard throws", async () => {
     const ctx = mkCtx();
-    const rt: RuntimeState = { activeMission: null, autoSaveInterval: null };
+    const rt: RuntimeState =      { activeMission: null, autoSaveInterval: null, phaseToolCallCount: 0, currentPhase: "execution", lastFeatureId: undefined };
     const pi = mkPi({ sendUserMessage: async () => { throw new Error("wizard failed"); } });
     await handleNew("Error Fallback", ctx, pi, rt);
     expect(rt.activeMission).not.toBeNull();
@@ -977,7 +1033,7 @@ describe("handleNew", () => {
 
   it("uses default title when no arg provided", async () => {
     const ctx = mkCtx();
-    const rt: RuntimeState = { activeMission: null, autoSaveInterval: null };
+    const rt: RuntimeState =      { activeMission: null, autoSaveInterval: null, phaseToolCallCount: 0, currentPhase: "execution", lastFeatureId: undefined };
     const pi = mkPi();
     await handleNew("", ctx, pi, rt);
     expect(rt.activeMission).not.toBeNull();
@@ -1000,7 +1056,7 @@ describe("handleNew", () => {
         confirm: async () => true,
       },
     });
-    const rt: RuntimeState = { activeMission: null, autoSaveInterval: null };
+    const rt: RuntimeState =      { activeMission: null, autoSaveInterval: null, phaseToolCallCount: 0, currentPhase: "execution", lastFeatureId: undefined };
     const pi = mkPi();
     await handleNew("UI Mission", ctx, pi, rt);
     expect(rt.activeMission).not.toBeNull();

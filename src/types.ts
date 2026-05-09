@@ -169,6 +169,12 @@ export interface MissionHistoryEntry {
 export interface RuntimeState {
   activeMission: MissionState | null;
   autoSaveInterval: NodeJS.Timeout | null;
+  /** Per-turn tool call counter, reset each agent start. */
+  phaseToolCallCount: number;
+  /** Current tool phase, recomputed per tool call. */
+  currentPhase: ToolPhase;
+  /** Last active feature id, to detect feature switches. */
+  lastFeatureId?: string;
 }
 
 export type ToolPhase = "planning" | "execution" | "verification";

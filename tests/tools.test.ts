@@ -211,7 +211,7 @@ describe("registerMissionTools — tool registration", () => {
   it("registers mission_feature_done and mission_next_feature", () => {
     const tools: any[] = [];
     const pi = { registerTool: (t: any) => { tools.push(t); } };
-    const rt: RuntimeState = { activeMission: null, autoSaveInterval: null };
+    const rt: RuntimeState = { activeMission: null, autoSaveInterval: null, phaseToolCallCount: 0, currentPhase: "execution", lastFeatureId: undefined };
     registerMissionTools(pi as any, rt);
     expect(tools).toHaveLength(7);
     expect(tools[0]!.name).toBe("mission_feature_done");
@@ -226,7 +226,7 @@ describe("registerMissionTools — tool registration", () => {
   it("mission_feature_done tool has correct metadata", () => {
     const tools: any[] = [];
     const pi = { registerTool: (t: any) => { tools.push(t); } };
-    const rt: RuntimeState = { activeMission: null, autoSaveInterval: null };
+    const rt: RuntimeState = { activeMission: null, autoSaveInterval: null, phaseToolCallCount: 0, currentPhase: "execution", lastFeatureId: undefined };
     registerMissionTools(pi as any, rt);
     const t = tools[0];
     expect(t.label).toBe("Mission Feature Done");
@@ -239,7 +239,7 @@ describe("registerMissionTools — tool registration", () => {
   it("mission_next_feature tool has correct metadata", () => {
     const tools: any[] = [];
     const pi = { registerTool: (t: any) => { tools.push(t); } };
-    const rt: RuntimeState = { activeMission: null, autoSaveInterval: null };
+    const rt: RuntimeState = { activeMission: null, autoSaveInterval: null, phaseToolCallCount: 0, currentPhase: "execution", lastFeatureId: undefined };
     registerMissionTools(pi as any, rt);
     const t = tools[1];
     expect(t.description).toContain("Advance to the next pending");
@@ -249,10 +249,10 @@ describe("registerMissionTools — tool registration", () => {
   it("mission_feature_done execute returns error when no active mission", async () => {
     const tools: any[] = [];
     const pi = { registerTool: (t: any) => { tools.push(t); } };
-    const rt: RuntimeState = { activeMission: null, autoSaveInterval: null };
+    const rt: RuntimeState = { activeMission: null, autoSaveInterval: null, phaseToolCallCount: 0, currentPhase: "execution", lastFeatureId: undefined };
     registerMissionTools(pi as any, rt);
-    const ctx = { ui: { setStatus: () => {}, notify: () => {} } };
-    const result = await tools[0]!.execute("call1", { evidence: "test" }, null as any, () => {}, ctx);
+    const ctx = { ui: { setStatus: () => {}, notify: () => {} }, sessionManager: { getLeafId: () => null } };
+    const result = await tools[0]!.execute("call_no_mission", { evidence: "test" }, null as any, () => {}, ctx);
     expect(result.isError).toBe(true);
     expect(result.content[0].text).toContain("No active mission feature");
   });
@@ -261,7 +261,7 @@ describe("registerMissionTools — tool registration", () => {
     const m = createMission("ToolExec", "Execute test");
     const tools: any[] = [];
     const pi = { registerTool: (t: any) => { tools.push(t); } };
-    const rt: RuntimeState = { activeMission: m, autoSaveInterval: null };
+    const rt: RuntimeState = { activeMission: m, autoSaveInterval: null, phaseToolCallCount: 0, currentPhase: "execution", lastFeatureId: undefined };
     registerMissionTools(pi as any, rt);
     await saveMissionSafe(m);
     const ctx = { ui: { setStatus: () => {}, notify: () => {} } };
@@ -277,7 +277,7 @@ describe("registerMissionTools — tool registration", () => {
   it("mission_next_feature execute returns error when no active mission", async () => {
     const tools: any[] = [];
     const pi = { registerTool: (t: any) => { tools.push(t); } };
-    const rt: RuntimeState = { activeMission: null, autoSaveInterval: null };
+    const rt: RuntimeState = { activeMission: null, autoSaveInterval: null, phaseToolCallCount: 0, currentPhase: "execution", lastFeatureId: undefined };
     registerMissionTools(pi as any, rt);
     const ctx = { ui: { setStatus: () => {}, notify: () => {} } };
     const result = await tools[1]!.execute("call2", {}, null as any, () => {}, ctx);
@@ -289,7 +289,7 @@ describe("registerMissionTools — tool registration", () => {
     const m = createMission("NextBlock", "Block next");
     const tools: any[] = [];
     const pi = { registerTool: (t: any) => { tools.push(t); } };
-    const rt: RuntimeState = { activeMission: m, autoSaveInterval: null };
+    const rt: RuntimeState = { activeMission: m, autoSaveInterval: null, phaseToolCallCount: 0, currentPhase: "execution", lastFeatureId: undefined };
     registerMissionTools(pi as any, rt);
     const ctx = { ui: { setStatus: () => {}, notify: () => {} } };
     const result = await tools[1]!.execute("call2", {}, null as any, () => {}, ctx);
@@ -305,7 +305,7 @@ describe("registerMissionTools — tool registration", () => {
     await saveMissionSafe(m);
     const tools: any[] = [];
     const pi = { registerTool: (t: any) => { tools.push(t); } };
-    const rt: RuntimeState = { activeMission: m, autoSaveInterval: null };
+    const rt: RuntimeState = { activeMission: m, autoSaveInterval: null, phaseToolCallCount: 0, currentPhase: "execution", lastFeatureId: undefined };
     registerMissionTools(pi as any, rt);
     const ctx = { ui: { setStatus: () => {}, notify: () => {} } };
     const result = await tools[1]!.execute("call2", {}, null as any, () => {}, ctx);
@@ -324,7 +324,7 @@ describe("registerMissionTools — tool registration", () => {
     await saveMissionSafe(m);
     const tools: any[] = [];
     const pi = { registerTool: (t: any) => { tools.push(t); } };
-    const rt: RuntimeState = { activeMission: m, autoSaveInterval: null };
+    const rt: RuntimeState = { activeMission: m, autoSaveInterval: null, phaseToolCallCount: 0, currentPhase: "execution", lastFeatureId: undefined };
     registerMissionTools(pi as any, rt);
     const ctx = { ui: { setStatus: () => {}, notify: () => {} } };
     const result = await tools[1]!.execute("call2", {}, null as any, () => {}, ctx);
@@ -338,7 +338,7 @@ describe("registerMissionTools — tool registration", () => {
     await saveMissionSafe(m);
     const tools: any[] = [];
     const pi = { registerTool: (t: any) => { tools.push(t); } };
-    const rt: RuntimeState = { activeMission: m, autoSaveInterval: null };
+    const rt: RuntimeState = { activeMission: m, autoSaveInterval: null, phaseToolCallCount: 0, currentPhase: "execution", lastFeatureId: undefined };
     registerMissionTools(pi as any, rt);
     const ctx = { ui: { setStatus: () => {}, notify: () => {} } };
     const result = await tools[0]!.execute("call1", { evidence: "Done!", notes: "with notes" }, null as any, () => {}, ctx);
@@ -360,7 +360,7 @@ describe("registerMissionTools — tool registration", () => {
     await saveMissionSafe(m);
     const tools: any[] = [];
     const pi = { registerTool: (t: any) => { tools.push(t); } };
-    const rt: RuntimeState = { activeMission: m, autoSaveInterval: null };
+    const rt: RuntimeState = { activeMission: m, autoSaveInterval: null, phaseToolCallCount: 0, currentPhase: "execution", lastFeatureId: undefined };
     registerMissionTools(pi as any, rt);
     const ctx = { ui: { setStatus: () => {}, notify: () => {} } };
     const result = await tools[1]!.execute("call2", {}, null as any, () => {}, ctx);

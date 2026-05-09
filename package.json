@@ -18,10 +18,11 @@
     "src",
     "README.md",
     "PLAN.md",
-    "RESEARCH.md"
+    "AUTONOMY.md"
   ],
   "scripts": {
     "check": "tsc --noEmit",
+    "lint": "tsc --noEmit",
     "test": "vitest run",
     "bench": "vitest bench"
   },

@@ -13,7 +13,6 @@ import {
   createMissionId,
   detectStaleFeature,
   evidenceIntegrityHash,
-  exportMarkdown,
   getFeatureById,
   getMilestoneById,
   getMissionPhase,
@@ -29,6 +28,7 @@ import {
   saveMissionSafe,
   slugify,
 } from "../src/state.js";
+import { exportMarkdown } from "../src/export.js";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -416,6 +416,17 @@ describe("getMissionPhase", () => {
     m.milestones[0].features[0]!.title = "Plan the architecture";
     expect(getMissionPhase(m)).toBe("planning");
     m.milestones[0].features[0]!.title = "Scope the work";
+    expect(getMissionPhase(m)).toBe("planning");
+  });
+
+  it("returns planning for research/analyze/inspect discovery features", () => {
+    const m = createMission("Phase", "Test");
+    m.milestones[0].features[0]!.title = "Research repo layout";
+    expect(getMissionPhase(m)).toBe("planning");
+    m.milestones[0].features[0]!.title = "Analyze current API";
+    expect(getMissionPhase(m)).toBe("planning");
+    m.milestones[0].features[0]!.title = "Implement later";
+    m.milestones[0].features[0]!.description = "Inspect current state before writing";
     expect(getMissionPhase(m)).toBe("planning");
   });
 
@@ -881,6 +892,19 @@ describe("computeMissionMetrics", () => {
 });
 
 describe("calculateMetricsSummary", () => {
+  const origHome = process.env.HOME;
+
+  beforeAll(() => {
+    process.env.HOME = tmpRoot;
+    cleanupTmp();
+    setupTmp();
+  });
+
+  afterAll(() => {
+    process.env.HOME = origHome;
+    cleanupTmp();
+  });
+
   it("calculates summary across all missions", async () => {
     const m1 = createMission("Mission 1", "Test 1");
     const m2 = createMission("Mission 2", "Test 2");

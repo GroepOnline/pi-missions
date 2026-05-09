@@ -335,9 +335,23 @@ export function getMissionPhase(mission: MissionState): ToolPhase {
   if (mission.status === "planning") return "planning";
   const active = getActiveFeature(mission);
   if (!active) return "execution";
-  const t = active.title.toLowerCase();
+  const t = `${active.title} ${active.description}`.toLowerCase();
   if (t.includes("verify") || t.includes("test") || t.includes("summarize")) return "verification";
-  if (t.includes("clarify") || t.includes("plan") || t.includes("scope")) return "planning";
+  if (
+    t.includes("clarify") ||
+    t.includes("plan") ||
+    t.includes("scope") ||
+    t.includes("research") ||
+    t.includes("analyze") ||
+    t.includes("analyse") ||
+    t.includes("inspect") ||
+    t.includes("investigate") ||
+    t.includes("discover") ||
+    t.includes("reconnaissance") ||
+    t.includes("current state")
+  ) {
+    return "planning";
+  }
   return "execution";
 }
 
@@ -370,169 +384,11 @@ export function buildWorkerPrompt(mission: MissionState, feature: Feature): stri
   ].join("\n");
 }
 
-// ---------------------------------------------------------------------------
-// Markdown export
-// ---------------------------------------------------------------------------
+// ── Re-export from templates for backwards-compatibility ──────────────────────
+export { MISSION_TEMPLATES, createMissionFromTemplate, type MissionTemplate } from "./templates.js";
 
-export function exportMarkdown(mission: MissionState): string {
-  const p = progress(mission);
-  let history: MissionHistoryEntry[] = [];
-  try {
-    history = readHistory(mission.id).slice(-50);
-  } catch (error) {
-    logger.warn("state", "Failed to read history for export", { missionId: mission.id, error: error instanceof Error ? error.message : String(error) });
-    // Graceful degradation: continue without history
-  }
-
-  const lines: string[] = [
-    `# Mission Report: ${mission.title}`,
-    "",
-    `- **ID**: \`${mission.id}\``,
-    `- **Status**: ${mission.status}`,
-    `- **Goal**: ${mission.goal}`,
-    `- **Progress**: ${p.done}/${p.total} (${p.pct}%)`,
-    `- **Tokens used**: ${mission.tokensUsed}`,
-    `- **Created**: ${new Date(mission.createdAt).toISOString()}`,
-    `- **Updated**: ${new Date(mission.updatedAt).toISOString()}`,
-    "",
-    "---",
-    "",
-  ];
-
-  for (const m of mission.milestones) {
-    const ms = m.status === "complete" ? "✅" : m.status === "active" ? "➡️" : "•";
-    lines.push(`## ${ms} Milestone: ${m.title}`, "", m.description, "");
-    for (const f of m.features) {
-      const icon = f.status === "done" ? "✅" : f.status === "active" ? "➡️" : f.status === "blocked" ? "⛔" : "•";
-      lines.push(`### ${icon} ${f.id}: ${f.title} (P${f.priority})`, "", f.description, "");
-      if (f.acceptance.length) {
-        lines.push("**Acceptance criteria:**", "");
-        for (const ac of f.acceptance) lines.push(`- [${ac.verified || ac.waived ? "x" : " "}] ${ac.id}: ${ac.description}`);
-        lines.push("");
-      }
-      if (f.dependsOn.length) lines.push(`**Dependencies:** ${f.dependsOn.join(", ")}`, "");
-      if (f.notes) lines.push(`**Notes:** ${f.notes}`, "");
-      if (f.completedAt) lines.push(`**Completed:** ${new Date(f.completedAt).toISOString()}`, "");
-      // Include evidence if it exists
-      const evidenceDir = path.join(missionDirSafe(mission.id), "evidence");
-      const evidenceFile = path.join(evidenceDir, `${f.id}.md`);
-      if (fs.existsSync(evidenceFile)) {
-        const content = fs.readFileSync(evidenceFile, "utf-8").slice(0, 2000);
-        lines.push("<details>", "<summary>Evidence</summary>", "", content, "", "</details>", "");
-      }
-      lines.push("---", "");
-    }
-  }
-
-  // History section
-  if (history.length) {
-    lines.push("## Recent History", "");
-    for (const h of history) {
-      const ts = new Date(h.ts * 1000).toISOString();
-      lines.push(`- \`${ts}\` **${h.event}** ${h.featureId ?? ""} ${h.note ?? ""}`);
-    }
-  }
-
-  return lines.join("\n");
-}
-
-// ---------------------------------------------------------------------------
-// Mission Templates
-// ---------------------------------------------------------------------------
-
-interface MissionTemplate {
-  id: string;
-  label: string;
-  description: string;
-  goal: string;
-  constraints: string;
-}
-
-export const MISSION_TEMPLATES: MissionTemplate[] = [
-  {
-    id: "refactor",
-    label: "Refactor module",
-    description: "Restructure code without behavior changes",
-    goal: "Refactor the target module for improved clarity, testability, and maintainability without changing external behavior.",
-    constraints: "All existing tests must pass. No behavior changes allowed. Use existing dependencies only.",
-  },
-  {
-    id: "auth",
-    label: "Auth implementation",
-    description: "Add or refactor authentication",
-    goal: "Implement or refactor the authentication system with proper session handling, token management, and secure defaults.",
-    constraints: "Must not break existing routes. Security best practices required. Use established auth libraries where possible.",
-  },
-  {
-    id: "ci-cd",
-    label: "CI/CD pipeline",
-    description: "Set up or improve CI/CD pipelines",
-    goal: "Set up or improve the CI/CD pipeline including build, test, lint, and deploy stages.",
-    constraints: "Must work with the existing toolchain. Pipeline must be fast (< 10 min). Artifact storage must be configured.",
-  },
-  {
-    id: "bug-fix",
-    label: "Bug fix",
-    description: "Reproduce and fix a specific bug",
-    goal: "Find, reproduce, and fix the reported bug. Ensure the root cause is understood, not just the symptom.",
-    constraints: "Write a failing test that reproduces the bug before fixing it. All other existing tests must pass after the fix.",
-  },
-  {
-    id: "test-coverage",
-    label: "Test coverage",
-    description: "Improve test coverage on a module",
-    goal: "Increase test coverage of the target module to at least 80%, targeting critical paths and edge cases.",
-    constraints: "No production code changes except what is needed to make tests pass. Coverage must be measured with existing tooling.",
-  },
-  {
-    id: "security-audit",
-    label: "Security audit",
-    description: "Audit for common vulnerabilities",
-    goal: "Review the target module for security issues: injection, auth bypass, data exposure, insecure dependencies, and hardcoded secrets.",
-    constraints: "Use automated scanners where possible. Document all findings with severity. No production changes without separate review.",
-  },
-  {
-    id: "docs-update",
-    label: "Docs update",
-    description: "Write or update documentation",
-    goal: "Create or update documentation for the target: README, API docs, architecture notes, or inline code comments.",
-    constraints: "Docs must be accurate and reflect current behavior. No stub or TODO content. Rendered output must be verified.",
-  },
-  {
-    id: "performance-opt",
-    label: "Performance optimization",
-    description: "Improve runtime performance",
-    goal: "Identify and eliminate performance bottlenecks in the target module. Measure before and after.",
-    constraints: "Baseline performance must be captured before changes. Target: 2x speedup or halve memory usage. No algorithm complexity increases.",
-  },
-  {
-    id: "api-design",
-    label: "API design",
-    description: "Design or refactor an API surface",
-    goal: "Design or refactor the API for the target, ensuring clarity, consistency, and developer experience. Produce an OpenAPI/AsyncAPI spec.",
-    constraints: "Backward compatibility must be maintained unless explicitly asked to break. Changes reviewed by at least one stakeholder.",
-  },
-  {
-    id: "migration",
-    label: "Data migration",
-    description: "Migrate data or schemas safely",
-    goal: "Migrate the target data or schema safely with zero downtime, including rollback plan and verification.",
-    constraints: "Migration must be reversible. Run during low-traffic window. Full backup before migration. Smoke-test after migration.",
-  },
-  {
-    id: "feature-flag",
-    label: "Feature flag rollout",
-    description: "Add feature flags and gradual rollout",
-    goal: "Add feature flag infrastructure and wrap the target feature, enabling gradual rollout and instant kill-switch.",
-    constraints: "Flag must be configurable without redeploy. Default state must be conservative (off). Rollout percentage configurable.",
-  },
-];
-
-export function createMissionFromTemplate(templateId: string, title: string): MissionState | null {
-  const tpl = MISSION_TEMPLATES.find((t) => t.id === templateId);
-  if (!tpl) return null;
-  return createMission(title || tpl.label, tpl.goal, tpl.constraints);
-}
+// ── Markdown export ──────────────────────────────────────────────────────────
+// Moved to ./export.js — import directly from export.js to avoid circular dependency.
 
 // ---------------------------------------------------------------------------
 // Revolutionary: Auto-acceptance verification
