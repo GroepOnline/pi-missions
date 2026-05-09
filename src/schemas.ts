@@ -11,6 +11,13 @@ export const AcceptanceCriterionSchema = Type.Object({
   waived: Type.Optional(Type.Boolean()),
 });
 
+export const WizardAcceptanceCriterionSchema = Type.Object({
+  id: Type.Optional(Type.String({ minLength: 1, maxLength: 50 })),
+  description: Type.String({ minLength: 1, maxLength: 500 }),
+  checkType: Type.Union([Type.Literal("manual"), Type.Literal("bash"), Type.Literal("test_file")]),
+  checkCommand: Type.Optional(Type.String({ maxLength: 1000 })),
+}, { additionalProperties: false });
+
 // Feature Schema
 export const FeatureSchema = Type.Object({
   id: Type.String({ pattern: "^F[0-9]{3}$" }),
@@ -47,11 +54,27 @@ export const MilestoneSchema = Type.Object({
   dependsOn: Type.Optional(Type.Array(Type.String({ pattern: "^M[0-9]{2}$" }))),
 });
 
+export const WizardFeatureSchema = Type.Object({
+  id: Type.Optional(Type.String({ pattern: "^F[0-9]{3}$" })),
+  title: Type.String({ minLength: 1, maxLength: 200 }),
+  description: Type.String({ minLength: 1, maxLength: 2000 }),
+  priority: Type.Integer({ minimum: 1, maximum: 5 }),
+  dependsOn: Type.Array(Type.String({ pattern: "^F[0-9]{3}$" })),
+  acceptance: Type.Array(WizardAcceptanceCriterionSchema, { minItems: 1 }),
+}, { additionalProperties: false });
+
+export const WizardMilestoneSchema = Type.Object({
+  id: Type.Optional(Type.String({ pattern: "^M[0-9]{2}$" })),
+  title: Type.String({ minLength: 1, maxLength: 200 }),
+  description: Type.String({ maxLength: 1000 }),
+  features: Type.Array(WizardFeatureSchema, { minItems: 1 }),
+}, { additionalProperties: false });
+
 // Wizard Output Schema
 export const WizardOutputSchema = Type.Object({
   title: Type.String({ minLength: 1, maxLength: 200 }),
-  milestones: Type.Array(MilestoneSchema, { minItems: 2, maxItems: 20 }),
-});
+  milestones: Type.Array(WizardMilestoneSchema, { minItems: 2, maxItems: 20 }),
+}, { additionalProperties: false });
 
 // Export types
 export type AcceptanceCriterion = Static<typeof AcceptanceCriterionSchema>;

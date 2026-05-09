@@ -1,5 +1,5 @@
 import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
-import { getActiveFeature, getAllFeatures, progress } from "./state.js";
+import { getActiveFeature, getAllFeatures, getNextPendingFeature, progress } from "./state.js";
 import type { Feature, MissionState, Milestone } from "./types.js";
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -14,6 +14,64 @@ function progressBar(done: number, total: number, width = 20): string {
 function milestoneProgressBar(milestone: Milestone): string {
   const done = milestone.features.filter((f) => f.status === "done").length;
   return progressBar(done, milestone.features.length, 20);
+}
+
+function clip(text: string, max = 88): string {
+  return text.length > max ? `${text.slice(0, max - 1)}…` : text;
+}
+
+function countVerifiedAcceptance(feature: Feature): number {
+  return feature.acceptance.filter((ac) => ac.verified || ac.waived).length;
+}
+
+function pendingAcceptance(feature: Feature): string[] {
+  return feature.acceptance
+    .filter((ac) => !ac.verified && !ac.waived)
+    .map((ac) => ac.checkType === "bash" && ac.checkCommand ? `${ac.id}: ${ac.description} -> ${ac.checkCommand}` : `${ac.id}: ${ac.description}`);
+}
+
+function deriveNextAction(feature: Feature): string {
+  if (feature.status === "blocked") {
+    return feature.notes ? `Unblock ${feature.id}: ${clip(feature.notes, 72)}` : `Unblock ${feature.id} before continuing`;
+  }
+  if (feature.status === "waiting") {
+    return feature.dependsOn.length ? `Wait for ${feature.dependsOn.join(", ")} before resuming ${feature.id}` : `Resume ${feature.id} when external dependency clears`;
+  }
+  const nextAcceptance = pendingAcceptance(feature)[0];
+  if (nextAcceptance) return `Finish ${feature.id}: ${clip(nextAcceptance, 72)}`;
+  return `Advance ${feature.id}: ${clip(feature.description || feature.title, 72)}`;
+}
+
+function deriveHandoffSummary(mission: MissionState, active: Feature | null, nextFeature: Feature | null): string {
+  const stop = mission.autopilot.lastStopReason;
+  const stopMessage = mission.autopilot.lastStopMessage;
+  if (stop === "needs_user_decision" && stopMessage) return `Needs user decision: ${clip(stopMessage, 78)}`;
+  if (stop === "blocked" && stopMessage) return `Blocked handoff: ${clip(stopMessage, 78)}`;
+  if (active?.notes) return `Carry over: ${clip(active.notes, 78)}`;
+  if (nextFeature) return `After ${active?.id ?? "current work"} hand off to ${nextFeature.id} ${clip(nextFeature.title, 52)}`;
+  return "Close out evidence and confirm mission state";
+}
+
+export interface MissionControlSummary {
+  active: Feature | null;
+  nextFeature: Feature | null;
+  blocked: Feature[];
+  waiting: Feature[];
+  handoff: string;
+}
+
+export function buildMissionControlSummary(mission: MissionState): MissionControlSummary {
+  const active = getActiveFeature(mission);
+  const blocked = getAllFeatures(mission).filter((feature) => feature.status === "blocked");
+  const waiting = getAllFeatures(mission).filter((feature) => feature.status === "waiting");
+  const nextFeature = getNextPendingFeature(mission);
+  return {
+    active,
+    nextFeature,
+    blocked,
+    waiting,
+    handoff: deriveHandoffSummary(mission, active, nextFeature),
+  };
 }
 
 function activeFeatureDetails(feature: Feature): string[] {
@@ -66,16 +124,43 @@ export function updateFooter(ctx: ExtensionContext, mission: MissionState | null
 export function dashboardRows(mission: MissionState): string[] {
   const p = progress(mission);
   const statusIcon = mission.status === "complete" ? "✅" : mission.status === "paused" ? "⏸" : mission.status === "budget_limited" ? "⚠️" : "🎯";
+  const summary = buildMissionControlSummary(mission);
+  const active = summary.active;
+  const nextAction = active ? deriveNextAction(active) : summary.nextFeature ? `Start ${summary.nextFeature.id}: ${clip(summary.nextFeature.title, 68)}` : "No runnable feature queued";
+  const activeAcceptanceDone = active ? countVerifiedAcceptance(active) : 0;
+  const activeAcceptanceTotal = active?.acceptance.length ?? 0;
 
   const rows: string[] = [
     "",
     `  ${statusIcon} ${mission.title}`,
-    `     ${progressBar(p.done, p.total)} ${p.done}/${p.total} features — ${p.pct}%`, 
-    `     ID: ${mission.id} | Status: ${mission.status} | Tokens: ${mission.tokensUsed.toLocaleString()}`,
-    `     Autopilot: ${mission.autopilot.enabled ? "ON" : "OFF"} (${mission.autopilot.mode}) | Iter: ${mission.autopilot.iteration}/${mission.autopilot.maxIterations} | Last stop: ${mission.autopilot.lastStopReason ?? "none"}`,
+    `     Goal: ${clip(mission.goal || "No mission goal captured", 88)}`,
+    `     Progress: ${progressBar(p.done, p.total)} ${p.done}/${p.total} features — ${p.pct}%`,
+    `     Focus: ${active ? `${active.id} [P${active.priority}] ${active.title}` : "No active feature"}`,
+    `     Feature progress: ${active ? `${activeAcceptanceDone}/${activeAcceptanceTotal} acceptance checks complete` : "Waiting for next runnable feature"}`,
+    `     Blocked/Waiting: ${summary.blocked.length} blocked · ${summary.waiting.length} waiting`,
+    `     Next action: ${nextAction}`,
+    `     Handoff: ${summary.handoff}`,
+    `     Status: ${mission.status} | Tokens: ${mission.tokensUsed.toLocaleString()} | Autopilot: ${mission.autopilot.enabled ? "ON" : "OFF"} (${mission.autopilot.mode})`,
     "  " + "─".repeat(76),
     "",
   ];
+
+  if (summary.blocked.length) {
+    for (const feature of summary.blocked.slice(0, 2)) {
+      rows.push(`  ⛔ Blocked: ${feature.id} ${feature.title} — ${clip(feature.notes ?? "No blocker note", 72)}`);
+    }
+    if (summary.blocked.length > 2) rows.push(`  ⛔ +${summary.blocked.length - 2} more blocked features`);
+    rows.push("");
+  }
+
+  if (summary.waiting.length) {
+    for (const feature of summary.waiting.slice(0, 2)) {
+      const waitReason = feature.dependsOn.length ? `waiting on ${feature.dependsOn.join(", ")}` : (feature.notes ?? "waiting");
+      rows.push(`  ⏳ Waiting: ${feature.id} ${feature.title} — ${clip(waitReason, 72)}`);
+    }
+    if (summary.waiting.length > 2) rows.push(`  ⏳ +${summary.waiting.length - 2} more waiting features`);
+    rows.push("");
+  }
 
   // Milestones
   for (const milestone of mission.milestones) {
@@ -112,6 +197,8 @@ export function dashboardRows(mission: MissionState): string[] {
         rows.push(`       ${fIcon} ${feature.id} [P${feature.priority}] ${feature.title}${acBadge}${deps}`);
         const details = activeFeatureDetails(feature);
         for (const d of details) rows.push(d);
+        rows.push(`   👉 Next action: ${deriveNextAction(feature)}`);
+        rows.push(`   🤝 Handoff: ${summary.handoff}`);
       } else {
         rows.push(`       ${fIcon} ${feature.id} [P${feature.priority}] ${feature.title}${acBadge}${deps}${blocked}${failedTag}`);
       }
@@ -128,13 +215,18 @@ export function dashboardRows(mission: MissionState): string[] {
 
 export function statusText(mission: MissionState): string {
   const p = progress(mission);
-  const active = getActiveFeature(mission);
+  const summary = buildMissionControlSummary(mission);
+  const active = summary.active;
   const lines = [
     `🎯 Mission: ${mission.title}`,
     `ID: ${mission.id}`,
     `Status: ${mission.status}`,
+    `Goal: ${mission.goal}`,
     `Progress: ${p.done}/${p.total} (${p.pct}%)`,
     active ? `Active: ${active.id} — ${active.title}` : "Active: none",
+    `Blocked/Waiting: ${summary.blocked.length}/${summary.waiting.length}`,
+    `Next action: ${active ? deriveNextAction(active) : summary.nextFeature ? `Start ${summary.nextFeature.id} — ${summary.nextFeature.title}` : "None"}`,
+    `Handoff: ${summary.handoff}`,
     `Autopilot: ${mission.autopilot.enabled ? "ON" : "OFF"} (${mission.autopilot.mode})`,
     `Iteration: ${mission.autopilot.iteration}/${mission.autopilot.maxIterations}`,
     `Failures: ${mission.autopilot.consecutiveFailures}/${mission.autopilot.maxConsecutiveFailures}`,

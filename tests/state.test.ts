@@ -498,8 +498,13 @@ describe("exportMarkdown", () => {
     expect(md).toContain("# Mission Report: Export");
     expect(md).toContain("**Status**: active");
     expect(md).toContain("**Goal**: Export test");
+    expect(md).toContain("**Goal tree**: 0/3 leaf goals (0%)");
     expect(md).toContain("**Progress**: 0/3 (0%)");
     expect(md).toContain("**Tokens used**: 500");
+    expect(md).toContain("## Mission Control Handoff");
+    expect(md).toContain("## Goal Tree");
+    expect(md).toContain("**Active feature**");
+    expect(md).toContain("**Handoff summary**");
     expect(md).toContain("##");
   });
 

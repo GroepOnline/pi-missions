@@ -31,6 +31,7 @@ describe("buildMissionBanner", () => {
     expect(banner).toContain("## Pi Missions Extension — Active");
     expect(banner).toContain("Mission: Test mission  [0% done]");
     expect(banner).toContain("Goal: Achieve something");
+    expect(banner).toContain("Goal Tree: 0/3 leaf goals | 0% done");
     expect(banner).toContain("Progress: 0/3 features | Status: active | Phase:");
     expect(banner).toContain("State: ~/.pi/missions/");
   });
@@ -70,6 +71,7 @@ describe("buildFeatureBrief", () => {
       { id: "AC002", description: "No behavior change", checkType: "manual", verified: true },
     ];
     const brief = buildFeatureBrief(mission, f);
+    expect(brief).toContain("Goal path: Test mission -> Plan and execute -> Clarify scope and current state");
     expect(brief).toContain("- [ ] AC001: Tests pass");
     expect(brief).toContain("- [x] AC002: No behavior change");
   });
@@ -144,6 +146,8 @@ describe("buildMissionContext", () => {
     const ctx = buildMissionContext(missionFixture());
     expect(ctx).toContain("## Pi Missions Extension — Active");
     expect(ctx).toContain("Goal: Achieve something");
+    expect(ctx).toContain("### Goal Tree");
+    expect(ctx).toContain("▶ Clarify scope and current state");
     expect(ctx).toContain("### How To Work This Mission");
     expect(ctx).toContain("### Mission Commands");
   });
@@ -208,6 +212,7 @@ describe("buildLeanContext", () => {
     const ctx = buildLeanContext(missionFixture());
     expect(ctx).toContain("## Pi Missions Extension — Active");
     expect(ctx).toContain("**Acceptance:**");
+    expect(ctx).toContain("Goal tree snapshot:");
     // Should NOT contain the full help section
     expect(ctx).not.toContain("### Mission Commands");
     expect(ctx).not.toContain("### Mission Tools");
@@ -233,6 +238,7 @@ describe("buildCompactionSummary", () => {
     const summary = buildCompactionSummary(missionFixture());
     expect(summary).toContain("Mission: Test mission");
     expect(summary).toContain("Goal: Achieve something");
+    expect(summary).toContain("Goal tree: 0/3 leaf goals (0%)");
     expect(summary).toContain("Status: active");
     expect(summary).toContain("Progress: 0/3 (0%)");
     expect(summary).toContain("Active feature: F001 — Clarify scope and current state");

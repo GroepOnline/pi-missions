@@ -1,12 +1,17 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import type { MissionHistoryEntry, MissionState } from "./types.js";
-import { getAllFeatures, missionDirSafe, progress, readHistory } from "./state.js";
+import { getMissionGoalTree, goalTreeProgress, renderGoalTree } from "./mission-builder.js";
+import { missionDirSafe, progress, readHistory } from "./state.js";
 import { logger } from "./logger.js";
+import { buildMissionControlSummary } from "./ui.js";
 
 /** Generate a markdown report for a mission including evidence, history, and feature details. */
 export function exportMarkdown(mission: MissionState): string {
   const p = progress(mission);
+  const goalTree = getMissionGoalTree(mission);
+  const goalProgress = goalTreeProgress(goalTree);
+  const summary = buildMissionControlSummary(mission);
   let history: MissionHistoryEntry[] = [];
   try {
     history = readHistory(mission.id).slice(-50);
@@ -20,14 +25,25 @@ export function exportMarkdown(mission: MissionState): string {
     `- **ID**: \`${mission.id}\``,
     `- **Status**: ${mission.status}`,
     `- **Goal**: ${mission.goal}`,
+    `- **Goal tree**: ${goalProgress.done}/${goalProgress.total} leaf goals (${goalProgress.pct}%)`,
     `- **Progress**: ${p.done}/${p.total} (${p.pct}%)`,
     `- **Tokens used**: ${mission.tokensUsed}`,
     `- **Created**: ${new Date(mission.createdAt).toISOString()}`,
     `- **Updated**: ${new Date(mission.updatedAt).toISOString()}`,
     "",
+    "## Mission Control Handoff",
+    "",
+    `- **Active feature**: ${summary.active ? `\`${summary.active.id}\` ${summary.active.title}` : "None"}`,
+    `- **Blocked features**: ${summary.blocked.length}`,
+    `- **Waiting features**: ${summary.waiting.length}`,
+    `- **Next runnable feature**: ${summary.nextFeature ? `\`${summary.nextFeature.id}\` ${summary.nextFeature.title}` : "None"}`,
+    `- **Handoff summary**: ${summary.handoff}`,
+    "",
     "---",
     "",
   ];
+
+  lines.push("## Goal Tree", "", ...renderGoalTree(goalTree, 20), "", "---", "");
 
   for (const m of mission.milestones) {
     const ms = m.status === "complete" ? "✅" : m.status === "active" ? "➡️" : "•";

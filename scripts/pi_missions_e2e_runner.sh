@@ -91,8 +91,8 @@ wait_for_pattern() {
     if tmux capture-pane -t "$SESSION_NAME" -p 2>/dev/null | grep -Eq "$pattern"; then
       return 0
     fi
-    sleep 0.5
-    elapsed=$((elapsed + 0.5))
+    sleep 1
+    elapsed=$((elapsed + 1))
   done
   return 1
 }

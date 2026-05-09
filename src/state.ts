@@ -335,7 +335,7 @@ export function getMissionPhase(mission: MissionState): ToolPhase {
   if (mission.status === "planning") return "planning";
   const active = getActiveFeature(mission);
   if (!active) return "execution";
-  const t = `${active.title} ${active.description}`.toLowerCase();
+  const t = `${active.title} ${active.description ?? ''}`.toLowerCase();
   if (t.includes("verify") || t.includes("test") || t.includes("summarize")) return "verification";
   if (
     t.includes("clarify") ||

@@ -193,6 +193,30 @@ describe("piMissions extension registration", () => {
     }
   });
 
+  it("session_start hook warns and returns on malformed active mission entry", async () => {
+    const pi = mkPi();
+    const notifyCalls: any[] = [];
+
+    const entries = [
+      { type: "custom", customType: "pi-mission-active", data: { validationToken: "abc" } },
+    ];
+
+    const ctx = {
+      sessionManager: { getEntries: () => entries, getLeafId: () => null },
+      ui: { setStatus: () => {}, notify: (msg: string, level: string) => { notifyCalls.push({ msg, level }); } },
+      getContextUsage: () => null,
+      fork: async () => {},
+    };
+
+    piMissions(pi);
+    const sessionStartHandler = pi.getHooks()["session_start"]![0];
+    await sessionStartHandler({}, ctx);
+
+    expect(notifyCalls).toHaveLength(1);
+    expect(notifyCalls[0]!.msg).toContain("Ignoring invalid mission session entry");
+    expect(notifyCalls[0]!.level).toBe("warning");
+  });
+
   it("session_start hook warns and returns when mission not found on disk", async () => {
     const pi = mkPi();
     const notifyCalls: any[] = [];

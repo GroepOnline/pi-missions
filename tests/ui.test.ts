@@ -10,9 +10,10 @@ function missionFixture(overrides: Partial<MissionState> = {}): MissionState {
 describe("dashboardRows", () => {
   it("shows mission header with id, status, progress, tokens", () => {
     const rows = dashboardRows(missionFixture({ tokensUsed: 12345 }));
-    // New format: rows[1] = "🎯 My mission", rows[2] = progress bar, rows[3] = metadata
     expect(rows.some((r) => r.includes("🎯 My mission") || r.includes("✅ My mission"))).toBe(true);
-    expect(rows.some((r) => r.includes("ID:") && r.includes("Status: active") && r.includes("Tokens:"))).toBe(true);
+    expect(rows.some((r) => r.includes("Goal: Improve the codebase"))).toBe(true);
+    expect(rows.some((r) => r.includes("Focus: F001"))).toBe(true);
+    expect(rows.some((r) => r.includes("Status: active") && r.includes("Tokens:"))).toBe(true);
   });
 
   it("shows milestones and features with status indicators", () => {
@@ -115,6 +116,23 @@ describe("dashboardRows", () => {
     expect(rows.some((r) => r.includes("[2/3]") || r.includes("2/3"))).toBe(true);
   });
 
+  it("surfaces blocked, waiting, next action, and handoff summary near the top", () => {
+    const mission = missionFixture();
+    mission.milestones[0].features[0]!.status = "active";
+    mission.milestones[0].features[0]!.notes = "Leave repo state and failing command for next agent";
+    mission.milestones[0].features[1]!.status = "blocked";
+    mission.milestones[0].features[1]!.notes = "Need API contract";
+    mission.milestones[0].features[2]!.status = "waiting";
+    mission.milestones[0].features[2]!.dependsOn = ["F002"];
+
+    const rows = dashboardRows(mission);
+    expect(rows.some((r) => r.includes("Blocked/Waiting: 1 blocked · 1 waiting"))).toBe(true);
+    expect(rows.some((r) => r.includes("Next action:"))).toBe(true);
+    expect(rows.some((r) => r.includes("Handoff: Carry over: Leave repo state"))).toBe(true);
+    expect(rows.some((r) => r.includes("⛔ Blocked: F002"))).toBe(true);
+    expect(rows.some((r) => r.includes("⏳ Waiting: F003"))).toBe(true);
+  });
+
   it("collapses fully-done milestones", () => {
     const mission = missionFixture();
     mission.milestones[0].features.forEach((f) => { f.status = "done"; });
@@ -182,11 +200,20 @@ describe("statusText", () => {
     expect(text).toContain("🎯 Mission: My mission");
     expect(text).toContain("ID:");
     expect(text).toContain("Status: active");
+    expect(text).toContain("Goal: Improve the codebase");
     expect(text).toContain("Progress: 0/3 (0%)");
     expect(text).toContain("➡️");
     expect(text).toContain("F001:");
     expect(text).toContain("F002:");
     expect(text).toContain("F003:");
+  });
+
+  it("includes next action and handoff in status text", () => {
+    const mission = missionFixture();
+    mission.milestones[0].features[0]!.notes = "Resume after snapshot review";
+    const text = statusText(mission);
+    expect(text).toContain("Next action:");
+    expect(text).toContain("Handoff: Carry over: Resume after snapshot review");
   });
 
   it("shows budget_limited status icon", () => {

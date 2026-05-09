@@ -1,6 +1,6 @@
 import { describe, expect, it, beforeAll, afterAll } from "vitest";
 import { registerMissionTools } from "../src/tools.js";
-import { createMission, getAllFeatures, getActiveFeature, getNextPendingFeature, loadMissionFromDisk, saveMissionSafe } from "../src/state.js";
+import { createMission, getAllFeatures, getActiveFeature, getNextPendingFeature, loadMissionFromDisk, readHistory, saveMissionSafe } from "../src/state.js";
 import type { RuntimeState } from "../src/types.js";
 import * as fs from "node:fs";
 import * as os from "node:os";
@@ -366,5 +366,70 @@ describe("registerMissionTools — tool registration", () => {
     const result = await tools[1]!.execute("call2", {}, null as any, () => {}, ctx);
     expect(result.isError).toBe(true);
     expect(result.content[0].text).toContain("No unblocked pending feature");
+  });
+
+  it("mission_fork execute creates persistent fork metadata and actionable manual handoff", async () => {
+    const m = createMission("Fork Tool", "Manual handoff");
+    await saveMissionSafe(m);
+    const tools: any[] = [];
+    const pi = { registerTool: (t: any) => { tools.push(t); } };
+    const rt: RuntimeState = { activeMission: m, autoSaveInterval: null, phaseToolCallCount: 0, currentPhase: "execution", lastFeatureId: undefined };
+    registerMissionTools(pi as any, rt);
+    const ctx = {
+      ui: { setStatus: () => {}, notify: () => {} },
+      sessionManager: { getLeafId: () => null, getSessionFile: () => "/tmp/manual-parent.jsonl" },
+    };
+
+    const result = await tools[4]!.execute("fork-call", { reason: "Try an isolated path", subtask: "Investigate worker behavior" }, null as any, () => {}, ctx);
+
+    expect(result.isError).toBe(false);
+    expect(result.details.mode).toBe("manual");
+    expect(result.content[0].text).toContain("Action: open or clone a new Pi session");
+    expect(result.content[0].text).toContain("Kickoff prompt:");
+    expect(m.milestones[0].features[0]!.status).toBe("blocked");
+    expect(m.activeFeatureId).toMatch(/^F001-fork-/);
+    const forked = getActiveFeature(m)!;
+    expect(forked.sessions).toContain("parent-session:/tmp/manual-parent.jsonl");
+    const savedMission = loadMissionFromDisk(m.id);
+    expect(savedMission).not.toBeNull();
+    expect(readHistory(m.id).some((entry) => entry.event === "feature_forked" && entry.details?.forkedFeatureId === forked.id)).toBe(true);
+  });
+
+  it("mission_fork execute uses Pi fork API when available", async () => {
+    const m = createMission("Fork Tool API", "API handoff");
+    await saveMissionSafe(m);
+    const tools: any[] = [];
+    const pi = { registerTool: (t: any) => { tools.push(t); } };
+    const rt: RuntimeState = { activeMission: m, autoSaveInterval: null, phaseToolCallCount: 0, currentPhase: "execution", lastFeatureId: undefined };
+    registerMissionTools(pi as any, rt);
+
+    let kickoffMessage = "";
+    let forkPosition = "";
+    const ctx = {
+      ui: { setStatus: () => {}, notify: () => {} },
+      sessionManager: { getLeafId: () => "leaf-99", getSessionFile: () => "/tmp/api-parent.jsonl" },
+      fork: async (_leafId: string, opts: any) => {
+        forkPosition = opts.position;
+        await opts.withSession({
+          ui: { notify: () => {} },
+          sessionManager: { getSessionFile: () => "/tmp/api-fork.jsonl" },
+          sendUserMessage: async (message: string) => { kickoffMessage = message; },
+        });
+        return { cancelled: false };
+      },
+    };
+
+    const result = await tools[4]!.execute("fork-call", { reason: "Parallelize work", subtask: "Spawn worker session" }, null as any, () => {}, ctx as any);
+
+    expect(result.isError).toBe(false);
+    expect(result.details.mode).toBe("fork_api");
+    expect(result.content[0].text).toContain("started a dedicated Pi session");
+    expect(forkPosition).toBe("at");
+    expect(kickoffMessage).toContain("Active fork feature:");
+    const forked = getActiveFeature(m)!;
+    const savedMission = loadMissionFromDisk(m.id);
+    const savedForked = savedMission!.milestones[0].features.find((feature) => feature.id === forked.id)!;
+    expect(savedForked.sessions).toContain("session:/tmp/api-fork.jsonl");
+    expect(readHistory(m.id).some((entry) => entry.event === "feature_fork_session_created" && entry.details?.forkSessionFile === "/tmp/api-fork.jsonl")).toBe(true);
   });
 });

@@ -134,6 +134,32 @@ describe("E2E: Error Recovery Scenarios", () => {
     expect(result1.record.id).toBeDefined();
   });
 
+  it("clears retry state when feature errors are cleared", async () => {
+    const recovery = getErrorRecoveryEngine();
+    recovery.clearErrors();
+
+    const mission = createMission("Retry Cleanup Test", "Test feature retry cleanup");
+    const transientError = {
+      toolName: "bash",
+      featureId: mission.activeFeatureId,
+      missionId: mission.id,
+      timestamp: Date.now(),
+      errorType: "TransientError",
+      errorMessage: "Temporary lock busy, retry",
+    };
+
+    const first = recovery.handleError(transientError);
+    const second = recovery.handleError(transientError);
+    expect(first.retryAfter).toBe(1000);
+    expect(second.retryAfter).toBe(2000);
+
+    recovery.clearErrorsForFeature(mission.activeFeatureId!);
+
+    const afterClear = recovery.handleError(transientError);
+    expect(afterClear.record.retryCount).toBe(0);
+    expect(afterClear.retryAfter).toBe(1000);
+  });
+
   it("scenario: system error triggers degradation", async () => {
     const recovery = getErrorRecoveryEngine();
     recovery.clearErrors();

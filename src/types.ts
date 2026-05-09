@@ -2,6 +2,8 @@ export const CURRENT_SCHEMA_VERSION = 3;
 
 export type MissionStatus = "planning" | "active" | "paused" | "blocked" | "complete" | "budget_limited" | "failed";
 export type FeatureStatus = "pending" | "waiting" | "active" | "done" | "blocked" | "failed";
+export type GoalNodeStatus = "pending" | "active" | "done" | "blocked" | "failed";
+export type GoalNodeKind = "mission" | "milestone" | "feature";
 
 export type AutopilotMode = "manual" | "assisted" | "autopilot";
 
@@ -9,6 +11,7 @@ export type StopReason =
   | "mission_complete"
   | "paused_by_user"
   | "blocked"
+  | "disabled"
   | "max_iterations"
   | "max_consecutive_failures"
   | "context_limit"
@@ -79,6 +82,8 @@ export interface Feature {
   maxToolCalls?: number;
   toolCallCount: number;
   notes?: string;
+  /** Runtime-injected executor for bash acceptance checks */
+  _execFn?: (command: string) => { code: number; stdout: string; stderr?: string };
 }
 
 export interface Milestone {
@@ -90,11 +95,28 @@ export interface Milestone {
   dependsOn?: string[];
 }
 
+export interface GoalNode {
+  id: string;
+  kind: GoalNodeKind;
+  title: string;
+  description: string;
+  status: GoalNodeStatus;
+  children: GoalNode[];
+  milestoneId?: string;
+  featureId?: string;
+}
+
+export interface MissionGoal {
+  version: 1;
+  root: GoalNode;
+}
+
 export interface MissionState {
   schemaVersion: typeof CURRENT_SCHEMA_VERSION;
   id: string;
   title: string;
   goal: string;
+  goalTree?: MissionGoal;
   status: MissionStatus;
   milestones: Milestone[];
   activeMilestoneId?: string;

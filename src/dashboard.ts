@@ -14,6 +14,7 @@ import { Box, SelectList, Spacer, Text } from "@mariozechner/pi-tui";
 import { getFeatureById, progress } from "./state.js";
 import type { Feature, MissionState } from "./types.js";
 import { sessionMetrics } from "./metrics.js";
+import { buildMissionControlSummary } from "./ui.js";
 
 // ── Inline theme type (SelectListTheme may not be exported by pi-tui) ──────
 interface SelectListTheme {
@@ -52,6 +53,24 @@ function statusIcon(status: string): string {
   return STATUS_ICONS[status] ?? "•";
 }
 
+function clip(text: string, max = 72): string {
+  return text.length > max ? `${text.slice(0, max - 1)}…` : text;
+}
+
+function pendingAcceptance(feature: Feature): string[] {
+  return feature.acceptance
+    .filter((ac) => !ac.verified && !ac.waived)
+    .map((ac) => ac.checkType === "bash" && ac.checkCommand ? `${ac.id}: ${ac.description} → ${ac.checkCommand}` : `${ac.id}: ${ac.description}`);
+}
+
+function featureNextAction(feature: Feature): string {
+  if (feature.status === "blocked") return feature.notes ? `Unblock: ${clip(feature.notes)}` : "Unblock this feature before continuing";
+  if (feature.status === "waiting") return feature.dependsOn.length ? `Wait for ${feature.dependsOn.join(", ")}` : "Wait for external dependency";
+  const nextAcceptance = pendingAcceptance(feature)[0];
+  if (nextAcceptance) return `Finish acceptance: ${clip(nextAcceptance)}`;
+  return `Advance implementation: ${clip(feature.description || feature.title)}`;
+}
+
 export function featureLabel(f: Feature): string {
   const acDone = f.acceptance.filter((ac) => ac.verified || ac.waived).length;
   const acBadge = f.acceptance.length ? ` [${acDone}/${f.acceptance.length} AC]` : "";
@@ -87,15 +106,19 @@ export function buildFeatureItems(mission: MissionState): SelectItem[] {
 export function featureDetailLines(feature: Feature, width: number): string[] {
   const barW = Math.min(width - 4, 72);
   const bar = "─".repeat(barW > 0 ? barW : 40);
+  const verified = feature.acceptance.filter((ac) => ac.verified || ac.waived).length;
+  const remainingAcceptance = pendingAcceptance(feature);
   const lines: string[] = [];
   lines.push(`  ${bar}`);
   lines.push(`  📋 ${feature.id}: ${feature.title}`);
   lines.push(`  Status: ${feature.status}  |  Priority: P${feature.priority}  |  Milestone: ${feature.milestoneId}`);
   if (feature.description) lines.push(`  📝 ${feature.description}`);
+  lines.push(`  🎯 Next action: ${featureNextAction(feature)}`);
+  lines.push(`  📈 Acceptance progress: ${verified}/${feature.acceptance.length}`);
   if (feature.dependsOn.length) lines.push(`  🔗 Dependencies: ${feature.dependsOn.join(", ")}`);
   if (feature.notes) lines.push(`  📌 Notes: ${feature.notes}`);
   if (feature.acceptance.length) {
-    lines.push("  ✅ Acceptance criteria:");
+    lines.push(`  ✅ Acceptance criteria (${remainingAcceptance.length} remaining):`);
     for (const ac of feature.acceptance) {
       const mark = ac.verified || ac.waived ? "☑" : "☐";
       const checkHint = ac.checkType === "bash" && ac.checkCommand ? ` → \`${ac.checkCommand}\`` : "";
@@ -113,15 +136,12 @@ export function sessionMetricsLines(width: number): string[] {
   const lines: string[] = [];
   lines.push(`  ${bar}`);
   lines.push(`  📊 Session Metrics`);
-  lines.push(`  Session: ${metrics.sessionId}`);
   const duration = metrics.endTime ? (metrics.endTime - metrics.startTime) / 1000 : (Date.now() - metrics.startTime) / 1000;
-  lines.push(`  Duration: ${duration.toFixed(1)}s`);
-  lines.push(`  Tool Calls: ${metrics.toolCalls.total} (${((metrics.toolCalls.successful / metrics.toolCalls.total) * 100).toFixed(1)}% success)`);
-  lines.push(`  Tokens Used: ${metrics.tokensUsed}`);
-  lines.push(`  Features Completed: ${metrics.featuresCompleted}`);
-  lines.push(`  Auto-Advances: ${metrics.autoAdvanceCount}`);
-  lines.push(`  Stuck Detections: ${metrics.stuckDetectionCount}`);
-  lines.push(`  Errors: ${metrics.errors.total}`);
+  const successRate = metrics.toolCalls.total === 0 ? 100 : (metrics.toolCalls.successful / metrics.toolCalls.total) * 100;
+  lines.push(`  Session: ${metrics.sessionId}`);
+  lines.push(`  Health: ${metrics.errors.total === 0 ? "clean" : `${metrics.errors.total} errors`}  |  Tool success: ${successRate.toFixed(1)}%`);
+  lines.push(`  Throughput: ${metrics.featuresCompleted} features complete  |  ${metrics.toolCalls.total} tool calls  |  ${metrics.tokensUsed} tokens`);
+  lines.push(`  Duration: ${duration.toFixed(1)}s  |  Auto-advances: ${metrics.autoAdvanceCount}  |  Stuck detections: ${metrics.stuckDetectionCount}`);
   if (metrics.errors.total > 0) {
     lines.push(`  Error Categories:`);
     for (const [category, count] of Object.entries(metrics.errors.byCategory)) {
@@ -154,6 +174,7 @@ class MissionControl implements Component {
     this.onAction = onAction;
 
     const p = progress(mission);
+    const summary = buildMissionControlSummary(mission);
     const statusIco =
       mission.status === "complete" ? "✅"
       : mission.status === "paused" ? "⏸"
@@ -165,7 +186,9 @@ class MissionControl implements Component {
     // Header
     const header = new Box(1, 0);
     header.addChild(new Text(`${statusIco} Mission Control — ${mission.title}`));
-    header.addChild(new Text(`Progress: ${p.done}/${p.total} features (${p.pct}%)  |  Status: ${mission.status}  |  Tokens: ${mission.tokensUsed.toLocaleString()}`));
+    header.addChild(new Text(`Goal: ${clip(mission.goal || "No mission goal captured", 88)}`));
+    header.addChild(new Text(`Focus: ${summary.active ? `${summary.active.id} ${summary.active.title}` : "No active feature"}  |  Progress: ${p.done}/${p.total} (${p.pct}%)`));
+    header.addChild(new Text(`Blocked/Waiting: ${summary.blocked.length}/${summary.waiting.length}  |  Handoff: ${clip(summary.handoff, 76)}`));
 
     // Filter indicator (shown only when filterChars is non-empty)
     this.filterText = new Text("", 1, 0);

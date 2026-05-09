@@ -1,11 +1,11 @@
 import type { ExtensionAPI, ExtensionCommandContext } from "@mariozechner/pi-coding-agent";
 import type { RuntimeState } from "../types.js";
-import { DEFAULT_AUTOPILOT } from "../types.js";
-import { appendHistory, createMission, createMissionId, createValidationToken, saveMissionSafe } from "../state.js";
+import { appendHistory, saveMissionSafe } from "../state.js";
+import { createStructuredMission, missionFromWizardOutput } from "../mission-builder.js";
 import { createMissionFromTemplate, MISSION_TEMPLATES } from "../templates.js";
 import { injectMissionContext } from "./index.js";
 import { updateFooter } from "../ui.js";
-import { validate, formatValidationErrors } from "../validation.js";
+import { validate } from "../validation.js";
 import { WizardOutputSchema } from "../schemas.js";
 import { logger } from "../logger.js";
 
@@ -48,6 +48,7 @@ Rules:
 - For bash checks, add checkCommand field with the verification command
 - priority: 1 (highest) to 5 (lowest)
 - Be specific and actionable — no vague "implement X" without context
+- Do not include runtime fields like status, milestoneId, sessions, verified, or toolCallCount; pi-missions will normalize those.
 `;
 
 // ── /mission new / /mission start ───────────────────────────────────────────
@@ -62,7 +63,7 @@ export async function handleNew(titleArg: string, ctx: ExtensionCommandContext, 
   }
 
   const planningPrompt = PLANNING_WIZARD_PROMPT.replace("{goal}", goal).replace("{constraints}", constraints);
-  let parsedMission: ReturnType<typeof createMission> | null = null;
+  let parsedMission = null as ReturnType<typeof createStructuredMission> | null;
   let usedWizard = false;
 
   if ((pi as any).sendUserMessage) {
@@ -79,51 +80,11 @@ export async function handleNew(titleArg: string, ctx: ExtensionCommandContext, 
             validationErrors: validation.errors,
             missionTitle: title 
           });
-          ctx.ui.notify(`Wizard output validation failed:\n${formatValidationErrors(validation.errors)}`, "error");
-          ctx.ui.notify("Falling back to default mission structure.", "warning");
-        } else if (raw.milestones && Array.isArray(raw.milestones) && raw.milestones.length > 0) {
-          const now = Date.now();
-          parsedMission = {
-            schemaVersion: 3,
-            id: createMissionId(title, now),
-            title: raw.title || title,
-            goal,
-            status: "active" as const,
-            activeMilestoneId: raw.milestones[0]?.id ?? "M01",
-            activeFeatureId: raw.milestones[0]?.features?.[0]?.id ?? "F001",
-            tokensUsed: 0,
-            lastContextTokens: 0,
-            validationToken: createValidationToken(),
-            autopilot: { ...DEFAULT_AUTOPILOT, startedAt: new Date(now).toISOString() },
-            createdAt: now,
-            updatedAt: now,
-            milestones: raw.milestones.map((m: any, mi: number) => ({
-              id: m.id || `M${String(mi + 1).padStart(2, "0")}`,
-              title: m.title || `Milestone ${mi + 1}`,
-              description: m.description || "",
-              status: mi === 0 ? "active" as const : "pending" as const,
-              features: (m.features || []).map((f: any, fi: number) => ({
-                id: f.id || `F${String(fi + 1).padStart(3, "0")}`,
-                milestoneId: m.id || `M${String(mi + 1).padStart(2, "0")}`,
-                title: f.title || `Feature ${fi + 1}`,
-                description: f.description || "",
-                priority: f.priority ?? 1,
-                dependsOn: f.dependsOn || [],
-                status: mi === 0 && fi === 0 ? "active" as const : "pending" as const,
-                sessions: [],
-                toolCallCount: 0,
-                startedAt: mi === 0 && fi === 0 ? now : undefined,
-                acceptance: (f.acceptance || [{ id: `AC001`, description: "Complete", checkType: "manual", verified: false }]).map((ac: any) => ({
-                  id: ac.id || `AC001`,
-                  description: ac.description || "",
-                  checkType: ac.checkType || "manual",
-                  checkCommand: ac.checkCommand,
-                  verified: false,
-                })),
-              })),
-            })),
-          };
-          usedWizard = true;
+          ctx.ui.notify("Wizard output was incomplete; falling back to structured mission scaffold.", "warning");
+        } else {
+          parsedMission = missionFromWizardOutput(raw, title, goal);
+          if (!parsedMission) ctx.ui.notify("Wizard output had too little structure; falling back to structured mission scaffold.", "warning");
+          else usedWizard = true;
         }
       }
     } catch (error) {
@@ -134,7 +95,7 @@ export async function handleNew(titleArg: string, ctx: ExtensionCommandContext, 
     }
   }
 
-  const mission = parsedMission ?? createMission(title, goal, constraints);
+  const mission = parsedMission ?? createStructuredMission(title, goal, constraints);
   runtime.activeMission = mission;
   await saveMissionSafe(mission);
   appendHistory(mission, { event: "mission_created", note: goal, details: { usedWizard } });

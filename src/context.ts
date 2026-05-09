@@ -1,5 +1,6 @@
 import { getActiveFeature, getAllFeatures, getMissionPhase, progress } from "./state.js";
 import type { Feature, MissionState } from "./types.js";
+import { findGoalPathByFeatureId, getMissionGoalTree, goalTreeProgress, renderGoalTree } from "./mission-builder.js";
 
 // ─── Layer 1: Mission banner — always injected, ~8 lines ─────────────────────
 
@@ -7,11 +8,13 @@ export function buildMissionBanner(mission: MissionState): string {
   const active = getActiveFeature(mission);
   const p = progress(mission);
   const phase = getMissionPhase(mission);
+  const goalProgress = goalTreeProgress(getMissionGoalTree(mission));
 
   const lines = [
     "## Pi Missions Extension — Active",
     `Mission: ${mission.title}  [${p.pct}% done]`,
     `Goal: ${mission.goal}`,
+    `Goal Tree: ${goalProgress.done}/${goalProgress.total} leaf goals | ${goalProgress.pct}% done`,
     `Progress: ${p.done}/${p.total} features | Status: ${mission.status} | Phase: ${phase}`,
     `State: ~/.pi/missions/${mission.id}/`,
   ];
@@ -36,8 +39,13 @@ export function buildFeatureBrief(mission: MissionState, feature: Feature): stri
   const allFeatures = getAllFeatures(mission);
   const pendingCount = allFeatures.filter((f) => f.status === "pending").length;
   const blockedCount = allFeatures.filter((f) => f.status === "blocked").length;
+  const goalPath = findGoalPathByFeatureId(getMissionGoalTree(mission), feature.id);
 
   const lines: string[] = [];
+
+  if (goalPath.length) {
+    lines.push(`Goal path: ${goalPath.map((node) => node.title).join(" -> ")}`);
+  }
 
   // Acceptance criteria
   if (feature.acceptance.length) {
@@ -117,12 +125,14 @@ export function buildMissionContext(mission: MissionState): string {
   const banner = buildMissionBanner(mission);
   const brief = active ? buildFeatureBrief(mission, active) : "";
   const help = buildMissionHelp();
+  const goalTreeLines = renderGoalTree(getMissionGoalTree(mission), 10);
 
   const allFeatures = getAllFeatures(mission);
   const doneRecent = allFeatures.filter((f) => f.status === "done").slice(-3);
 
   const parts = [banner];
   if (brief) parts.push(brief);
+  if (goalTreeLines.length) parts.push("### Goal Tree", ...goalTreeLines);
   parts.push(help);
   if (doneRecent.length) {
     parts.push("", "### Recently completed");
@@ -140,6 +150,7 @@ export function buildLeanContext(mission: MissionState): string {
   const brief = active ? buildFeatureBrief(mission, active) : "";
   const parts = [banner];
   if (brief) parts.push(brief);
+  parts.push("", `Goal tree snapshot: ${renderGoalTree(getMissionGoalTree(mission), 3).join(" | ")}`);
   // One-line reminder instead of full help dump
   parts.push("", "Use /mission status for full overview. /mission help for commands & tools reference.");
   return parts.join("\n");
@@ -148,10 +159,12 @@ export function buildLeanContext(mission: MissionState): string {
 export function buildCompactionSummary(mission: MissionState): string {
   const active = getActiveFeature(mission);
   const p = progress(mission);
+  const goalProgress = goalTreeProgress(getMissionGoalTree(mission));
   return [
     `Mission: ${mission.title}`,
     `Mission ID: ${mission.id}`,
     `Goal: ${mission.goal}`,
+    `Goal tree: ${goalProgress.done}/${goalProgress.total} leaf goals (${goalProgress.pct}%)`,
     `Status: ${mission.status}`,
     `Progress: ${p.done}/${p.total} (${p.pct}%)`,
     active ? `Active feature: ${active.id} — ${active.title}` : "Active feature: none",

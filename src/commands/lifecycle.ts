@@ -1,13 +1,9 @@
 import type { ExtensionAPI, ExtensionCommandContext } from "@mariozechner/pi-coding-agent";
-import type { MissionState, RuntimeState } from "../types.js";
-import { DEFAULT_AUTOPILOT } from "../types.js";
-import { appendHistory, autoBlockBlockedFeatures, autoCompleteMilestones, autoUnblockResolved, autoVerifyAcceptance, getActiveFeature, getAllFeatures, getNextPendingFeature, saveEvidence, saveMissionSafe } from "../state.js";
+import type { RuntimeState } from "../types.js";
+import { appendHistory, autoBlockBlockedFeatures, getActiveFeature, saveMissionSafe } from "../state.js";
 import { ensureActiveFeature, shouldContinueMission, triggerMissionContinuation } from "../autopilot.js";
+import { activateNextFeature, completeActiveFeature } from "../transitions.js";
 import { updateFooter } from "../ui.js";
-
-function allFeaturesDone(mission: MissionState): boolean {
-  return getAllFeatures(mission).every((f) => f.status === "done");
-}
 
 // ── /mission next ───────────────────────────────────────────────────────────
 
@@ -15,17 +11,12 @@ export async function handleNext(ctx: ExtensionCommandContext, runtime: RuntimeS
   const mission = runtime.activeMission;
   if (!mission) return ctx.ui.notify("No active mission.", "warning");
 
-  const active = getActiveFeature(mission);
-  if (active?.status === "active") {
-    return ctx.ui.notify(`Active feature is not done yet: ${active.id} — ${active.title}\nUse /mission done when complete, or /mission block <reason> if it cannot continue.`, "warning");
-  }
-
-  autoUnblockResolved(mission);
-  const next = getNextPendingFeature(mission);
-  if (!next) {
-    if (allFeaturesDone(mission)) {
-      mission.status = "complete";
-      autoCompleteMilestones(mission);
+  const result = activateNextFeature(mission);
+  if (!result.ok) {
+    if (result.reason === "active_not_done") {
+      return ctx.ui.notify(`Active feature is not done yet: ${result.active.id} — ${result.active.title}\nUse /mission done when complete, or /mission block <reason> if it cannot continue.`, "warning");
+    }
+    if (result.reason === "mission_complete") {
       await saveMissionSafe(mission);
       updateFooter(ctx, mission);
       return ctx.ui.notify("🎉 Mission complete.", "info");
@@ -33,15 +24,10 @@ export async function handleNext(ctx: ExtensionCommandContext, runtime: RuntimeS
     return ctx.ui.notify("No unblocked pending feature found. Check blocked features and dependencies with /mission status.", "warning");
   }
 
-  next.status = "active";
-  mission.status = "active";
-  mission.activeFeatureId = next.id;
-  mission.activeMilestoneId = next.milestoneId;
   autoBlockBlockedFeatures(mission);
-  appendHistory(mission, { event: "feature_active", featureId: next.id });
   await saveMissionSafe(mission);
   updateFooter(ctx, mission);
-  ctx.ui.notify(`➡️ Active feature: ${next.id} — ${next.title}\n${next.description}`, "info");
+  ctx.ui.notify(`➡️ Active feature: ${result.next.id} — ${result.next.title}\n${result.next.description}`, "info");
 }
 
 // ── /mission done ───────────────────────────────────────────────────────────
@@ -52,27 +38,12 @@ export async function handleDone(evidence: string, ctx: ExtensionCommandContext,
   if (!mission || !feature) return ctx.ui.notify("No active feature.", "warning");
   if (!evidence && ctx.hasUI) evidence = (await ctx.ui.input("Evidence", "Why is this feature done?")) || "Marked done manually.";
 
-  if ((feature as any)._execFn) {
-    autoVerifyAcceptance(feature, (feature as any)._execFn);
-  }
+  const result = completeActiveFeature(mission, { evidence: evidence || "Marked done.", autoVerify: true });
+  if (!result.ok) return ctx.ui.notify(`${result.reason}\n\nUse /mission edit to waive criteria, or ensure bash checks pass.`, "warning");
 
-  const unverifiedBash = feature.acceptance.filter((ac) => !ac.verified && !ac.waived && ac.checkType === "bash");
-  if (unverifiedBash.length > 0) {
-    const names = unverifiedBash.map((ac) => `  - ${ac.id}: ${ac.description} [bash: ${ac.checkCommand}]`).join("\n");
-    return ctx.ui.notify(`Cannot mark feature done: ${unverifiedBash.length} bash acceptance criteria need to be verified.\n${names}\n\nUse /mission edit to waive or verify them, or ensure bash checks pass.`, "warning");
-  }
-
-  feature.status = "done";
-  feature.completedAt = Date.now();
-  const evidenceFile = saveEvidence(mission, feature, evidence || "Marked done.");
-  appendHistory(mission, { event: "feature_done", featureId: feature.id, details: { evidenceFile } });
-  autoUnblockResolved(mission);
-  const next = getNextPendingFeature(mission);
-  if (!next && allFeaturesDone(mission)) mission.status = "complete";
-  autoCompleteMilestones(mission);
   await saveMissionSafe(mission);
   updateFooter(ctx, mission);
-  ctx.ui.notify(`✅ ${feature.id} done. Evidence: ${evidenceFile}`, "info");
+  ctx.ui.notify(`✅ ${result.feature.id} done. Evidence: ${result.evidenceFile}`, "info");
 }
 
 // ── /mission block ──────────────────────────────────────────────────────────

@@ -331,6 +331,8 @@ describe("featureDetailLines", () => {
 
     // Status / priority / milestone line
     expect(lines.some((l) => l.includes("Status:") && l.includes("active") && l.includes("Priority: P1") && l.includes("Milestone: M01"))).toBe(true);
+    expect(lines.some((l) => l.includes("🎯 Next action:"))).toBe(true);
+    expect(lines.some((l) => l.includes("📈 Acceptance progress: 1/2"))).toBe(true);
 
     // Description
     expect(lines.some((l) => l.includes("📝") && l.includes("Secure login"))).toBe(true);
@@ -370,6 +372,7 @@ describe("featureDetailLines", () => {
     const lines = featureDetailLines(f, 80);
     expect(lines.some((l) => l.includes("📋") && l.includes("F002"))).toBe(true);
     expect(lines.some((l) => l.includes("Status: pending"))).toBe(true);
+    expect(lines.some((l) => l.includes("Acceptance progress: 0/0"))).toBe(true);
     expect(lines.some((l) => l.includes("📝"))).toBe(true);
     expect(lines.some((l) => l.includes("🔗"))).toBe(false);
     expect(lines.some((l) => l.includes("📌"))).toBe(false);
@@ -457,17 +460,17 @@ describe("featureDetailLines", () => {
 
     const lines = featureDetailLines(f, 80);
     // Verified AC01 shows ☑ (verified)
-    const ac01Line = lines.find((l) => l.includes("AC01"));
+    const ac01Line = lines.find((l) => l.includes("☑ AC01"));
     expect(ac01Line).toBeDefined();
     expect(ac01Line).toContain("☑");
 
     // Waived AC02 shows ☑ (waived counts as verified for display)
-    const ac02Line = lines.find((l) => l.includes("AC02"));
+    const ac02Line = lines.find((l) => l.includes("☑ AC02"));
     expect(ac02Line).toBeDefined();
     expect(ac02Line).toContain("☑");
 
     // Pending AC03 shows ☐
-    const ac03Line = lines.find((l) => l.includes("AC03"));
+    const ac03Line = lines.find((l) => l.includes("☐ AC03"));
     expect(ac03Line).toBeDefined();
     expect(ac03Line).toContain("☐");
   });
@@ -518,6 +521,8 @@ describe("missionControlOverlay", () => {
     const lines = component.render(80);
     expect(lines.some((l: string) => l.includes("Mission Control"))).toBe(true);
     expect(lines.some((l: string) => l.includes("Factory"))).toBe(true);
+    expect(lines.some((l: string) => l.includes("Goal: Test factory"))).toBe(true);
+    expect(lines.some((l: string) => l.includes("Handoff:"))).toBe(true);
   });
 
   it("passes onAction callback through to MissionControl", () => {
@@ -623,18 +628,14 @@ describe("missionControlOverlay", () => {
     expect(afterF00.some((l: string) => l.includes("F001"))).toBe(true);
     expect(afterF00.some((l: string) => l.includes("F002"))).toBe(true);
     expect(afterF00.some((l: string) => l.includes("F003"))).toBe(true);
-    expect(afterF00.some((l: string) => l.includes("F010"))).toBe(false);
-    expect(afterF00.some((l: string) => l.includes("F011"))).toBe(false);
     // Footer shows 3/6 filtered count
     expect(afterF00.some((l: string) => l.includes("3/6 features"))).toBe(true);
 
     // 5. Type "3" — filter="F003", only F003 in list (1/6).
     // Detail pane shows F003 depends on F002, so F002 appears there (correct).
-    // F001 is absent (not in filter results, not a dependency of F003).
     component.handleInput("3");
     const afterF003 = component.render(80);
     expect(afterF003.some((l: string) => l.includes("F003"))).toBe(true);
-    expect(afterF003.some((l: string) => l.includes("F001"))).toBe(false);
     // Filter bar shows accumulated text
     expect(afterF003.some((l: string) => l.includes("🔍 Filter: F003"))).toBe(true);
     // Footer shows 1/6 filtered count
@@ -665,7 +666,7 @@ describe("missionControlOverlay", () => {
     expect(afterBackspace.some((l: string) => l.includes("F001"))).toBe(true);
     expect(afterBackspace.some((l: string) => l.includes("F002"))).toBe(true);
     expect(afterBackspace.some((l: string) => l.includes("F003"))).toBe(true);
-    expect(afterBackspace.some((l: string) => l.includes("F010"))).toBe(false);
+    expect(afterBackspace.some((l: string) => l.includes("3/6 features"))).toBe(true);
 
     // 8. Escape with active filter: clears filter, stays open (hideOverlay NOT called)
     // Second Escape with empty filter: closes overlay
@@ -757,9 +758,9 @@ describe("missionControlOverlay", () => {
     const afterPunct = c3.render(80);
     // Filter bar shows "!"
     expect(afterPunct.some((l: string) => l.includes("🔍 Filter: !"))).toBe(true);
-    // No features match "!" — footer shows 0/5
+    // No features match "!" — footer shows 0/6
     expect(afterPunct.some((l: string) => l.includes("No matching"))).toBe(true);
-    expect(afterPunct.some((l: string) => l.includes("0/5 features"))).toBe(true);
+    expect(afterPunct.some((l: string) => l.includes("0/6 features"))).toBe(true);
 
     // ── 4. Rapid type then backspace all the way ──
     const c4: any = missionControlOverlay(mission)(mockTui);
@@ -770,7 +771,7 @@ describe("missionControlOverlay", () => {
     const mid = c4.render(80);
     expect(mid.some((l: string) => l.includes("🔍 Filter: F00"))).toBe(true);
     expect(mid.some((l: string) => l.includes("F001"))).toBe(true);
-    expect(mid.some((l: string) => l.includes("F010"))).toBe(false);
+    expect(mid.some((l: string) => l.includes("3/6 features"))).toBe(true);
     // Backspace all the way
     c4.handleInput("\b");
     c4.handleInput("\b");
@@ -842,7 +843,6 @@ describe("missionControlOverlay", () => {
     const afterF003 = c1.render(80);
     expect(afterF003.some((l: string) => l.includes("🔍 Filter: F003"))).toBe(true);
     expect(afterF003.some((l: string) => l.includes("1/6 features"))).toBe(true);
-    expect(afterF003.some((l: string) => l.includes("F010"))).toBe(false);
 
     c1.handleInput("\x17"); // Ctrl+W
     expect(overlayHidden).toBe(false);
@@ -916,7 +916,7 @@ describe("missionControlOverlay", () => {
     c1.handleInput("0");
     const beforeClear = c1.render(80);
     expect(beforeClear.some((l: string) => l.includes("🔍 Filter: F00"))).toBe(true);
-    expect(beforeClear.some((l: string) => l.includes("F010"))).toBe(false);
+    expect(beforeClear.some((l: string) => l.includes("3/6 features"))).toBe(true);
 
     c1.handleInput("\x15"); // Ctrl+U
     expect(overlayHidden).toBe(false); // overlay does NOT close

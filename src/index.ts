@@ -1,7 +1,7 @@
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { completionSignal, buildLeanContext } from "./context.js";
 import { compactionCheckpoint, handleDashboard, missionSummaryForTree, registerMissionCommand, saveSessionLink } from "./commands/index.js";
-import { appendHistory, autoBlockBlockedFeatures, getActiveFeature, getMissionPhase, isValidMissionId, loadMissionFromDisk, saveEvidence, saveMissionSafe, getNextPendingFeature, getAllFeatures } from "./state.js";
+import { appendHistory, autoBlockBlockedFeatures, getActiveFeature, getMissionPhase, isValidMissionId, loadMissionFromDisk, saveEvidence, saveMissionSafe } from "./state.js";
 import type { RuntimeState, ToolPhase } from "./types.js";
 import { TOOL_POLICIES } from "./types.js";
 import { isReadOnlyPlanningBash, PLANNING_READ_ONLY_BASH_COMMANDS } from "./planning-bash.js";
@@ -16,6 +16,8 @@ import { sessionMetrics, SessionMetricsCollector } from "./metrics.js";
 
 import { toolResultErrorMessage, type ToolCallEvent, type ToolResultEvent } from "./planning-bash.js";
 import { processAgentEndForAutopilot } from "./autopilot.js";
+import { activateNextFeature, completeActiveFeature } from "./transitions.js";
+import { latestActiveMissionSessionEntry } from "./session-entry.js";
 
 // Re-export types needed for downstream consumers
 export type { ToolCallEvent, ToolResultEvent };
@@ -30,15 +32,24 @@ export default function piMissions(pi: ExtensionAPI): void {
     // Reset metrics on session start
     SessionMetricsCollector.reset();
 
-    const entries = ctx.sessionManager.getEntries() as Array<Record<string, any>>;
-    const activeEntry = [...entries].reverse().find((e) => e.type === "custom" && e.customType === "pi-mission-active");
+    const entries = ctx.sessionManager.getEntries() as Array<Record<string, unknown>>;
+    const activeEntry = latestActiveMissionSessionEntry(entries);
     
-    if (!activeEntry?.data?.missionId) {
+    if (activeEntry.kind === "none") {
       // No mission event - nothing to do
       return;
     }
+
+    if (activeEntry.kind === "invalid") {
+      logger.warn("index", "Invalid pi-mission-active session entry", { reason: activeEntry.reason });
+      ctx.ui?.notify(
+        `⚠️ Ignoring invalid mission session entry: ${activeEntry.reason}. Use /mission load <id> to restore manually.`,
+        "warning"
+      );
+      return;
+    }
     
-    const missionId = activeEntry.data.missionId;
+    const { missionId, validationToken } = activeEntry.entry;
     
     // Validate mission ID format
     if (!isValidMissionId(missionId)) {
@@ -65,7 +76,7 @@ export default function piMissions(pi: ExtensionAPI): void {
     }
     
     // Validate event token if present
-    if (activeEntry.data.validationToken && activeEntry.data.validationToken !== mission.validationToken) {
+    if (validationToken && validationToken !== mission.validationToken) {
       logger.warn("index", "Invalid validation token for mission", { missionId });
       console.warn(`[pi-missions] Invalid validation token for mission: ${missionId}`);
       ctx.ui?.notify(
@@ -306,33 +317,33 @@ export default function piMissions(pi: ExtensionAPI): void {
     
     // Handle auto-advance based on detection result
     if (detectionResult.suggestedAction === "auto_done") {
-      // Auto-complete the feature
-      feature.status = "done";
-      feature.completedAt = Date.now();
-      for (const ac of feature.acceptance) if (!ac.waived) ac.verified = true;
-      const evidenceFile = saveEvidence(mission, feature, `Auto-completed: ${detectionResult.reason}\n\nSignals:\n${detectionResult.signals.map(s => `- ${s.type}: ${s.evidence}`).join("\n")}`);
-      appendHistory(mission, { event: "feature_done", featureId: feature.id, note: "Auto-completed", details: { evidenceFile, auto: true } });
+      const completed = completeActiveFeature(mission, {
+        evidence: `Auto-completed: ${detectionResult.reason}\n\nSignals:\n${detectionResult.signals.map(s => `- ${s.type}: ${s.evidence}`).join("\n")}`,
+        markAcceptanceVerified: true,
+        historyNote: "Auto-completed",
+        historyDetails: { auto: true },
+      });
+      if (!completed.ok) {
+        ctx.ui.notify(`Feature '${feature.title}' looked complete, but cannot auto-complete: ${completed.reason}`, "info");
+        await saveMissionSafe(mission);
+        updateFooter(ctx, mission);
+        return;
+      }
       
       // Record metrics
       sessionMetrics.recordFeatureCompleted();
       
       // Auto-advance to next feature
-      const next = getNextPendingFeature(mission);
-      if (next) {
+      const nextResult = activateNextFeature(mission, "Auto-advanced");
+      if (nextResult.ok) {
         sessionMetrics.recordAutoAdvance();
-        next.status = "active";
-        mission.activeFeatureId = next.id;
-        mission.activeMilestoneId = next.milestoneId;
         autoBlockBlockedFeatures(mission);
-        appendHistory(mission, { event: "feature_active", featureId: next.id, note: "Auto-advanced" });
-        ctx.ui.notify(`✅ Auto-completed feature ${feature.id}. Auto-advanced to ${next.id} — ${next.title}`, "info");
-      } else if (getAllFeatures(mission).every(f => f.status === "done")) {
-        mission.status = "complete";
-        appendHistory(mission, { event: "mission_complete", note: "Auto-completed all features" });
+        ctx.ui.notify(`✅ Auto-completed feature ${completed.feature.id}. Auto-advanced to ${nextResult.next.id} — ${nextResult.next.title}`, "info");
+      } else if (nextResult.reason === "mission_complete") {
         ctx.ui.notify(`🎉 Mission complete! All features auto-completed.`, "info");
       } else {
         autoBlockBlockedFeatures(mission);
-        ctx.ui.notify(`✅ Auto-completed feature ${feature.id}. No pending features - check blocked features.`, "info");
+        ctx.ui.notify(`✅ Auto-completed feature ${completed.feature.id}. No pending features - check blocked features.`, "info");
       }
       
       await saveMissionSafe(mission);

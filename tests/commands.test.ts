@@ -2,7 +2,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vites
 import type { TUI } from "@mariozechner/pi-tui";
 import { cloneFeatureForFork, compactionCheckpoint, handleBlock, handleClear, handleDashboard, handleDebug, handleDone, handleEdit, handleExport, handleFork, handleList, handleLoad, handleNew, handleNext, handlePause, handleResume, handleStatus, handleTemplates, injectMissionContext, missionSummaryForTree, saveSessionLink } from "../src/commands/index.js";
 import { missionControlOverlay } from "../src/dashboard.js";
-import { appendHistory, autoBlockBlockedFeatures, createMission, loadMissionFromDisk, saveEvidence, saveMissionSafe } from "../src/state.js";
+import { appendHistory, autoBlockBlockedFeatures, createMission, loadMissionFromDisk, readHistory, saveEvidence, saveMissionSafe } from "../src/state.js";
 import { exportMarkdown } from "../src/export.js";
 import type { MissionState, RuntimeState } from "../src/types.js";
 import * as fs from "node:fs";
@@ -127,6 +127,8 @@ describe("exportMarkdown", () => {
     expect(md).toContain("**Status**: active");
     expect(md).toContain("**Progress**: 0/3 (0%)");
     expect(md).toContain("**Tokens used**: 999");
+    expect(md).toContain("## Mission Control Handoff");
+    expect(md).toContain("**Next runnable feature**");
   });
 
   it("includes evidence in export when available", async () => {
@@ -279,6 +281,7 @@ function mkCtx(overrides: Record<string, any> = {}): any {
     },
     sessionManager: {
       getLeafId: () => null,
+      getSessionFile: () => undefined,
       getEntries: () => [],
       appendCustomMessageEntry: (customType: string, content: string, display: boolean, details: Record<string, unknown>) => {
         customMessages.push({ customType, content, display, details });
@@ -933,18 +936,41 @@ describe("handleFork", () => {
 
   it("forks and calls ctx.fork when leafId is available", async () => {
     let forkCalled = false;
+    let kickoffMessage = "";
+    let forkPosition = "";
     const ctx = mkCtx({
       hasUI: true,
-      sessionManager: { getLeafId: () => "leaf-42" },
-      fork: async (_leafId: string, _opts: any) => { forkCalled = true; },
+      sessionManager: { getLeafId: () => "leaf-42", getSessionFile: () => "/tmp/parent-session.jsonl" },
+      fork: async (_leafId: string, opts: any) => {
+        forkCalled = true;
+        forkPosition = opts.position;
+        await opts.withSession({
+          ui: { notify: () => {} },
+          sessionManager: { getSessionFile: () => "/tmp/fork-session.jsonl" },
+          sendUserMessage: async (message: string) => { kickoffMessage = message; },
+        });
+        return { cancelled: false };
+      },
     });
     const rt = runtimeFixture();
     await saveMissionSafe(rt.activeMission!);
     await handleFork("Alternative approach", ctx, rt);
     expect(forkCalled).toBe(true);
+    expect(forkPosition).toBe("at");
+    expect(kickoffMessage).toContain("Continue mission");
+    expect(kickoffMessage).toContain("Alternative approach");
     const forked = rt.activeMission!.milestones[0].features[3];
     expect(forked).toBeDefined();
     expect(forked!.title).toContain("[fork]");
+    expect(forked!.sessions).toContain("parent-leaf:leaf-42");
+    expect(forked!.sessions).toContain("parent-session:/tmp/parent-session.jsonl");
+    const savedMission = loadMissionFromDisk(rt.activeMission!.id);
+    expect(savedMission).not.toBeNull();
+    const savedForked = savedMission!.milestones[0].features[3]!;
+    expect(savedForked.sessions).toContain("session:/tmp/fork-session.jsonl");
+    const history = readHistory(rt.activeMission!.id);
+    expect(history.some((entry) => entry.event === "feature_forked" && entry.details?.forkedFeatureId === savedForked.id)).toBe(true);
+    expect(history.some((entry) => entry.event === "feature_fork_session_created" && entry.details?.forkSessionFile === "/tmp/fork-session.jsonl")).toBe(true);
   });
 });
 
@@ -983,21 +1009,19 @@ describe("handleNew", () => {
         title: "Wizard Mission",
         milestones: [
           {
-            id: "M01", title: "M1", description: "D1", status: "active",
+            id: "M01", title: "M1", description: "D1",
             features: [{
-              id: "F001", milestoneId: "M01", title: "F1", description: "FD1",
+              id: "F001", title: "F1", description: "FD1",
               priority: 1, dependsOn: [],
-              acceptance: [{ id: "AC001", description: "A1", checkType: "manual", verified: false }],
-              status: "pending", sessions: [], toolCallCount: 0,
+              acceptance: [{ id: "AC001", description: "A1", checkType: "manual" }],
             }],
           },
           {
-            id: "M02", title: "M2", description: "D2", status: "pending",
+            id: "M02", title: "M2", description: "D2",
             features: [{
-              id: "F002", milestoneId: "M02", title: "F2", description: "FD2",
+              id: "F002", title: "F2", description: "FD2",
               priority: 1, dependsOn: [],
-              acceptance: [{ id: "AC002", description: "A2", checkType: "manual", verified: false }],
-              status: "pending", sessions: [], toolCallCount: 0,
+              acceptance: [{ id: "AC002", description: "A2", checkType: "manual" }],
             }],
           },
         ],
@@ -1012,6 +1036,149 @@ describe("handleNew", () => {
     expect(aiGeneratedCall!.msg).toContain("AI-generated");
   });
 
+  it("normalizes planner-shaped wizard output into runnable mission state", async () => {
+    const ctx = mkCtx();
+    const rt: RuntimeState =      { activeMission: null, autoSaveInterval: null, phaseToolCallCount: 0, currentPhase: "execution", lastFeatureId: undefined };
+    const pi = mkPi({
+      sendUserMessage: async () => JSON.stringify({
+        title: "Factory Style Mission",
+        milestones: [
+          {
+            id: "M01",
+            title: "Plan",
+            description: "Plan the work",
+            features: [
+              {
+                id: "F001",
+                title: "Scope",
+                description: "Clarify scope",
+                priority: 1,
+                dependsOn: [],
+                acceptance: [{ id: "AC001", description: "Scope documented", checkType: "manual" }],
+              },
+              {
+                id: "F002",
+                title: "Map system",
+                description: "Inspect files",
+                priority: 2,
+                dependsOn: ["F001"],
+                acceptance: [{ id: "AC001", description: "System mapped", checkType: "manual" }],
+              },
+            ],
+          },
+          {
+            id: "M02",
+            title: "Ship",
+            description: "Build and verify",
+            features: [
+              {
+                id: "F003",
+                title: "Implement",
+                description: "Make the change",
+                priority: 1,
+                dependsOn: ["F002"],
+                acceptance: [{ id: "AC001", description: "Implementation complete", checkType: "manual" }],
+              },
+              {
+                id: "F004",
+                title: "Verify",
+                description: "Run tests",
+                priority: 2,
+                dependsOn: ["F003"],
+                acceptance: [{ id: "AC001", description: "Tests pass", checkType: "bash", checkCommand: "npm test" }],
+              },
+              {
+                id: "F005",
+                title: "Handoff",
+                description: "Summarize evidence",
+                priority: 3,
+                dependsOn: ["F004"],
+                acceptance: [{ id: "AC001", description: "Evidence summarized", checkType: "manual" }],
+              },
+            ],
+          },
+        ],
+      }),
+    });
+
+    await handleNew("Ignored fallback", ctx, pi, rt);
+
+    expect(rt.activeMission!.title).toBe("Factory Style Mission");
+    expect(rt.activeMission!.activeFeatureId).toBe("F001");
+    expect(rt.activeMission!.milestones).toHaveLength(2);
+    expect(rt.activeMission!.milestones.flatMap((m) => m.features)).toHaveLength(5);
+    expect(rt.activeMission!.milestones[1]!.features[1]!.dependsOn).toEqual(["F003"]);
+    expect(rt.activeMission!.milestones[1]!.features[1]!.acceptance[0]!.verified).toBe(false);
+    expect(ctx.getCalls().some((c: any) => c.msg?.includes("AI-generated"))).toBe(true);
+  });
+
+  it("normalizes per-milestone feature IDs without corrupting dependencies", async () => {
+    const ctx = mkCtx();
+    const rt: RuntimeState =      { activeMission: null, autoSaveInterval: null, phaseToolCallCount: 0, currentPhase: "execution", lastFeatureId: undefined };
+    const pi = mkPi({
+      sendUserMessage: async () => JSON.stringify({
+        title: "Repeated IDs Mission",
+        milestones: [
+          {
+            id: "M01",
+            title: "Plan",
+            description: "Plan the work",
+            features: [
+              {
+                id: "F001",
+                title: "Scope",
+                description: "Clarify scope",
+                priority: 1,
+                dependsOn: [],
+                acceptance: [{ id: "AC001", description: "Scope documented", checkType: "manual" }],
+              },
+              {
+                id: "F002",
+                title: "Map",
+                description: "Map current state",
+                priority: 2,
+                dependsOn: ["F001"],
+                acceptance: [{ id: "AC001", description: "State mapped", checkType: "manual" }],
+              },
+            ],
+          },
+          {
+            id: "M02",
+            title: "Ship",
+            description: "Ship the work",
+            features: [
+              {
+                id: "F001",
+                title: "Implement",
+                description: "Implement scoped change",
+                priority: 1,
+                dependsOn: [],
+                acceptance: [{ id: "AC001", description: "Implemented", checkType: "manual" }],
+              },
+              {
+                id: "F002",
+                title: "Verify",
+                description: "Verify scoped change",
+                priority: 2,
+                dependsOn: ["F001"],
+                acceptance: [{ id: "AC001", description: "Verified", checkType: "manual" }],
+              },
+            ],
+          },
+        ],
+      }),
+    });
+
+    await handleNew("Ignored fallback", ctx, pi, rt);
+
+    const [m1, m2] = rt.activeMission!.milestones;
+    expect(m1!.features[1]!.id).toBe("F002");
+    expect(m1!.features[1]!.dependsOn).toEqual(["F001"]);
+    expect(m2!.features[0]!.id).toBe("F003");
+    expect(m2!.features[1]!.id).toBe("F004");
+    expect(m2!.features[1]!.dependsOn).toEqual(["F003"]);
+  });
+
   it("falls back to default mission when wizard JSON is invalid", async () => {
     const ctx = mkCtx();
     const rt: RuntimeState =      { activeMission: null, autoSaveInterval: null, phaseToolCallCount: 0, currentPhase: "execution", lastFeatureId: undefined };
@@ -1019,6 +1186,8 @@ describe("handleNew", () => {
     await handleNew("Fallback", ctx, pi, rt);
     expect(rt.activeMission).not.toBeNull();
     expect(rt.activeMission!.title).toBe("Fallback");
+    expect(rt.activeMission!.milestones).toHaveLength(2);
+    expect(rt.activeMission!.milestones.flatMap((m) => m.features)).toHaveLength(5);
     expect(ctx.getCalls()[0]!.msg).not.toContain("AI-generated");
   });
 

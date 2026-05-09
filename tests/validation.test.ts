@@ -70,36 +70,26 @@ describe("Schema Validation", () => {
           id: "M01",
           title: "Milestone 1",
           description: "First milestone",
-          status: "active",
           features: [{
             id: "F001",
-            milestoneId: "M01",
             title: "Feature 1",
             description: "First feature",
             priority: 1,
             dependsOn: [],
-            acceptance: [{ id: "AC001", description: "Test", checkType: "manual", verified: false }],
-            status: "pending",
-            sessions: [],
-            toolCallCount: 0,
+            acceptance: [{ id: "AC001", description: "Test", checkType: "manual" }],
           }],
         },
         {
           id: "M02",
           title: "Milestone 2",
           description: "Second milestone",
-          status: "pending",
           features: [{
             id: "F002",
-            milestoneId: "M02",
             title: "Feature 2",
             description: "Second feature",
             priority: 1,
             dependsOn: [],
-            acceptance: [{ id: "AC002", description: "Test", checkType: "manual", verified: false }],
-            status: "pending",
-            sessions: [],
-            toolCallCount: 0,
+            acceptance: [{ id: "AC002", description: "Test", checkType: "manual" }],
           }],
         },
       ],
@@ -107,6 +97,122 @@ describe("Schema Validation", () => {
     const result = validate(WizardOutputSchema, valid);
     expect(result.valid).toBe(true);
     expect(result.errors).toHaveLength(0);
+  });
+
+  it("accepts planner-shaped wizard output without runtime fields", () => {
+    const valid = {
+      title: "Planner Mission",
+      milestones: [
+        {
+          id: "M01",
+          title: "Plan",
+          description: "Plan the work",
+          features: [{
+            id: "F001",
+            title: "Scope",
+            description: "Clarify scope and constraints",
+            priority: 1,
+            dependsOn: [],
+            acceptance: [{ id: "AC001", description: "Scope documented", checkType: "manual" }],
+          }],
+        },
+        {
+          id: "M02",
+          title: "Build",
+          description: "Build the change",
+          features: [{
+            id: "F002",
+            title: "Implement",
+            description: "Implement the accepted plan",
+            priority: 1,
+            dependsOn: ["F001"],
+            acceptance: [{ id: "AC001", description: "Tests pass", checkType: "bash", checkCommand: "npm test" }],
+          }],
+        },
+      ],
+    };
+    const result = validate(WizardOutputSchema, valid);
+    expect(result.valid).toBe(true);
+  });
+
+  it("rejects wizard output with runtime-only fields", () => {
+    const invalid = {
+      title: "Planner Mission",
+      milestones: [
+        {
+          id: "M01",
+          title: "Plan",
+          description: "Plan the work",
+          status: "active",
+          features: [{
+            id: "F001",
+            milestoneId: "M01",
+            title: "Scope",
+            description: "Clarify scope and constraints",
+            priority: 1,
+            dependsOn: [],
+            status: "pending",
+            sessions: [],
+            toolCallCount: 0,
+            acceptance: [{ id: "AC001", description: "Scope documented", checkType: "manual", verified: true, waived: true }],
+          }],
+        },
+        {
+          id: "M02",
+          title: "Build",
+          description: "Build the change",
+          features: [{
+            id: "F002",
+            title: "Implement",
+            description: "Implement the accepted plan",
+            priority: 1,
+            dependsOn: ["F001"],
+            acceptance: [{ id: "AC001", description: "Tests pass", checkType: "bash", checkCommand: "npm test" }],
+          }],
+        },
+      ],
+    };
+    const result = validate(WizardOutputSchema, invalid);
+    expect(result.valid).toBe(false);
+    expect(result.errors.some((error) => error.path.includes("status"))).toBe(true);
+    expect(result.errors.some((error) => error.path.includes("verified") || error.path.includes("waived"))).toBe(true);
+  });
+
+  it("rejects root-level wizard metadata that is not part of the planning contract", () => {
+    const invalid = {
+      title: "Planner Mission",
+      goalTree: { rootTitle: "Planner Mission" },
+      milestones: [
+        {
+          id: "M01",
+          title: "Plan",
+          description: "Plan the work",
+          features: [{
+            id: "F001",
+            title: "Scope",
+            description: "Clarify scope and constraints",
+            priority: 1,
+            dependsOn: [],
+            acceptance: [{ id: "AC001", description: "Scope documented", checkType: "manual" }],
+          }],
+        },
+        {
+          id: "M02",
+          title: "Build",
+          description: "Build the change",
+          features: [{
+            id: "F002",
+            title: "Implement",
+            description: "Implement the accepted plan",
+            priority: 1,
+            dependsOn: ["F001"],
+            acceptance: [{ id: "AC001", description: "Tests pass", checkType: "bash", checkCommand: "npm test" }],
+          }],
+        },
+      ],
+    };
+    const result = validate(WizardOutputSchema, invalid);
+    expect(result.valid).toBe(false);
   });
 
   it("limits error display to 10 errors", () => {

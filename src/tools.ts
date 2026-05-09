@@ -1,13 +1,76 @@
 import type { ExtensionAPI, ExtensionCommandContext } from "@mariozechner/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
-import { appendHistory, autoUnblockResolved, autoVerifyAcceptance, getActiveFeature, getAllFeatures, getNextPendingFeature, saveEvidence, saveMissionSafe } from "./state.js";
-import type { MissionState, RuntimeState } from "./types.js";
+import { appendHistory, autoUnblockResolved, getActiveFeature, getFeatureById, getMilestoneById, getNextPendingFeature, loadMissionFromDisk, saveMissionSafe } from "./state.js";
+import type { Feature, RuntimeState } from "./types.js";
 import { updateFooter } from "./ui.js";
 import { getCompletionDetector } from "./completion.js";
 import { getErrorRecoveryEngine } from "./recovery.js";
+import { activateNextFeature, completeActiveFeature } from "./transitions.js";
+import { cloneFeatureForFork } from "./commands/index.js";
 
-function allFeaturesDone(mission: MissionState): boolean {
-  return getAllFeatures(mission).every((f) => f.status === "done");
+type ForkSessionManager = ExtensionCommandContext["sessionManager"] & {
+  getLeafId?: () => string | null;
+  getSessionFile?: () => string | undefined;
+};
+
+type ForkReplacementContext = ExtensionCommandContext & {
+  sendUserMessage?: (message: string) => Promise<unknown>;
+};
+
+function appendForkNote(existing: string | undefined, lines: string[]): string {
+  const block = lines.filter(Boolean).join("\n");
+  return [existing?.trim(), block].filter(Boolean).join("\n\n");
+}
+
+function pushSessionRef(feature: Feature, ref: string | undefined | null): void {
+  if (!ref || feature.sessions.includes(ref)) return;
+  feature.sessions.push(ref);
+}
+
+function buildForkKickoffMessage(
+  missionTitle: string,
+  sourceFeature: Feature,
+  forkedFeature: Feature,
+  reason: string,
+  subtask: string | undefined,
+  parentSessionFile: string | undefined,
+): string {
+  return [
+    `Continue mission "${missionTitle}" in this forked session.`,
+    `Forked from ${sourceFeature.id} - ${sourceFeature.title}.`,
+    `Active fork feature: ${forkedFeature.id} - ${forkedFeature.title}.`,
+    `Reason: ${reason}.`,
+    subtask ? `Subtask: ${subtask}.` : "",
+    forkedFeature.description,
+    "",
+    "Immediate handoff:",
+    `1. Focus only on ${forkedFeature.id}.`,
+    "2. Record concrete evidence and decisions back into the mission state.",
+    "3. Keep the original feature blocked until this fork resolves the issue.",
+    parentSessionFile ? `Parent session: ${parentSessionFile}` : "Parent session: unavailable",
+  ].filter(Boolean).join("\n");
+}
+
+function buildManualForkHandoff(
+  missionTitle: string,
+  sourceFeature: Feature,
+  forkedFeature: Feature,
+  reason: string,
+  subtask: string | undefined,
+  parentLeafId: string | null,
+  parentSessionFile: string | undefined,
+): string {
+  return [
+    `🔀 Fork feature created for mission ${missionTitle}.`,
+    `Source feature blocked: ${sourceFeature.id}`,
+    `Active fork feature: ${forkedFeature.id} - ${forkedFeature.title}`,
+    `Reason: ${reason}`,
+    subtask ? `Subtask: ${subtask}` : "",
+    parentLeafId ? `Current leaf: ${parentLeafId}` : "Current leaf: unavailable",
+    parentSessionFile ? `Current session: ${parentSessionFile}` : "Current session: unavailable",
+    "",
+    "Action: open or clone a new Pi session from this point and continue with the forked feature.",
+  ].filter(Boolean).join("\n");
 }
 
 export function registerMissionTools(pi: ExtensionAPI, runtime: RuntimeState): void {
@@ -25,28 +88,16 @@ export function registerMissionTools(pi: ExtensionAPI, runtime: RuntimeState): v
       const mission = runtime.activeMission;
       const feature = mission ? getActiveFeature(mission) : null;
       if (!mission || !feature) return { isError: true, content: [{ type: "text" as const, text: "No active mission feature." }], details: {} };
-      
-      // Check for unverified bash criteria - these need to be verified or waived
-      const unverifiedBash = feature.acceptance.filter((ac) => !ac.verified && !ac.waived && ac.checkType === "bash");
-      if (unverifiedBash.length > 0) {
-        return { isError: true, content: [{ type: "text" as const, text: `Cannot mark feature done: ${unverifiedBash.length} bash acceptance criteria need to be verified. Use /mission edit to waive or verify them, or ensure bash checks pass.` }], details: {} };
-      }
-      
-      feature.status = "done";
-      feature.completedAt = Date.now();
-      feature.notes = params.notes;
-      const evidenceFile = saveEvidence(mission, feature, params.evidence);
-      appendHistory(mission, { event: "feature_done", featureId: feature.id, note: params.notes, details: { evidenceFile } });
-      autoUnblockResolved(mission);
-      const next = getNextPendingFeature(mission);
-      if (!next && allFeaturesDone(mission)) {
-        mission.status = "complete";
-        mission.autopilot.enabled = false;
-        mission.autopilot.lastStopReason = "mission_complete";
-      }
+
+      const result = completeActiveFeature(mission, {
+        evidence: params.evidence,
+        notes: params.notes,
+      });
+      if (!result.ok) return { isError: true, content: [{ type: "text" as const, text: `${result.reason}\nUse /mission edit to waive criteria, or ensure bash checks pass.` }], details: {} };
+
       await saveMissionSafe(mission);
       updateFooter(ctx, mission);
-      return { content: [{ type: "text", text: `✅ Feature ${feature.id} done. Evidence: ${evidenceFile}` }], details: { featureId: feature.id, evidenceFile }, isError: false };
+      return { content: [{ type: "text", text: `✅ Feature ${result.feature.id} done. Evidence: ${result.evidenceFile}` }], details: { featureId: result.feature.id, evidenceFile: result.evidenceFile }, isError: false };
     },
   });
 
@@ -58,30 +109,21 @@ export function registerMissionTools(pi: ExtensionAPI, runtime: RuntimeState): v
     async execute(_toolCallId: string, _params: any, _signal: any, _onUpdate: any, ctx: ExtensionCommandContext) {
       const mission = runtime.activeMission;
       if (!mission) return { isError: true, content: [{ type: "text" as const, text: "No active mission." }], details: {} };
-      const current = getActiveFeature(mission);
-      if (current?.status === "active") {
-        return { isError: true, content: [{ type: "text" as const, text: `Active feature is not done yet: ${current.id} — ${current.title}. Use mission_feature_done when complete, or /mission block <reason> if it cannot continue.` }], details: {} };
-      }
-
-      autoUnblockResolved(mission);
-      const next = getNextPendingFeature(mission);
-      if (!next) {
-        if (allFeaturesDone(mission)) {
-          mission.status = "complete";
+      const result = activateNextFeature(mission);
+      if (!result.ok) {
+        if (result.reason === "active_not_done") {
+          return { isError: true, content: [{ type: "text" as const, text: `Active feature is not done yet: ${result.active.id} — ${result.active.title}. Use mission_feature_done when complete, or /mission block <reason> if it cannot continue.` }], details: {} };
+        }
+        if (result.reason === "mission_complete") {
           await saveMissionSafe(mission);
           updateFooter(ctx, mission);
           return { content: [{ type: "text", text: "🎉 Mission complete." }], details: { missionId: mission.id }, isError: false };
         }
         return { isError: true, content: [{ type: "text" as const, text: "No unblocked pending feature found. Check blocked features and dependencies with /mission status." }], details: {} };
       }
-      next.status = "active";
-      mission.status = "active";
-      mission.activeFeatureId = next.id;
-      mission.activeMilestoneId = next.milestoneId;
-      appendHistory(mission, { event: "feature_active", featureId: next.id });
       await saveMissionSafe(mission);
       updateFooter(ctx, mission);
-      return { content: [{ type: "text", text: `➡️ Active feature: ${next.id} — ${next.title}\n${next.description}` }], details: { feature: next }, isError: false };
+      return { content: [{ type: "text", text: `➡️ Active feature: ${result.next.id} — ${result.next.title}\n${result.next.description}` }], details: { feature: result.next }, isError: false };
     },
   });
 
@@ -281,28 +323,146 @@ export function registerMissionTools(pi: ExtensionAPI, runtime: RuntimeState): v
       const mission = runtime.activeMission;
       const feature = mission ? getActiveFeature(mission) : null;
       if (!mission || !feature) throw new Error("No active mission feature.");
-      
-      appendHistory(mission, { 
-        event: "feature_forked", 
-        featureId: feature.id, 
-        note: params.reason, 
-        details: { 
-          subtask: params.subtask, 
-          self: true 
-        } 
+
+      const sessionManager = ctx.sessionManager as ForkSessionManager;
+      const forkReason = params.reason || "Alternative approach";
+      const parentLeafId = sessionManager.getLeafId?.() ?? null;
+      const parentSessionFile = sessionManager.getSessionFile?.();
+      const createdAt = new Date().toISOString();
+      const forked = cloneFeatureForFork(
+        feature,
+        `${feature.id}-fork-${Date.now()}`,
+        `${feature.title} [fork]`,
+        `Fork: ${forkReason}${params.subtask ? ` (${params.subtask})` : ""}`,
+      );
+      const milestone = getMilestoneById(mission, feature.milestoneId);
+      if (!milestone) {
+        return { isError: true, content: [{ type: "text" as const, text: "Milestone not found for active feature." }], details: {} };
+      }
+
+      feature.status = "blocked";
+      feature.notes = appendForkNote(feature.notes, [
+        `Forked at ${createdAt}`,
+        `Fork feature: ${forked.id}`,
+        `Reason: ${forkReason}`,
+        params.subtask ? `Subtask: ${params.subtask}` : "",
+        parentLeafId ? `Leaf: ${parentLeafId}` : "",
+        parentSessionFile ? `Session: ${parentSessionFile}` : "",
+      ]);
+      pushSessionRef(feature, `fork:${forked.id}`);
+      pushSessionRef(feature, parentLeafId ? `leaf:${parentLeafId}` : undefined);
+      pushSessionRef(feature, parentSessionFile ? `session:${parentSessionFile}` : undefined);
+      forked.notes = appendForkNote(forked.notes, [
+        `Fork source: ${feature.id}`,
+        `Created at: ${createdAt}`,
+        `Reason: ${forkReason}`,
+        params.subtask ? `Subtask: ${params.subtask}` : "",
+        parentSessionFile ? `Parent session: ${parentSessionFile}` : "",
+      ]);
+      pushSessionRef(forked, `parent-feature:${feature.id}`);
+      pushSessionRef(forked, parentLeafId ? `parent-leaf:${parentLeafId}` : undefined);
+      pushSessionRef(forked, parentSessionFile ? `parent-session:${parentSessionFile}` : undefined);
+      milestone.features.push(forked);
+      mission.activeFeatureId = forked.id;
+      mission.activeMilestoneId = forked.milestoneId;
+      mission.status = "active";
+      appendHistory(mission, {
+        event: "feature_forked",
+        featureId: feature.id,
+        note: forkReason,
+        details: {
+          subtask: params.subtask,
+          self: true,
+          forkedFeatureId: forked.id,
+          parentLeafId,
+          parentSessionFile,
+          forkApiAvailable: typeof ctx.fork === "function",
+        }
       });
-      
-      // Note: Actual forking would require Pi session management API
-      // For now, we log the intent and provide guidance
       await saveMissionSafe(mission);
-      
-      return { 
-        content: [{ 
-          type: "text", 
-          text: `🔀 Fork intent logged for feature ${feature.id}: ${params.reason}${params.subtask ? `\nSubtask: ${params.subtask}` : ""}\n\nTo complete the fork, use /mission fork in the Pi CLI.` 
-        }], 
-        details: { featureId: feature.id, reason: params.reason }, 
-        isError: false 
+
+      const kickoffMessage = buildForkKickoffMessage(
+        mission.title,
+        feature,
+        forked,
+        forkReason,
+        params.subtask,
+        parentSessionFile,
+      );
+      const manualHandoff = buildManualForkHandoff(
+        mission.title,
+        feature,
+        forked,
+        forkReason,
+        params.subtask,
+        parentLeafId,
+        parentSessionFile,
+      );
+
+      if (parentLeafId && typeof ctx.fork === "function") {
+        const forkResult = await ctx.fork(parentLeafId, {
+          position: "at",
+          withSession: async (forkCtx: ForkReplacementContext) => {
+            const forkSessionFile = (forkCtx.sessionManager as ForkSessionManager | undefined)?.getSessionFile?.();
+            const persistedMission = loadMissionFromDisk(mission.id);
+            const persistedFork = persistedMission ? getFeatureById(persistedMission, forked.id) : null;
+            if (persistedMission && persistedFork) {
+              pushSessionRef(persistedFork, forkSessionFile ? `session:${forkSessionFile}` : undefined);
+              appendHistory(persistedMission, {
+                event: "feature_fork_session_created",
+                featureId: forked.id,
+                note: forkReason,
+                details: {
+                  sourceFeatureId: feature.id,
+                  subtask: params.subtask,
+                  forkSessionFile,
+                  parentLeafId,
+                  self: true,
+                },
+              });
+              await saveMissionSafe(persistedMission);
+            }
+            if (typeof forkCtx.sendUserMessage === "function") {
+              await forkCtx.sendUserMessage(kickoffMessage);
+            } else {
+              forkCtx.ui.notify(`🌿 Fork active: ${forked.title}\n\n${kickoffMessage}`, "info");
+            }
+          },
+        });
+
+        if (!forkResult?.cancelled) {
+          return {
+            content: [{
+              type: "text",
+              text: `🔀 Forked ${feature.id} into ${forked.id} and started a dedicated Pi session.\n\n${kickoffMessage}`
+            }],
+            details: {
+              featureId: feature.id,
+              forkedFeatureId: forked.id,
+              reason: forkReason,
+              subtask: params.subtask,
+              handoff: kickoffMessage,
+              mode: "fork_api",
+            },
+            isError: false
+          };
+        }
+      }
+
+      return {
+        content: [{
+          type: "text",
+          text: `${manualHandoff}\n\nKickoff prompt:\n${kickoffMessage}`
+        }],
+        details: {
+          featureId: feature.id,
+          forkedFeatureId: forked.id,
+          reason: forkReason,
+          subtask: params.subtask,
+          handoff: kickoffMessage,
+          mode: "manual",
+        },
+        isError: false
       };
     },
   });

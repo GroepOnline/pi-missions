@@ -186,11 +186,13 @@ export class ErrorRecoveryEngine {
    * Clear errors for a specific feature
    */
   clearErrorsForFeature(featureId: string): void {
-    const toDelete = Array.from(this.errorRecords.entries())
-      .filter(([_, r]) => r.context.featureId === featureId)
-      .map(([id, _]) => id);
+    const matchingRecords = Array.from(this.errorRecords.entries())
+      .filter(([, record]) => record.context.featureId === featureId);
     
-    toDelete.forEach(id => this.errorRecords.delete(id));
+    for (const [id, record] of matchingRecords) {
+      this.activeRetries.delete(this.getErrorKey(record.context));
+      this.errorRecords.delete(id);
+    }
   }
 
   /**
@@ -198,8 +200,21 @@ export class ErrorRecoveryEngine {
    */
   getStats(): { total: number; resolved: number; byCategory: Record<ErrorCategory, number>; bySeverity: Record<ErrorSeverity, number> } {
     const records = Array.from(this.errorRecords.values());
-    const byCategory: Record<ErrorCategory, number> = {} as any;
-    const bySeverity: Record<ErrorSeverity, number> = {} as any;
+    const byCategory: Record<ErrorCategory, number> = {
+      transient: 0,
+      permanent: 0,
+      user: 0,
+      system: 0,
+      network: 0,
+      permission: 0,
+      unknown: 0,
+    };
+    const bySeverity: Record<ErrorSeverity, number> = {
+      low: 0,
+      medium: 0,
+      high: 0,
+      critical: 0,
+    };
 
     for (const record of records) {
       byCategory[record.category] = (byCategory[record.category] || 0) + 1;
