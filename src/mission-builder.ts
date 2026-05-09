@@ -17,11 +17,21 @@ type RawAcceptance = Partial<AcceptanceCriterion> & {
   checkType?: string;
 };
 
-type RawFeature = Partial<Feature> & {
+type RawFeature = {
+  id?: string;
+  milestoneId?: string;
+  title?: string;
+  description?: string;
+  priority?: number;
+  dependsOn?: unknown;
   acceptance?: RawAcceptance[];
 };
 
-type RawMilestone = Partial<Milestone> & {
+type RawMilestone = {
+  id?: string;
+  title?: string;
+  description?: string;
+  dependsOn?: string[];
   features?: RawFeature[];
 };
 
@@ -77,7 +87,10 @@ function remapDependsOn(dependsOn: unknown, localFeatureIdMap: Map<string, strin
   if (!Array.isArray(dependsOn)) return [];
   return dependsOn
     .filter((id): id is string => typeof id === "string")
-    .map((id) => localFeatureIdMap.get(id) ?? uniqueFeatureIdMap.get(id) ?? id)
+    .flatMap((id) => {
+      const remapped = localFeatureIdMap.get(id) ?? uniqueFeatureIdMap.get(id);
+      return remapped ? [remapped] : [];
+    })
     .filter((id, index, all) => FEATURE_ID_PATTERN.test(id) && all.indexOf(id) === index);
 }
 
@@ -144,8 +157,13 @@ export function buildMissionGoalTree(title: string, goal: string, milestones: Mi
   };
 }
 
+export function refreshMissionGoalTree(mission: MissionState): MissionGoal {
+  mission.goalTree = buildMissionGoalTree(mission.title, mission.goal, mission.milestones);
+  return mission.goalTree;
+}
+
 export function getMissionGoalTree(mission: MissionState): MissionGoal {
-  return mission.goalTree ?? buildMissionGoalTree(mission.title, mission.goal, mission.milestones);
+  return refreshMissionGoalTree(mission);
 }
 
 export function goalTreeProgress(goalTree: MissionGoal): { done: number; total: number; pct: number } {
@@ -184,9 +202,13 @@ function goalStatusIcon(status: GoalNodeStatus): string {
 
 export function renderGoalTree(goalTree: MissionGoal, maxNodes = 12): string[] {
   const lines: string[] = [];
+  let truncated = false;
 
   const walk = (node: GoalNode, depth: number): boolean => {
-    if (lines.length >= maxNodes) return false;
+    if (lines.length >= maxNodes) {
+      truncated = true;
+      return false;
+    }
     lines.push(`${"  ".repeat(depth)}${goalStatusIcon(node.status)} ${node.title}`);
     for (const child of node.children) {
       if (!walk(child, depth + 1)) return false;
@@ -195,7 +217,7 @@ export function renderGoalTree(goalTree: MissionGoal, maxNodes = 12): string[] {
   };
 
   walk(goalTree.root, 0);
-  return lines.length >= maxNodes ? [...lines, "  …"] : lines;
+  return truncated ? [...lines, "  …"] : lines;
 }
 
 export function findGoalPathByFeatureId(goalTree: MissionGoal, featureId: string): GoalNode[] {

@@ -9,6 +9,7 @@ import {
   getNextPendingFeature,
   saveEvidence,
 } from "./state.js";
+import { refreshMissionGoalTree } from "./mission-builder.js";
 
 function allFeaturesDone(mission: MissionState): boolean {
   return getAllFeatures(mission).every((f) => f.status === "done");
@@ -68,6 +69,7 @@ export function completeActiveFeature(mission: MissionState, options: CompleteFe
     mission.autopilot.lastStopReason = "mission_complete";
   }
   autoCompleteMilestones(mission);
+  refreshMissionGoalTree(mission);
 
   return { ok: true, feature, evidenceFile, missionComplete };
 }
@@ -91,6 +93,7 @@ export function activateNextFeature(mission: MissionState, note?: string): Activ
       mission.autopilot.lastStopReason = "mission_complete";
       autoCompleteMilestones(mission);
       appendHistory(mission, { event: "mission_complete", note: note ?? "All features complete" });
+      refreshMissionGoalTree(mission);
       return { ok: false, reason: "mission_complete" };
     }
     return { ok: false, reason: "no_unblocked_pending" };
@@ -102,5 +105,6 @@ export function activateNextFeature(mission: MissionState, note?: string): Activ
   mission.activeFeatureId = next.id;
   mission.activeMilestoneId = next.milestoneId;
   appendHistory(mission, { event: "feature_active", featureId: next.id, note });
+  refreshMissionGoalTree(mission);
   return { ok: true, next };
 }
