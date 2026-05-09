@@ -1,6 +1,6 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
-import * as os from "node:os";
+import { missionsRoot } from "./paths.js";
 
 export enum LogLevel {
   DEBUG = "debug",
@@ -28,7 +28,7 @@ class Logger {
   private logLevel: LogLevel;
 
   constructor() {
-    const logDir = path.join(os.homedir(), ".pi", "missions", "logs");
+    const logDir = path.join(missionsRoot(), "logs");
     fs.mkdirSync(logDir, { recursive: true });
     this.logFile = path.join(logDir, "pi-missions.log");
     this.logLevel = (process.env.PI_MISSIONS_LOG_LEVEL as LogLevel) || LogLevel.INFO;

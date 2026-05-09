@@ -2,6 +2,7 @@ import type { ExtensionAPI, ExtensionCommandContext } from "@mariozechner/pi-cod
 import type { Feature, MissionState, RuntimeState } from "../types.js";
 import { buildCompactionSummary, buildMissionContext } from "../context.js";
 import { getActiveFeature, getAllFeatures, linkSession } from "../state.js";
+import { getAgent } from "../agent-detect.js";
 import { handleNew, handleTemplates, PLANNING_WIZARD_PROMPT } from "./create.js";
 import { handleList, handleLoad, handleStatus, handleHelp } from "./load-list.js";
 import { handleNext, handleDone, handleBlock, handlePause, handleResume, handleClear, handleRun, handleAutopilot, handleStop } from "./lifecycle.js";
@@ -112,5 +113,5 @@ export function missionSummaryForTree(runtime: RuntimeState): string | null {
 }
 
 export function saveSessionLink(runtime: RuntimeState, sessionFile: string | undefined): void {
-  if (runtime.activeMission && sessionFile) linkSession(runtime.activeMission, sessionFile);
+  if (runtime.activeMission && sessionFile) linkSession(runtime.activeMission, sessionFile, getAgent());
 }

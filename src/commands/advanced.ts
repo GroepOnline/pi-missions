@@ -3,6 +3,7 @@ import * as path from "node:path";
 import type { ExtensionAPI, ExtensionCommandContext } from "@mariozechner/pi-coding-agent";
 import type { Feature, RuntimeState } from "../types.js";
 import { appendHistory, autoBlockBlockedFeatures, getActiveFeature, getFeatureById, getMilestoneById, loadMissionFromDisk, readHistory, saveEvidence, saveMissionSafe } from "../state.js";
+import { missionsRoot } from "../paths.js";
 import { cloneFeatureForFork } from "./index.js";
 import { updateFooter, statusText } from "../ui.js";
 import { missionControlOverlay } from "../dashboard.js";
@@ -285,7 +286,7 @@ export async function handleMetrics(ctx: ExtensionCommandContext, runtime: Runti
   
   const missions = listMissions();
   const allMetrics = missions.map(computeMissionMetrics);
-  const metricsDir = path.join(process.env.HOME || process.env.USERPROFILE || "", ".pi", "missions");
+  const metricsDir = missionsRoot();
   const metricsFile = path.join(metricsDir, "metrics-export.json");
   
   try {

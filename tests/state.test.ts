@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import {
   appendHistory,
   autoBlockBlockedFeatures,
@@ -19,9 +19,11 @@ import {
   getNextPendingFeature,
   linkSession,
   listMissions,
+  listSessionRefs,
   loadMissionFromDisk,
   migrateMission,
   missionDirSafe,
+  missionsRoot,
   progress,
   readHistory,
   saveEvidence,
@@ -324,7 +326,120 @@ describe("getMilestoneById", () => {
   });
 });
 
-describe("linkSession", () => {
+describe("missionsRoot", () => {
+  afterEach(() => {
+    delete process.env.MISSIONS_ROOT;
+    delete process.env.PI_MISSIONS_ROOT;
+  });
+
+  it("returns default path when no env var is set", () => {
+    const root = missionsRoot();
+    expect(root).toContain(".pi/missions");
+  });
+
+  it("respects MISSIONS_ROOT env var", () => {
+    process.env.MISSIONS_ROOT = "/shared/missions";
+    expect(missionsRoot()).toBe("/shared/missions");
+  });
+
+  it("prefers MISSIONS_ROOT over PI_MISSIONS_ROOT", () => {
+    process.env.MISSIONS_ROOT = "/shared/missions";
+    process.env.PI_MISSIONS_ROOT = "/pi/specific";
+    expect(missionsRoot()).toBe("/shared/missions");
+  });
+
+  it("falls back to PI_MISSIONS_ROOT when MISSIONS_ROOT not set", () => {
+    process.env.PI_MISSIONS_ROOT = "/pi/specific";
+    expect(missionsRoot()).toBe("/pi/specific");
+  });
+
+  it("throws on relative MISSIONS_ROOT path", () => {
+    process.env.MISSIONS_ROOT = "relative/path";
+    expect(() => missionsRoot()).toThrow("MISSIONS_ROOT must be an absolute path");
+  });
+
+  it("throws on relative PI_MISSIONS_ROOT path", () => {
+    process.env.PI_MISSIONS_ROOT = "also/relative";
+    expect(() => missionsRoot()).toThrow("PI_MISSIONS_ROOT must be an absolute path");
+  });
+});
+
+describe("linkSession (multi-agent)", () => {
+  const origHome = process.env.HOME;
+  let prevCodingAgent: string | undefined;
+
+  beforeAll(() => {
+    prevCodingAgent = process.env.CODING_AGENT;
+    process.env.HOME = tmpRoot;
+    cleanupTmp();
+    setupTmp();
+  });
+
+  afterAll(() => {
+    process.env.HOME = origHome;
+    cleanupTmp();
+    if (prevCodingAgent !== undefined) process.env.CODING_AGENT = prevCodingAgent;
+    else delete process.env.CODING_AGENT;
+  });
+
+  it("creates a JSON session reference file with agent metadata", async () => {
+    const m = createMission("Session", "Test");
+    await saveMissionSafe(m);
+    linkSession(m, "/home/user/.pi/sessions/session-abc.jsonl", "pi");
+    const refFile = path.join(missionDirSafe(m.id), "sessions", "session-abc.jsonl.pi.ref");
+    expect(fs.existsSync(refFile)).toBe(true);
+    const parsed = JSON.parse(fs.readFileSync(refFile, "utf-8"));
+    expect(parsed.sessionFile).toBe("/home/user/.pi/sessions/session-abc.jsonl");
+    expect(parsed.agent).toBe("pi");
+    expect(parsed.linkedAt).toBeTruthy();
+    expect(typeof parsed.linkedAtMs).toBe("number");
+  });
+
+  it("defaults agent to unknown when not specified", async () => {
+    delete process.env.CODING_AGENT;
+    const m = createMission("Session", "Test");
+    await saveMissionSafe(m);
+    linkSession(m, "/tmp/session.jsonl");
+    const refFile = path.join(missionDirSafe(m.id), "sessions", "session.jsonl.unknown.ref");
+    const parsed = JSON.parse(fs.readFileSync(refFile, "utf-8"));
+    expect(parsed.agent).toBe("unknown");
+  });
+
+  it("uses CODING_AGENT env var when no agent param", async () => {
+    process.env.CODING_AGENT = "devin";
+    const m = createMission("Session", "Test");
+    await saveMissionSafe(m);
+    linkSession(m, "/tmp/session-devin.jsonl");
+    const refFile = path.join(missionDirSafe(m.id), "sessions", "session-devin.jsonl.devin.ref");
+    const parsed = JSON.parse(fs.readFileSync(refFile, "utf-8"));
+    expect(parsed.agent).toBe("devin");
+  });
+
+  it("includes agent in ref filename to prevent cross-agent collisions", async () => {
+    process.env.CODING_AGENT = "pi";
+    const m = createMission("Collision", "Test");
+    await saveMissionSafe(m);
+    // Simulate same basename from different agents
+    linkSession(m, "/home/pi/sessions/session-1.jsonl"); // pi agent
+    linkSession(m, "/home/devin/sessions/session-1.jsonl", "devin"); // devin agent
+    linkSession(m, "/home/opencode/sessions/session-1.jsonl", "opencode"); // opencode agent
+
+    const piRef = path.join(missionDirSafe(m.id), "sessions", "session-1.jsonl.pi.ref");
+    const devinRef = path.join(missionDirSafe(m.id), "sessions", "session-1.jsonl.devin.ref");
+    const ocRef = path.join(missionDirSafe(m.id), "sessions", "session-1.jsonl.opencode.ref");
+
+    expect(fs.existsSync(piRef)).toBe(true);
+    expect(fs.existsSync(devinRef)).toBe(true);
+    expect(fs.existsSync(ocRef)).toBe(true);
+
+    // All three coexist without overwriting
+    expect(JSON.parse(fs.readFileSync(piRef, "utf-8")).sessionFile).toBe("/home/pi/sessions/session-1.jsonl");
+    expect(JSON.parse(fs.readFileSync(devinRef, "utf-8")).sessionFile).toBe("/home/devin/sessions/session-1.jsonl");
+    expect(JSON.parse(fs.readFileSync(ocRef, "utf-8")).sessionFile).toBe("/home/opencode/sessions/session-1.jsonl");
+  });
+});
+
+describe("listSessionRefs", () => {
   const origHome = process.env.HOME;
 
   beforeAll(() => {
@@ -338,13 +453,60 @@ describe("linkSession", () => {
     cleanupTmp();
   });
 
-  it("creates a session reference file", async () => {
-    const m = createMission("Session", "Test");
+  it("returns empty array when no sessions linked", () => {
+    expect(listSessionRefs("nonexistent-mission")).toEqual([]);
+  });
+
+  it("lists session refs with agent metadata", async () => {
+    const m = createMission("MultiSession", "Test");
     await saveMissionSafe(m);
-    linkSession(m, "/home/user/.pi/sessions/session-abc.jsonl");
-    const refFile = path.join(missionDirSafe(m.id), "sessions", "session-abc.jsonl.ref");
-    expect(fs.existsSync(refFile)).toBe(true);
-    expect(fs.readFileSync(refFile, "utf-8")).toBe("/home/user/.pi/sessions/session-abc.jsonl");
+    linkSession(m, "/tmp/pi-session.jsonl", "pi");
+    linkSession(m, "/tmp/devin-session.jsonl", "devin");
+    linkSession(m, "/tmp/opencode-session.jsonl", "opencode");
+
+    const refs = listSessionRefs(m.id);
+    expect(refs).toHaveLength(3);
+
+    const agents = refs.map((r) => r.agent).sort();
+    expect(agents).toEqual(["devin", "opencode", "pi"]);
+
+    const files = refs.map((r) => r.sessionFile);
+    expect(files).toContain("/tmp/pi-session.jsonl");
+    expect(files).toContain("/tmp/devin-session.jsonl");
+    expect(files).toContain("/tmp/opencode-session.jsonl");
+
+    // All should have linkedAt timestamps
+    for (const ref of refs) {
+      expect(ref.linkedAt).toBeTruthy();
+    }
+  });
+
+  it("handles legacy plain-text session refs (backward compat)", async () => {
+    const m = createMission("Legacy", "Test");
+    await saveMissionSafe(m);
+    // Write a legacy-format ref file (just a file path)
+    const dir = path.join(missionDirSafe(m.id), "sessions");
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, "legacy.ref"), "/tmp/old-session.jsonl", "utf-8");
+
+    const refs = listSessionRefs(m.id);
+    expect(refs).toHaveLength(1);
+    expect(refs[0]!.sessionFile).toBe("/tmp/old-session.jsonl");
+    expect(refs[0]!.agent).toBe("unknown");
+    expect(refs[0]!.linkedAt).toBe("");
+  });
+
+  it("skips non-.ref files in sessions dir", async () => {
+    const m = createMission("Filtered", "Test");
+    await saveMissionSafe(m);
+    const dir = path.join(missionDirSafe(m.id), "sessions");
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, "notes.txt"), "some notes", "utf-8");
+    linkSession(m, "/tmp/real-session.jsonl", "codex");
+
+    const refs = listSessionRefs(m.id);
+    expect(refs).toHaveLength(1);
+    expect(refs[0]!.agent).toBe("codex");
   });
 });
 

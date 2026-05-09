@@ -1,20 +1,18 @@
 import * as crypto from "node:crypto";
 import * as fs from "node:fs";
 import * as fsAsync from "node:fs/promises";
-import * as os from "node:os";
 import * as path from "node:path";
 import { CURRENT_SCHEMA_VERSION, DEFAULT_AUTOPILOT, DEFAULT_FEATURE_MAX_TOOL_CALLS, DEFAULT_FEATURE_MAX_WALL_CLOCK_MS, STALE_FEATURE_WARN_CLOCK_MS, type Feature, type Milestone, type MissionHistoryEntry, type MissionMetrics, type MissionMetricsSummary, type MissionState, type ToolPhase } from "./types.js";
 import { withLock } from "./lock.js";
 import { logger } from "./logger.js";
 import { createFeedback, formatError } from "./feedback.js";
+import { missionsRoot } from "./paths.js";
 
 export function createValidationToken(): string {
   return crypto.randomBytes(32).toString('hex');
 }
 
-export function missionsRoot(): string {
-  return path.join(os.homedir(), ".pi", "missions");
-}
+export { missionsRoot } from "./paths.js";
 
 export function slugify(input: string): string {
   return input
@@ -300,10 +298,47 @@ export function saveEvidence(mission: MissionState, feature: Feature, text: stri
   return file;
 }
 
-export function linkSession(mission: MissionState, sessionFile: string): void {
+export function linkSession(mission: MissionState, sessionFile: string, agent?: string): void {
   const dir = path.join(missionDirSafe(mission.id), "sessions");
   fs.mkdirSync(dir, { recursive: true });
-  fs.writeFileSync(path.join(dir, `${path.basename(sessionFile)}.ref`), sessionFile, "utf-8");
+  const agentSource = agent || process.env.CODING_AGENT || "unknown";
+  // Include agent in filename to prevent collisions when different agents
+  // link sessions with the same basename from different directories.
+  const refPath = path.join(dir, `${path.basename(sessionFile)}.${agentSource}.ref`);
+  const refContent = JSON.stringify({
+    sessionFile,
+    agent: agentSource,
+    linkedAt: new Date().toISOString(),
+    linkedAtMs: Date.now(),
+  }, null, 2);
+  fs.writeFileSync(refPath, refContent, "utf-8");
+}
+
+/** List all session references for a mission, including agent metadata. */
+export function listSessionRefs(missionId: string): Array<{ sessionFile: string; agent: string; linkedAt: string }> {
+  const dir = path.join(missionDirSafe(missionId), "sessions");
+  if (!fs.existsSync(dir)) return [];
+  return fs.readdirSync(dir, { withFileTypes: true })
+    .filter((e) => e.isFile() && e.name.endsWith(".ref"))
+    .flatMap((e) => {
+      let raw = "";
+      try {
+        raw = fs.readFileSync(path.join(dir, e.name), "utf-8").trim();
+        const parsed = JSON.parse(raw);
+        return [{
+          sessionFile: typeof parsed.sessionFile === "string" ? parsed.sessionFile : raw,
+          agent: typeof parsed.agent === "string" ? parsed.agent : "unknown",
+          linkedAt: typeof parsed.linkedAt === "string" ? parsed.linkedAt : "",
+        }];
+      } catch {
+        // Legacy plain-text format (JSON.parse threw), or unreadable file
+        if (raw) {
+          return [{ sessionFile: raw, agent: "unknown", linkedAt: "" }];
+        }
+        // File couldn't be read — skip gracefully
+        return [];
+      }
+    });
 }
 
 // ---------------------------------------------------------------------------
