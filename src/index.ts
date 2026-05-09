@@ -4,12 +4,13 @@ import { compactionCheckpoint, handleDashboard, missionSummaryForTree, registerM
 import { appendHistory, autoBlockBlockedFeatures, getActiveFeature, getMissionPhase, isValidMissionId, loadMissionFromDisk, saveEvidence, saveMissionSafe, getNextPendingFeature, getAllFeatures } from "./state.js";
 import type { RuntimeState, ToolPhase } from "./types.js";
 import { TOOL_POLICIES } from "./types.js";
-import { isReadOnlyPlanningBash } from "./planning-bash.js";
+import { isReadOnlyPlanningBash, PLANNING_READ_ONLY_BASH_COMMANDS } from "./planning-bash.js";
 import { registerMissionTools } from "./tools.js";
 import { updateFooter } from "./ui.js";
 import { getCompletionDetector, resetCompletionDetector } from "./completion.js";
 import { getErrorRecoveryEngine, resetErrorRecoveryEngine } from "./recovery.js";
-import { cleanupStaleLocks } from "./lock.js";
+// cleanupStaleLocks removed from session_start — proper-lockfile handles stale locks 
+// automatically via the stale timeout option on lock acquisition.
 import { logger } from "./logger.js";
 import { sessionMetrics, SessionMetricsCollector } from "./metrics.js";
 
@@ -28,13 +29,6 @@ export default function piMissions(pi: ExtensionAPI): void {
   pi.on("session_start", async (event, ctx) => {
     // Reset metrics on session start
     SessionMetricsCollector.reset();
-
-    // Cleanup stale locks from previous crashes
-    try {
-      await cleanupStaleLocks();
-    } catch (error) {
-      console.warn("[pi-missions] Failed to cleanup stale locks:", error);
-    }
 
     const entries = ctx.sessionManager.getEntries() as Array<Record<string, any>>;
     const activeEntry = [...entries].reverse().find((e) => e.type === "custom" && e.customType === "pi-mission-active");
@@ -145,7 +139,8 @@ export default function piMissions(pi: ExtensionAPI): void {
     const allowedPlanningBash = runtime.currentPhase === "planning" && event.toolName === "bash" && (userAllowsPlanningBash || isReadOnlyPlanningBash(event.input));
     if (!allowedByPolicy && !allowedPlanningBash) {
       if (runtime.currentPhase === "planning" && event.toolName === "bash") {
-        return { block: true, reason: "Tool 'bash' is only allowed in planning phase for single read-only commands: pwd, ls, find, grep, rg, cat, sed -n, head, tail, wc, git status/diff/show/log." };
+        const allowedList = [...PLANNING_READ_ONLY_BASH_COMMANDS].sort().join(", ");
+        return { block: true, reason: `Tool 'bash' is only allowed in planning phase for single read-only commands: ${allowedList}, git status/diff/show/log.` };
       }
       return { block: true, reason: `Tool '${event.toolName}' not allowed in ${runtime.currentPhase} phase. Allowed: ${policy.allowedTools.join(", ")}` };
     }

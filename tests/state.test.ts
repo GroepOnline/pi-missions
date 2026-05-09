@@ -9,7 +9,7 @@ import {
   calculateMetricsSummary,
   computeMissionMetrics,
   createMission,
-  createMissionFromTemplate,
+
   createMissionId,
   detectStaleFeature,
   evidenceIntegrityHash,
@@ -29,6 +29,7 @@ import {
   slugify,
 } from "../src/state.js";
 import { exportMarkdown } from "../src/export.js";
+import { createMissionFromTemplate } from "../src/templates.js";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";

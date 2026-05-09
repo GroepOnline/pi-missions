@@ -384,11 +384,9 @@ export function buildWorkerPrompt(mission: MissionState, feature: Feature): stri
   ].join("\n");
 }
 
-// ── Re-export from templates for backwards-compatibility ──────────────────────
-export { MISSION_TEMPLATES, createMissionFromTemplate, type MissionTemplate } from "./templates.js";
-
 // ── Markdown export ──────────────────────────────────────────────────────────
 // Moved to ./export.js — import directly from export.js to avoid circular dependency.
+// Templates moved to ./templates.js — import directly from templates.js to avoid circular dependency.
 
 // ---------------------------------------------------------------------------
 // Revolutionary: Auto-acceptance verification

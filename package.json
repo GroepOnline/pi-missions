@@ -32,17 +32,17 @@
     ]
   },
   "peerDependencies": {
-    "@mariozechner/pi-ai": "*",
-    "@mariozechner/pi-coding-agent": "*",
-    "@mariozechner/pi-tui": "*",
-    "typebox": "*"
+    "@mariozechner/pi-ai": "^0.73.1",
+    "@mariozechner/pi-coding-agent": "^0.73.1",
+    "@mariozechner/pi-tui": "^0.73.1",
+    "typebox": "^1.1.38"
   },
   "dependencies": {
     "@sinclair/typebox": "^0.31.28",
     "proper-lockfile": "^4.1.2"
   },
   "devDependencies": {
-    "@types/node": "^22.0.0",
+    "@types/node": "^22.19.18",
     "@types/proper-lockfile": "^4.1.2",
     "@vitest/coverage-v8": "^2.1.9",
     "typescript": "^5.6.0",
