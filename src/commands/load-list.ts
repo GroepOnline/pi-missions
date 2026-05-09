@@ -29,7 +29,14 @@ export async function handleLoad(id: string | undefined, ctx: ExtensionCommandCo
   if (!id) return ctx.ui.notify("Usage: /mission load <id>", "warning");
 
   if (!isValidMissionId(id)) {
-    return ctx.ui.notify(`Invalid mission ID format: ${id}. Expected pim:<timestamp>:<<slug>.`, "error");
+    // Legacy formats (e.g. mission-DATE-title) are loadable but unexpected.
+    // Log and proceed instead of hard-rejecting — loadMissionFromDisk handles
+    // directory sanitization and will return null if the plan.json is missing.
+    if (/^mission-\d{17,}/.test(id)) {
+      logger.info("commands", "Loading legacy mission format", { missionId: id });
+    } else {
+      logger.warn("commands", "Unrecognized mission ID format", { missionId: id });
+    }
   }
 
   const mission = loadMissionFromDisk(id);

@@ -51,15 +51,15 @@ export default function piMissions(pi: ExtensionAPI): void {
     
     const { missionId, validationToken } = activeEntry.entry;
     
-    // Validate mission ID format
+    // Validate mission ID format — warn on legacy formats but don't block.
+    // loadMissionFromDisk handles directory sanitization via missionDirSafe.
     if (!isValidMissionId(missionId)) {
-      logger.warn("index", "Invalid mission ID format", { missionId });
-      console.warn(`[pi-missions] Invalid mission ID format: ${missionId}`);
-      ctx.ui?.notify(
-        `⚠️ Invalid mission ID format: ${missionId}. Expected pim:<timestamp>:<<slug>.`,
-        "warning"
-      );
-      return;
+      if (/^mission-\d{17,}/.test(missionId)) {
+        logger.info("index", "Loading legacy mission format from session", { missionId });
+      } else {
+        logger.warn("index", "Unrecognized mission ID format", { missionId });
+        console.warn(`[pi-missions] Unrecognized mission ID format: ${missionId}`);
+      }
     }
     
     // Load mission from disk
@@ -148,6 +148,29 @@ export default function piMissions(pi: ExtensionAPI): void {
         // Reset error recovery for the new feature
         const recovery = getErrorRecoveryEngine();
         recovery.clearErrorsForFeature(feature.id);
+        
+        // Register alert callback that logs to mission history
+        recovery.onAlert((alert) => {
+          if (!runtime.activeMission) return;
+          appendHistory(runtime.activeMission, {
+            event: "error_alert",
+            featureId: feature.id,
+            note: alert.message.slice(0, 200),
+            details: {
+              alertType: alert.type,
+              errorCategory: alert.record.category,
+              errorSeverity: alert.record.severity,
+              errorCount: alert.stats?.total,
+            },
+          });
+          logger.warn("recovery", alert.message, {
+            missionId: runtime.activeMission.id,
+            featureId: feature.id,
+            alertType: alert.type,
+            errorCategory: alert.record.category,
+            errorSeverity: alert.record.severity,
+          });
+        });
       }
     }
   });
@@ -193,7 +216,12 @@ export default function piMissions(pi: ExtensionAPI): void {
     detector.recordToolCall(event.toolName, success);
     sessionMetrics.recordToolCall(event.toolName, success);
 
-    if (!event.isError) return;
+    if (!event.isError) {
+      // On success, clear consecutive failure counter for this tool
+      const recovery = getErrorRecoveryEngine();
+      recovery.clearConsecutiveFailures(event.toolName, feature?.id);
+      return;
+    }
 
     const recovery = getErrorRecoveryEngine();
     const errorMessage = toolResultErrorMessage(event);

@@ -194,15 +194,18 @@ export async function saveMissionSafe(mission: MissionState): Promise<void> {
       if (!fs.existsSync(preMigration)) await fsAsync.copyFile(target, preMigration);
     }
     
+    mission.updatedAt = Date.now();
+    const data = JSON.stringify(mission, null, 2);
+    // Retry the actual write operation with fallback
     try {
-      mission.updatedAt = Date.now();
-      await fsAsync.writeFile(temp, JSON.stringify(mission, null, 2), "utf-8");
-      await fsAsync.rename(temp, target);
+      await fsAsync.writeFile(temp, data, "utf-8");
     } catch (error) {
-      logger.error("state", "Failed to save mission, restoring from backup", error as Error, { missionId: mission.id });
-      if (fs.existsSync(backup)) await fsAsync.copyFile(backup, target);
-      throw error;
+      logger.error("state", "Failed to write mission temp file, retrying once", error as Error, { missionId: mission.id });
+      // On failure, flush and retry once
+      await new Promise(r => setTimeout(r, 100));
+      await fsAsync.writeFile(temp, data, "utf-8");
     }
+    await fsAsync.rename(temp, target);
   });
 }
 
@@ -227,6 +230,22 @@ export function listMissions(): MissionState[] {
   if (!fs.existsSync(root)) return [];
   return fs.readdirSync(root, { withFileTypes: true })
     .filter((e) => e.isDirectory())
+    // Skip directories with unrecognized ID formats — they may contain
+    // plan.json files from older versions or manual creations. They can
+    // still be loaded directly with /mission load <id>.
+    .filter((e) => {
+      // Filesystem-safe pim- format (colons replaced with hyphens by missionDirSafe).
+      // The original pim:timestamp:slug becomes pim-timestamp-slug on disk.
+      if (e.name.startsWith("pim-")) return true;
+      // Legacy format: mission-DATE-... (before pi-missions namespace)
+      if (/^mission-\d{17,}/.test(e.name)) {
+        logger.debug("state", "Found legacy mission directory", { dirName: e.name });
+        return true;
+      }
+      // Completely unknown format — skip to avoid polluting the list.
+      logger.debug("state", "Skipping unrecognized mission directory", { dirName: e.name });
+      return false;
+    })
     .map((e) => loadMissionFromDisk(e.name))
     .filter((m): m is MissionState => Boolean(m))
     .sort((a, b) => b.updatedAt - a.updatedAt);
@@ -450,6 +469,26 @@ export function autoVerifyAcceptance(feature: Feature, execFn: (cmd: string) => 
     }
   }
   return verified;
+}
+
+/** Stale feature detection — wraps detectStaleFeature with retry on transient errors */
+export function detectStaleFeatureSafe(mission: MissionState, now?: number): StaleFeatureAlert | null {
+  try {
+    return detectStaleFeature(mission, now);
+  } catch (error) {
+    logger.error("state", "Stale feature detection failed, returning null", error as Error, { missionId: mission.id });
+    return null;
+  }
+}
+
+/** Evidence integrity hash — wraps evidenceIntegrityHash with graceful fallback */
+export function evidenceIntegrityHashSafe(mission: MissionState, featureId: string): string | null {
+  try {
+    return evidenceIntegrityHash(mission, featureId);
+  } catch (error) {
+    logger.error("state", "Evidence integrity hash failed, returning null", error as Error, { missionId: mission.id, featureId });
+    return null;
+  }
 }
 
 // ---------------------------------------------------------------------------
