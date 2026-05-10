@@ -3,7 +3,7 @@ import type { Feature, MissionState, Milestone } from "../core/types.js";
 import { getActiveFeature, getAllFeatures, getMissionPhase, getNextPendingFeature, progress } from "../core/state.js";
 import {
   acceptanceProgress, buildMissionBanner, buildMissionHelp,
-  clip, featureStatusIcon, missionStatusIcon, pendingAcceptance, progressBar,
+  clip, dependsOnChain, featureStatusIcon, formatDepChain, missionStatusIcon, pendingAcceptance, progressBar,
 } from "../utils/context.js";
 
 function phaseLine(phase: string): string {
@@ -127,11 +127,13 @@ export function dashboardRows(mission: MissionState): string[] {
     rows.push("");
   }
   if (s.waiting.length) {
-    for (const f of s.waiting.slice(0, 2)) {
+    for (const f of s.waiting.slice(0, 3)) {
+      const chain = dependsOnChain(mission, f);
+      const chainStr = chain.length ? ` ${formatDepChain(chain)}` : "";
       const reason = f.dependsOn.length ? `waiting on ${f.dependsOn.join(", ")}` : (f.notes ?? "waiting");
-      rows.push(`  ⏳ Waiting: ${f.id} ${f.title} — ${clip(reason, 72)}`);
+      rows.push(`  ⏳ Waiting: ${f.id} ${f.title} — ${clip(reason, 60)}${chainStr}`);
     }
-    if (s.waiting.length > 2) rows.push(`  ⏳ +${s.waiting.length - 2} more`);
+    if (s.waiting.length > 3) rows.push(`  ⏳ +${s.waiting.length - 3} more waiting features`);
     rows.push("");
   }
 
@@ -161,6 +163,8 @@ export function dashboardRows(mission: MissionState): string[] {
       if (f.status === "active") {
         rows.push(`       ${fi} ${f.id} [P${f.priority}] ${f.title}${badge}${deps}`);
         rows.push(`         📝 ${f.description}`);
+        const chain = dependsOnChain(mission, f);
+        if (chain.length) rows.push(`         🔗 Blocking chain: ${formatDepChain(chain)}`);
         for (const a of pendingAcceptance(f, "->")) rows.push(`         ☐ ${clip(a, 66)}`);
         if (f.startedAt && Date.now() - f.startedAt > 600_000) {
           rows.push(`         Active ${Math.round((Date.now() - f.startedAt) / 60000)}min`);

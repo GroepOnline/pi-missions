@@ -260,6 +260,55 @@ export function completionSignal(text: string): boolean {
   ].some(s => lower.includes(s));
 }
 
+// ═══════════════════════════════════════════════════════════════════════════════════
+// Dependency chain helpers — for blocking chain visualization in dashboard
+// ═══════════════════════════════════════════════════════════════════════════════════
+
+/**
+ * Returns the full upstream dependency chain for a feature.
+ * Recursively traces dependsOn to find all features blocking this one.
+ * Skips done dependencies since they're already satisfied.
+ * Returns chain from immediate dep → root.
+ */
+export function dependsOnChain(mission: MissionState, feature: Feature): Array<{ id: string; status: string; title: string }> {
+  const chain: Array<{ id: string; status: string; title: string }> = [];
+  const visited = new Set<string>();
+
+  function trace(fId: string): void {
+    if (visited.has(fId)) return;
+    visited.add(fId);
+    const f = mission.milestones.flatMap(m => m.features).find(f => f.id === fId);
+    if (!f) return;
+    if (f.status === "done") return; // Skip satisfied deps
+    chain.push({ id: f.id, status: f.status, title: f.title });
+    for (const depId of f.dependsOn) {
+      const dep = mission.milestones.flatMap(m => m.features).find(f => f.id === depId);
+      if (!dep || dep.status === "done") continue;
+      trace(depId);
+    }
+  }
+
+  for (const depId of feature.dependsOn) trace(depId);
+  return chain;
+}
+
+/**
+ * Formats a dependency chain as a compact visual string.
+ * E.g.: "🔗 F001(•) Plan → F002(⏳) Scope → F003(⛔) Blocked"
+ */
+export function formatDepChain(chain: Array<{ id: string; status: string; title?: string }>): string {
+  if (!chain.length) return "";
+  const statusIcon: Record<string, string> = {
+    pending: "•", waiting: "⏳", blocked: "⛔", active: "➡️", done: "✅", failed: "❌",
+  };
+  const parts = chain.map(n => {
+    const icon = statusIcon[n.status] ?? "•";
+    const label = n.title ? ` ${clip(n.title, 20)}` : "";
+    return `${n.id}(${icon}${label})`;
+  });
+  return `🔗 ${parts.join(" → ")}`;
+}
+
 export function featureSummary(feature: Feature): string {
   return `${feature.id} ${feature.status} ${feature.title}`;
 }

@@ -1,7 +1,7 @@
 import type { Component, TUI } from "@mariozechner/pi-tui";
 import type { Feature, MissionState } from "../core/types.js";
 import { getFeatureById, progress } from "../core/state.js";
-import { acceptanceProgress, clip, featureStatusIcon, missionStatusIcon, pendingAcceptance, progressBar } from "../utils/context.js";
+import { acceptanceProgress, clip, dependsOnChain, featureStatusIcon, formatDepChain, missionStatusIcon, pendingAcceptance, progressBar } from "../utils/context.js";
 import { sessionMetrics } from "../engines/metrics.js";
 import { buildMissionControlSummary, updateFooter } from "./components.js";
 
@@ -147,6 +147,8 @@ class MissionControl implements Component {
         if (sel || f.id === this.mission.activeFeatureId) {
           lines.push(`      ${f.id}: ${f.title}`);
           if (f.description) lines.push(`      ${clip(f.description, 88)}`);
+          const chain = dependsOnChain(this.mission, f);
+          if (chain.length) lines.push(`      🔗 Chain: ${formatDepChain(chain)}`);
           lines.push(`      AC: ${ac.label}${f.dependsOn.length ? `  |  deps: ${f.dependsOn.join(", ")}` : ""}`);
           lines.push(`      Next: ${featureNextAction(f)}`);
           for (const a of pendingAcceptance(f).slice(0, 4)) lines.push(`      ☐ ${clip(a, 82)}`);
