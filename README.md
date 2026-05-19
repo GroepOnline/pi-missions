@@ -15,6 +15,11 @@
 
 ## ✨ What is Pi Missions?
 
+<p align="center">
+  <img src="./assets/readme/pi-missions-feature-map.svg" alt="Pi Missions feature system showing planning, learning, workers, analytics and integrations" width="100%" />
+</p>
+
+
 `pi-missions` is a **professional-grade mission orchestration platform** for the Pi coding agent. It provides:
 
 - 🧠 **AI-Powered Planning** — Intelligent mission decomposition with risk analysis
@@ -26,6 +31,11 @@
 - 📦 **Template Marketplace** — Community templates for common workflows
 
 ## 🚀 Quick Start
+
+<p align="center">
+  <img src="./assets/readme/pi-missions-quickstart-flow.svg" alt="Quick start flow from install to smoke test" width="100%" />
+</p>
+
 
 ### Install
 
@@ -57,6 +67,11 @@ npm run build               # Build to dist/
 
 ## 📋 Commands
 
+<p align="center">
+  <img src="./assets/readme/pi-missions-command-reference.svg" alt="Grouped Pi Missions slash command reference" width="100%" />
+</p>
+
+
 | Command | Description |
 |---------|-------------|
 | `/mission new <title>` | Create a new mission with AI planning |
@@ -76,6 +91,11 @@ npm run build               # Build to dist/
 
 ## 🤖 Agent Tools
 
+<p align="center">
+  <img src="./assets/readme/pi-missions-mission-lifecycle.svg" alt="Mission lifecycle from new mission to analytics with recovery paths" width="100%" />
+</p>
+
+
 | Tool | Purpose |
 |------|---------|
 | `mission_feature_done` | Mark feature complete with evidence |
@@ -88,6 +108,11 @@ npm run build               # Build to dist/
 | `mission_kill_worker` | Kill runaway worker |
 
 ## 🏗️ Architecture
+
+<p align="center">
+  <img src="./assets/readme/pi-missions-architecture-overview.svg" alt="Architecture overview of interface orchestration persistence and integration layers" width="100%" />
+</p>
+
 
 ```
 src/
@@ -203,6 +228,11 @@ npm pack
 | `PI_PATH` | Path to pi binary | `pi` |
 
 ## 📈 Performance
+
+<p align="center">
+  <img src="./assets/readme/pi-missions-performance-snapshot.svg" alt="Performance and reliability metrics including tests build time workers memory and database tables" width="100%" />
+</p>
+
 
 | Metric | Value |
 |--------|-------|
