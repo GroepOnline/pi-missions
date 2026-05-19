@@ -2,7 +2,7 @@
 // The v2 codebase includes AgentSource in core/types.ts; this provides
 // a minimal compatible agent-detect API for existing test suites.
 
-import type { AgentSource } from "./core/types.js";
+import type { AgentSource } from "../core/types.js";
 
 export type { AgentSource };
 

@@ -8,7 +8,7 @@
 
 > **Turn short-lived Pi sessions into durable, long-running execution tracks.**
 
-[![Version](https://img.shields.io/badge/version-1.0.0-blue.svg)](https://github.com/OnlineChef/pi-missions)
+[![Version](https://img.shields.io/badge/version-0.1.0-blue.svg)](https://github.com/OnlineChef/pi-missions)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Pi Extension](https://img.shields.io/badge/Pi-Extension-9b59b6.svg)](https://github.com/OnlineChef/pi-missions)
 
@@ -49,12 +49,27 @@ Inspired by Factory Droid Missions and Codex-style goal tracking, but built as a
 pi install git:github.com/OnlineChef/pi-missions
 ```
 
+### Install from npm
+
+```bash
+pi install npm:@devctx/pi-missions@0.1.0
+```
+
 ### Local development
 
 ```bash
 git clone https://github.com/OnlineChef/pi-missions.git
 cd pi-missions
-pi -e ./src/index.ts
+npm install
+npm run build
+pi -e ./dist/index.js
+```
+
+### Run smoke test
+
+```bash
+npm run build
+./scripts/smoke-test.sh
 ```
 
 ## 📁 Architecture
@@ -121,6 +136,9 @@ For a detailed architecture breakdown, see [DOCUMENTATION_PLAN.md](./DOCUMENTATI
 | `mission_fork` | Split a risky or parallel approach into a linked fork |
 | `mission_error_status` | Inspect error recovery state |
 | `mission_retry_error` | Retry a recorded error |
+| `mission_spawn_worker` | Spawn a child pi process to work on a feature autonomously |
+| `mission_worker_status` | Check running worker process status |
+| `mission_kill_worker` | Kill a runaway worker process |
 
 ## 🔄 Phase-Based Tool Policy
 
@@ -165,8 +183,10 @@ All state is stored locally in `~/.pi/missions/<mission-id>/`:
 
 ```bash
 npm install
+npm run build     # Build TypeScript to dist/
 npm run check     # TypeScript type check
-npm test          # Unit tests (470 tests)
+npm test          # Unit tests (522 tests)
+./scripts/smoke-test.sh  # Verify extension loads
 bash scripts/pi_missions_e2e_runner.sh --mode full  # E2E tests in tmux
 ```
 
@@ -194,7 +214,7 @@ pi-missions/
 │   ├── ui/                # UI components
 │   ├── utils/             # Utilities
 │   └── commands/          # Command handlers
-├── tests/                 # Unit tests (18 files, 470 tests)
+├── tests/                 # Unit tests (19 files, 522 tests)
 │   └── e2e/               # End-to-end tests
 ├── scripts/
 │   └── pi_missions_e2e_runner.sh  # tmux E2E runner

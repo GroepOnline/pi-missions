@@ -5,9 +5,9 @@ import {
   goalTreeProgress,
   missionFromWizardOutput,
   renderGoalTree,
-} from "../src/mission-builder.js";
-import { completeActiveFeature } from "../src/transitions.js";
-import { createMission } from "../src/state.js";
+} from "../src/utils/mission-builder.js";
+import { completeActiveFeature } from "../src/core/state.js";
+import { createMission } from "../src/core/state.js";
 
 describe("mission builder goal tree", () => {
   it("does not append truncation marker when maxNodes exactly matches tree size", () => {

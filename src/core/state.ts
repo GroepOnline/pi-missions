@@ -14,6 +14,7 @@ import type {
   StaleFeatureAlert,
   ToolPhase,
 } from "./types.js";
+import { buildMissionGoalTree, type GoalTreeNode } from "../utils/mission-builder.js";
 import {
   SCHEMA_VERSION,
   DEFAULT_AUTOPILOT,
@@ -240,7 +241,9 @@ export async function saveMissionSafe(mission: MissionState): Promise<void> {
     }
 
     mission.updatedAt = Date.now();
-    const data = JSON.stringify(mission, null, 2);
+    // Strip goalTree (circular .root refs) before serialization
+    const { goalTree: _, ...serializable } = mission as MissionState & { goalTree?: unknown };
+    const data = JSON.stringify(serializable, null, 2);
 
     // Retry the write once on failure
     try {
@@ -260,6 +263,67 @@ export function loadMissionFromDisk(id: string): MissionState | null {
       const raw = JSON.parse(fs.readFileSync(path.join(dir, name), "utf-8"));
       return migrateMission(raw);
     } catch { /* try next fallback */ }
+  }
+  return null;
+}
+
+/** Read the raw schemaVersion from disk without migrating. Returns null if not found. */
+export function readRawSchemaVersion(id: string): number | null {
+  const dir = missionDirSafe(id);
+  for (const name of ["plan.json", "plan.json.bak"]) {
+    try {
+      const raw = JSON.parse(fs.readFileSync(path.join(dir, name), "utf-8"));
+      if (raw && typeof raw === "object" && "schemaVersion" in raw) {
+        return (raw as Record<string, unknown>).schemaVersion as number;
+      }
+      return 1; // pre-schemaVersion missions
+    } catch { /* try next fallback */ }
+  }
+  return null;
+}
+
+/** Migrate a mission, creating a pre-migration backup first. Returns the migrated mission or null. */
+export async function migrateMissionOnDisk(id: string): Promise<MissionState | null> {
+  const dir = missionDirSafe(id);
+  const target = path.join(dir, "plan.json");
+  if (!fs.existsSync(target)) return null;
+
+  return withLock(target, async () => {
+    // Create pre-migration backup
+    const preBackup = path.join(dir, `plan.json.pre-migration-${Date.now()}.bak`);
+    await fsAsync.copyFile(target, preBackup);
+
+    const raw = JSON.parse(await fsAsync.readFile(target, "utf-8"));
+    const migrated = migrateMission(raw);
+    // Write migrated state atomically
+    const temp = path.join(dir, "plan.json.tmp");
+    await fsAsync.writeFile(temp, JSON.stringify(migrated, null, 2), "utf-8");
+    await fsAsync.rename(temp, target);
+    return migrated;
+  });
+}
+
+/** Read raw plan.json to get pre-migration counts. Returns { milestones, features } or null. */
+export function readRawMissionCounts(id: string): { milestones: number; features: number } | null {
+  const dir = missionDirSafe(id);
+  for (const name of ["plan.json", "plan.json.bak"]) {
+    try {
+      const raw = JSON.parse(fs.readFileSync(path.join(dir, name), "utf-8"));
+      if (raw && typeof raw === "object") {
+        const o = raw as Record<string, unknown>;
+        if (Array.isArray(o.milestones)) {
+          const features = o.milestones.reduce(
+            (s: number, m: unknown) => s + (Array.isArray((m as Record<string, unknown>)?.features) ? ((m as Record<string, unknown>).features as unknown[]).length : 0),
+            0,
+          );
+          return { milestones: (o.milestones as unknown[]).length, features };
+        }
+        if (Array.isArray(o.features)) {
+          return { milestones: 1, features: (o.features as unknown[]).length };
+        }
+        return { milestones: 0, features: 0 };
+      }
+    } catch { /* try next */ }
   }
   return null;
 }
@@ -509,6 +573,9 @@ export function completeActiveFeature(
     mission.autopilot.lastStopReason = "mission_complete";
   }
   autoCompleteMilestones(mission);
+
+  // Rebuild goalTree to keep it in sync after feature transitions
+  (mission as { goalTree?: GoalTreeNode }).goalTree = buildMissionGoalTree(mission.title, mission.goal, mission.milestones);
 
   return { ok: true, feature, evidenceFile, missionComplete };
 }

@@ -1,0 +1,49 @@
+# Source files (we distribute compiled output in dist/)
+src/
+tests/
+scripts/
+coverage/
+
+# Development files
+.git/
+.github/
+*.test.ts
+*.test.js
+*.bench.ts
+*.bench.js
+vitest.config.ts
+tsconfig.json
+
+# Documentation (keep README, CHANGELOG, LICENSE)
+PLAN.md
+IMPROVEMENTS.md
+DOCUMENTATION_PLAN.md
+AUTONOMY.md
+AUTOPILOT_ENGINE.md
+UI_REFERENCE.md
+
+# Build artifacts (dist is included via files in package.json)
+node_modules/
+*.tsbuildinfo
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
+
+# Coverage
+coverage/
+.nyc_output/
+
+# Misc
+.codex/
+.agents/

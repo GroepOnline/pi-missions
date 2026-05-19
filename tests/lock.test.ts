@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { acquireMissionLock, withMissionLock, withLock, cleanupStaleLocks, type LockOptions } from "../src/lock.js";
+import { acquireMissionLock, withMissionLock, withLock, cleanupStaleLocks } from "../src/core/state.js";
+import type { LockOptions } from "../src/core/types.js";
 
 describe("Mission Locking", () => {
   it("lock functions are exported", () => {

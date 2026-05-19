@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { dashboardRows, statusText, updateFooter } from "../src/ui.js";
-import { autoCompleteMilestones, createMission } from "../src/state.js";
-import type { MissionState } from "../src/types.js";
+import { dashboardRows, statusText, updateFooter } from "../src/ui/components.js";
+import { autoCompleteMilestones, createMission } from "../src/core/state.js";
+import type { MissionState } from "../src/core/types.js";
 
 function missionFixture(overrides: Partial<MissionState> = {}): MissionState {
   return { ...createMission("My mission", "Improve the codebase"), ...overrides };

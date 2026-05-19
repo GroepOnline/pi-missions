@@ -2,8 +2,8 @@ import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { createMission, saveMissionSafe, loadMissionFromDisk } from "../../src/state.js";
-import { getErrorRecoveryEngine } from "../../src/recovery.js";
+import { createMission, saveMissionSafe, loadMissionFromDisk } from "../../src/core/state.js";
+import { getErrorRecoveryEngine } from "../../src/engines/recovery.js";
 
 const tmpRoot = path.join(os.tmpdir(), `pi-missions-e2e-recovery-${process.pid}`);
 

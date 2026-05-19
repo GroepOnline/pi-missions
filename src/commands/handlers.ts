@@ -6,8 +6,11 @@ import { WizardOutputSchema, validate } from "../core/types.js";
 import {
   activateNextFeature, appendHistory, autoBlockBlockedFeatures,
   completeActiveFeature, getActiveFeature, getFeatureById, getMilestoneById,
+  getNextPendingFeature,
   loadMissionFromDisk, listMissions, progress, readHistory, saveMissionSafe,
+  readRawSchemaVersion, readRawMissionCounts, migrateMissionOnDisk,
 } from "../core/state.js";
+import { SCHEMA_VERSION } from "../core/types.js";
 import { missionsRoot } from "../utils/fs.js";
 import { buildMissionContext, buildMissionHelp, buildCompactionSummary } from "../utils/context.js";
 import { createStructuredMission, missionFromWizardOutput, createMissionFromTemplate, MISSION_TEMPLATES, exportMarkdown } from "../utils/markdown.js";
@@ -15,6 +18,7 @@ import { updateFooter, statusText, dashboardRows } from "../ui/components.js";
 import { missionControlOverlay } from "../ui/dashboard.js";
 import { sessionMetrics } from "../engines/metrics.js";
 import { ensureActiveFeature, shouldContinue, triggerContinuation } from "../engines/autopilot.js";
+import { spawnWorker, killWorker, getActiveWorker, isWorkerRunning, type WorkerResult } from "../engines/worker.js";
 import { calculateMetricsSummary, computeMissionMetrics } from "../core/state.js";
 import { injectMissionContext as injectMissionCtx, enforceToolPolicy, enforceToolMax } from "../tools/index.js";
 
@@ -247,7 +251,17 @@ export async function handleDone(evidence: string, ctx: ExtensionCommandContext,
   if (!result.ok) return ctx.ui.notify(`${result.reason}\n\n/mission edit to waive criteria.`, "warning");
 
   await saveMissionSafe(m); updateFooter(ctx, m);
-  ctx.ui.notify(`✅ ${result.feature.id} done. Evidence: ${result.evidenceFile}`, "info");
+  
+  // Suggest handoff for large features (>50 tool calls or >10 min active)
+  const wallMs = (f.startedAt && f.completedAt) ? f.completedAt - f.startedAt : 0;
+  const isLarge = f.toolCallCount > 50 || wallMs > 600_000;
+  const nextPending = getNextPendingFeature(m);
+  
+  let notify = `✅ ${result.feature.id} done. Evidence: ${result.evidenceFile}`;
+  if (isLarge && nextPending && !result.missionComplete) {
+    notify += `\n\n🤝 Large feature completed (${f.toolCallCount} calls, ${Math.round(wallMs / 60000)}min). Consider /handoff "Continue ${m.title} from ${nextPending.id} — ${nextPending.title}" for a fresh session.`;
+  }
+  ctx.ui.notify(notify, "info");
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -518,6 +532,78 @@ export async function handleMetrics(ctx: ExtensionCommandContext, runtime: Runti
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
+// /mission history
+// ═══════════════════════════════════════════════════════════════════════════
+
+export async function handleHistory(
+  filter: string | undefined,
+  ctx: ExtensionCommandContext,
+  runtime: RuntimeState,
+): Promise<void> {
+  const m = runtime.activeMission;
+  if (!m) return ctx.ui.notify("No active mission. /mission load <id> first.", "warning");
+
+  const allEntries = readHistory(m.id);
+  if (!allEntries.length) return ctx.ui.notify("No history entries yet.", "info");
+
+  let entries = allEntries;
+  let label = "All events";
+
+  // Sub-filters: feature, event type, or feature-id
+  if (filter) {
+    const lf = filter.toLowerCase();
+    if (getFeatureById(m, filter)) {
+      entries = entries.filter(e => e.featureId === filter);
+      label = `Feature ${filter}`;
+    } else {
+      // Try event type filter first, then full-text search
+      const eventMatch = entries.filter(e => e.event === filter);
+      if (eventMatch.length > 0) {
+        entries = eventMatch;
+        label = `Event: ${filter}`;
+      } else {
+        // Full-text search in note and event fields
+        entries = entries.filter(e =>
+          e.event.includes(lf) || (e.note ?? "").toLowerCase().includes(lf) ||
+          (e.featureId ?? "").toLowerCase().includes(lf),
+        );
+        label = `Search: "${filter.slice(0, 40)}"`;
+      }
+    }
+    if (!entries.length) return ctx.ui.notify(`No history entries matching "${filter}".`, "info");
+  }
+
+  const recent = entries.slice(-40);
+  const features = new Set(recent.map(e => e.featureId).filter(Boolean));
+  const eventTypes = new Set(recent.map(e => e.event));
+
+  const lines = [
+    `📜 Mission History — ${label} (${recent.length} of ${entries.length} entries)`,
+    `Features: ${[...features].join(", ") || "none"}`,
+    `Event types: ${[...eventTypes].join(", ")}`,
+    "─".repeat(80),
+  ];
+
+  // Compact table: timestamp event feature note
+  for (const h of recent) {
+    const ts = new Date(h.ts * 1000).toISOString().replace("T", " ").slice(0, 19);
+    const evt = h.event.padEnd(24);
+    const fid = (h.featureId ?? "").padEnd(8);
+    const note = (h.note ?? "").slice(0, 60);
+    lines.push(`${ts}  ${evt} ${fid} ${note}`);
+  }
+
+  lines.push(
+    "─".repeat(80),
+    "Filters: /mission history [feature_id|event_type|search_term]",
+    `Full log: ~/.pi/missions/${m.id}/history.jsonl`,
+    "jq replay: jq -r '.event + \" \" + (.featureId // \"\")' ~/.pi/missions/<id>/history.jsonl",
+  );
+
+  ctx.ui.notify(lines.join("\n"), "info");
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
 // /mission export
 // ═══════════════════════════════════════════════════════════════════════════
 
@@ -535,4 +621,194 @@ export async function handleExport(filename: string | undefined, ctx: ExtensionC
   } catch (e) {
     ctx.ui.notify(`Export failed: ${e instanceof Error ? e.message : String(e)}`, "warning");
   }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// /mission worker / /mission worker-status / /mission kill-worker
+// ═══════════════════════════════════════════════════════════════════════════
+
+export async function handleWorker(
+  featureId: string | undefined,
+  ctx: ExtensionCommandContext,
+  runtime: RuntimeState,
+): Promise<void> {
+  const m = runtime.activeMission;
+  if (!m) return ctx.ui.notify("No active mission.", "warning");
+
+  const fid = featureId || m.activeFeatureId;
+  if (!fid) return ctx.ui.notify("No feature specified and no active feature.", "warning");
+
+  const f = getFeatureById(m, fid);
+  if (!f) return ctx.ui.notify(`Feature not found: ${fid}`, "error");
+
+  if (isWorkerRunning()) {
+    const aw = getActiveWorker();
+    const elapsed = aw ? Math.round((Date.now() - aw.startedAt) / 1000) : 0;
+    return ctx.ui.notify(`Worker already running for ${aw?.featureId} (${elapsed}s). Use /mission worker-status.`, "warning");
+  }
+
+  // Mark feature active
+  f.status = "active";
+  m.activeFeatureId = f.id;
+  m.activeMilestoneId = f.milestoneId;
+  m.status = "active";
+
+  appendHistory(m, {
+    event: "worker_spawned",
+    featureId: f.id,
+    note: `Worker spawned for ${f.id} — ${f.title}`,
+  });
+
+  await saveMissionSafe(m);
+
+  ctx.ui.notify(`🚀 Worker spawned for ${f.id} — ${f.title}. Check /mission worker-status for progress.`, "info");
+
+  // Fire-and-forget: spawn async, report result when done
+  spawnWorker(m, { featureId: f.id }).then((result) => {
+    if ("error" in result) {
+      ctx.ui.notify(`❌ Worker error: ${result.error}`, "error");
+      return;
+    }
+    const r = result as WorkerResult;
+    const duration = Math.round(r.durationMs / 1000);
+    const statusIcon = r.killed ? "⏱️" : r.exitCode === 0 ? "✅" : "❌";
+    const lines = [
+      `${statusIcon} Worker finished for ${r.featureId}`,
+      `Exit: ${r.exitCode}${r.signal ? ` (${r.signal})` : ""} | Duration: ${duration}s`,
+    ];
+    const outSummary = r.stdout.slice(-1500);
+    if (outSummary) lines.push("", "── Output (last 1500 chars) ──", outSummary);
+    ctx.ui.notify(lines.join("\n"), "info");
+  }).catch((err: unknown) => {
+    ctx.ui.notify(`❌ Worker failed: ${err instanceof Error ? err.message : String(err)}`, "error");
+  });
+}
+
+export async function handleWorkerStatus(ctx: ExtensionCommandContext): Promise<void> {
+  const aw = getActiveWorker();
+  if (!aw) return ctx.ui.notify("No worker running.", "info");
+
+  const elapsed = Math.round((Date.now() - aw.startedAt) / 1000);
+  const lines = [
+    `🔧 Worker Status`,
+    `Feature: ${aw.featureId}`,
+    `Status: ${aw.status}`,
+    `Running: ${elapsed}s`,
+  ];
+
+  if (aw.result) {
+    lines.push(
+      "", "Last Result:",
+      `Exit: ${aw.result.exitCode}${aw.result.signal ? ` (${aw.result.signal})` : ""}`,
+      `Duration: ${Math.round(aw.result.durationMs / 1000)}s`,
+    );
+  }
+
+  ctx.ui.notify(lines.join("\n"), "info");
+}
+
+export async function handleKillWorker(ctx: ExtensionCommandContext): Promise<void> {
+  const killed = killWorker();
+  if (!killed) return ctx.ui.notify("No worker running to kill.", "info");
+  ctx.ui.notify("🛑 Worker killed.", "info");
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// /mission migrate — schema migration
+// ═══════════════════════════════════════════════════════════════════════════
+
+export async function handleMigrate(
+  id: string | undefined,
+  ctx: ExtensionCommandContext,
+  runtime: RuntimeState,
+): Promise<void> {
+  // List all missions and their schema versions
+  if (!id) {
+    const missions = listMissions();
+    if (!missions.length) return ctx.ui.notify("No missions found.", "info");
+
+    const lines = ["📋 Mission Schema Versions", "=".repeat(60)];
+    let needsMigration = 0;
+    for (const m of missions) {
+      const rawVersion = readRawSchemaVersion(m.id);
+      const versionStr = rawVersion !== null ? `v${rawVersion}` : "?";
+      const status = rawVersion === SCHEMA_VERSION ? "✅" : rawVersion !== null ? "⬆️" : "❓";
+      if (rawVersion !== null && rawVersion < SCHEMA_VERSION) needsMigration++;
+      lines.push(`${status} ${m.id.padEnd(28)} ${versionStr.padEnd(6)} ${m.title.slice(0, 30)}`);
+    }
+    lines.push(
+      "=".repeat(60),
+      `Current schema: v${SCHEMA_VERSION}`,
+      needsMigration > 0
+        ? `${needsMigration} mission(s) need migration. Use /mission migrate <id> to migrate.`
+        : "All missions up to date.",
+    );
+    ctx.ui.notify(lines.join("\n"), "info");
+    return;
+  }
+
+  // Migrate a specific mission
+  const rawVersion = readRawSchemaVersion(id);
+  if (rawVersion === null) return ctx.ui.notify(`Mission not found: ${id}`, "error");
+  if (rawVersion >= SCHEMA_VERSION) {
+    return ctx.ui.notify(`Mission ${id} already at v${rawVersion} (current: v${SCHEMA_VERSION}). No migration needed.`, "info");
+  }
+
+  // Show preview — use raw counts for accuracy (loadMissionFromDisk migrates in-memory)
+  const rawCounts = readRawMissionCounts(id);
+  const current = loadMissionFromDisk(id);
+  if (!current) return ctx.ui.notify(`Could not load mission ${id}.`, "error");
+
+  const featuresBefore = rawCounts?.features ?? current.milestones.reduce((s, m) => s + m.features.length, 0);
+  const milestonesBefore = rawCounts?.milestones ?? current.milestones.length;
+  const preview = [
+    `⬆️ Migration preview for ${id}`,
+    "=".repeat(60),
+    `Title: ${current.title}`,
+    `Schema: v${rawVersion} → v${SCHEMA_VERSION}`,
+    `Status: ${current.status}`,
+    `Milestones: ${milestonesBefore}`,
+    `Features: ${featuresBefore}`,
+    "=".repeat(60),
+    "",
+    "Migration will:",
+    "- Set schemaVersion to v3",
+    rawVersion <= 1 ? "- Wrap flat features into a milestone if needed" : null,
+    rawVersion <= 2 ? "- Add default autopilot settings" : null,
+    "- Create a pre-migration backup",
+    "",
+    `Run /mission migrate ${id} confirm to proceed.`,
+  ].filter(Boolean).join("\n");
+
+  ctx.ui.notify(preview, "info");
+}
+
+export async function handleMigrateConfirm(
+  id: string | undefined,
+  ctx: ExtensionCommandContext,
+  runtime: RuntimeState,
+): Promise<void> {
+  if (!id) return ctx.ui.notify("Usage: /mission migrate <id> confirm", "warning");
+
+  const rawVersion = readRawSchemaVersion(id);
+  if (rawVersion === null) return ctx.ui.notify(`Mission not found: ${id}`, "error");
+  if (rawVersion >= SCHEMA_VERSION) {
+    return ctx.ui.notify(`Already at v${rawVersion}. No migration needed.`, "info");
+  }
+
+  const migrated = await migrateMissionOnDisk(id);
+  if (!migrated) return ctx.ui.notify(`Migration failed for ${id}.`, "error");
+
+  // If this is the active mission, update runtime
+  if (runtime.activeMission && runtime.activeMission.id === id) {
+    runtime.activeMission = migrated;
+  }
+
+  const fc = migrated.milestones.reduce((s, m) => s + m.features.length, 0);
+  ctx.ui.notify(
+    `✅ Migrated ${id} from v${rawVersion} to v${SCHEMA_VERSION}.\n` +
+    `Milestones: ${migrated.milestones.length}, Features: ${fc}\n` +
+    `Backup saved to ~/.pi/missions/${id}/plan.json.pre-migration-*.bak`,
+    "info",
+  );
 }

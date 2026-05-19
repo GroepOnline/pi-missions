@@ -3,13 +3,13 @@ import type { RuntimeState } from "../core/types.js";
 import { handleNew, handleTemplates } from "./handlers.js";
 import { handleList, handleLoad, handleStatus, handleHelp } from "./handlers.js";
 import { handleNext, handleDone, handleBlock, handlePause, handleResume, handleClear, handleRun, handleAutopilot, handleStop } from "./handlers.js";
-import { handleEdit, handleFork, handleDashboard, handleDebug, handleMetrics, handleExport } from "./handlers.js";
+import { handleEdit, handleFork, handleDashboard, handleDebug, handleMetrics, handleExport, handleHistory, handleWorker, handleWorkerStatus, handleKillWorker, handleMigrate, handleMigrateConfirm } from "./handlers.js";
 
 // Re-export for consumers
 export { handleNew, handleTemplates };
 export { handleLoad, handleList, handleStatus, handleHelp };
 export { handleNext, handleDone, handleBlock, handlePause, handleResume, handleClear, handleRun, handleAutopilot, handleStop };
-export { handleEdit, handleFork, handleDashboard, handleDebug, handleMetrics, handleExport };
+export { handleEdit, handleFork, handleDashboard, handleDebug, handleMetrics, handleExport, handleHistory, handleWorker, handleWorkerStatus, handleKillWorker, handleMigrate, handleMigrateConfirm };
 
 // Re-export fork helpers for backward compat test imports
 export { cloneFeatureForFork, appendForkNote, pushSessionRef, buildForkKickoffMessage, buildManualForkHandoff } from "../tools/index.js";
@@ -28,7 +28,7 @@ export function injectMissionContext(pi: ExtensionAPI, ctx: ExtensionCommandCont
 export function registerMissionCommand(pi: ExtensionAPI, runtime: RuntimeState): void {
   const subs = ["start", "new", "list", "load", "run", "pause", "resume", "stop", "clear",
     "status", "autopilot", "help", "next", "done", "block", "edit", "fork", "debug",
-    "dashboard", "metrics", "export", "templates"];
+    "dashboard", "metrics", "export", "templates", "history", "worker", "worker-status", "kill-worker", "migrate"];
 
   pi.registerCommand("mission", {
     description: `Mission management: ${subs.join("|")}`,
@@ -58,6 +58,13 @@ export function registerMissionCommand(pi: ExtensionAPI, runtime: RuntimeState):
         case "metrics": return handleMetrics(ctx, runtime);
         case "export": return handleExport(rest[0], ctx, runtime);
         case "templates": return handleTemplates(rest[0], rest[1], rest.slice(2).join(" "), ctx, pi, runtime);
+        case "history": return handleHistory(rest[0], ctx, runtime);
+        case "worker": return handleWorker(rest[0], ctx, runtime);
+        case "worker-status": return handleWorkerStatus(ctx);
+        case "kill-worker": return handleKillWorker(ctx);
+        case "migrate":
+          if (rest[0] && rest[1] === "confirm") return handleMigrateConfirm(rest[0], ctx, runtime);
+          return handleMigrate(rest[0], ctx, runtime);
         default: return ctx.ui.notify(`Unknown /mission subcommand: ${sub}`, "warning");
       }
     },

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { validate, formatValidationErrors } from "../src/validation.js";
-import { FeatureSchema, WizardOutputSchema } from "../src/schemas.js";
+import { validate, formatValidationErrors } from "../src/core/types.js";
+import { FeatureSchema, WizardOutputSchema } from "../src/core/types.js";
 
 describe("Schema Validation", () => {
   it("rejects invalid feature ID", () => {

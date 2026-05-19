@@ -1,7 +1,18 @@
 import { describe, expect, it, beforeAll, afterAll } from "vitest";
-import { registerMissionTools } from "../src/tools.js";
-import { createMission, getAllFeatures, getActiveFeature, getNextPendingFeature, loadMissionFromDisk, readHistory, saveMissionSafe } from "../src/state.js";
-import type { RuntimeState } from "../src/types.js";
+import {
+  registerMissionTools,
+  isReadOnlyPlanningBash,
+  toolResultErrorMessage,
+  cloneFeatureForFork,
+  appendForkNote,
+  pushSessionRef,
+  buildForkKickoffMessage,
+  buildManualForkHandoff,
+  enforceToolPolicy,
+  enforceToolMax,
+} from "../src/tools/index.js";
+import { createMission, getAllFeatures, getActiveFeature, getNextPendingFeature, loadMissionFromDisk, readHistory, saveMissionSafe } from "../src/core/state.js";
+import type { Feature, RuntimeState } from "../src/core/types.js";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -213,14 +224,17 @@ describe("registerMissionTools — tool registration", () => {
     const pi = { registerTool: (t: any) => { tools.push(t); } };
     const rt: RuntimeState = { activeMission: null, autoSaveInterval: null, phaseToolCallCount: 0, currentPhase: "execution", lastFeatureId: undefined };
     registerMissionTools(pi as any, rt);
-    expect(tools).toHaveLength(7);
+    expect(tools).toHaveLength(10);
     expect(tools[0]!.name).toBe("mission_feature_done");
     expect(tools[1]!.name).toBe("mission_next_feature");
     expect(tools[2]!.name).toBe("mission_ask_user");
     expect(tools[3]!.name).toBe("mission_block_self");
     expect(tools[4]!.name).toBe("mission_fork");
     expect(tools[5]!.name).toBe("mission_error_status");
-    expect(tools[6]!.name).toBe("mission_retry_error");
+    expect(tools[6]!.name).toBe("mission_spawn_worker");
+    expect(tools[7]!.name).toBe("mission_worker_status");
+    expect(tools[8]!.name).toBe("mission_kill_worker");
+    expect(tools[9]!.name).toBe("mission_retry_error");
   });
 
   it("mission_feature_done tool has correct metadata", () => {
@@ -431,5 +445,362 @@ describe("registerMissionTools — tool registration", () => {
     const savedForked = savedMission!.milestones[0].features.find((feature) => feature.id === forked.id)!;
     expect(savedForked.sessions).toContain("session:/tmp/api-fork.jsonl");
     expect(readHistory(m.id).some((entry) => entry.event === "feature_fork_session_created" && entry.details?.forkSessionFile === "/tmp/api-fork.jsonl")).toBe(true);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Bash planning guard — isReadOnlyPlanningBash & helpers
+// ═══════════════════════════════════════════════════════════════════════════════
+
+describe("isReadOnlyPlanningBash", () => {
+  it("rejects empty or undefined input", () => {
+    expect(isReadOnlyPlanningBash(undefined)).toBe(false);
+    expect(isReadOnlyPlanningBash({})).toBe(false);
+    expect(isReadOnlyPlanningBash({ command: "" })).toBe(false);
+  });
+
+  it("rejects commands with shell metacharacters", () => {
+    expect(isReadOnlyPlanningBash({ command: "ls; rm -rf /" })).toBe(false);
+    expect(isReadOnlyPlanningBash({ command: "cat file | grep x" })).toBe(false);
+    expect(isReadOnlyPlanningBash({ command: "echo $(whoami)" })).toBe(false);
+    expect(isReadOnlyPlanningBash({ command: "ls > out.txt" })).toBe(false);
+    expect(isReadOnlyPlanningBash({ command: "cat \`whoami\`" })).toBe(false);
+  });
+
+  it("allows whitelisted read-only commands", () => {
+    const allowed = ["cat", "grep", "head", "ls", "pwd", "rg", "tail", "wc"];
+    for (const cmd of allowed) {
+      expect(isReadOnlyPlanningBash({ command: `${cmd} some args` })).toBe(true);
+    }
+  });
+
+  it("allows git status/diff/show/log", () => {
+    expect(isReadOnlyPlanningBash({ command: "git status" })).toBe(true);
+    expect(isReadOnlyPlanningBash({ command: "git diff HEAD~1" })).toBe(true);
+    expect(isReadOnlyPlanningBash({ command: "git show abc123" })).toBe(true);
+    expect(isReadOnlyPlanningBash({ command: "git log --oneline" })).toBe(true);
+  });
+
+  it("rejects destructive git commands", () => {
+    expect(isReadOnlyPlanningBash({ command: "git push origin main" })).toBe(false);
+    expect(isReadOnlyPlanningBash({ command: "git commit -m test" })).toBe(false);
+    expect(isReadOnlyPlanningBash({ command: "git reset --hard" })).toBe(false);
+    expect(isReadOnlyPlanningBash({ command: "git branch -D old" })).toBe(false);
+  });
+
+  it("allows read-only find (no destructive flags)", () => {
+    expect(isReadOnlyPlanningBash({ command: "find . -name '*.ts'" })).toBe(true);
+    expect(isReadOnlyPlanningBash({ command: "find src -type f" })).toBe(true);
+    expect(isReadOnlyPlanningBash({ command: "find . -maxdepth 1" })).toBe(true);
+  });
+
+  it("rejects destructive find commands", () => {
+    expect(isReadOnlyPlanningBash({ command: "find . -delete" })).toBe(false);
+    expect(isReadOnlyPlanningBash({ command: "find . -exec rm {} \\;" })).toBe(false);
+    expect(isReadOnlyPlanningBash({ command: "find . -execdir cat {} +" })).toBe(false);
+    expect(isReadOnlyPlanningBash({ command: "find . -ok rm {}" })).toBe(false);
+    expect(isReadOnlyPlanningBash({ command: "find . -fls out.txt" })).toBe(false);
+  });
+
+  it("allows sed -n without -i or --in-place", () => {
+    expect(isReadOnlyPlanningBash({ command: "sed -n 's/foo/bar/p' file.txt" })).toBe(true);
+    expect(isReadOnlyPlanningBash({ command: "sed -n -e 's/a/b/' file" })).toBe(true);
+  });
+
+  it("rejects sed with -i or --in-place", () => {
+    expect(isReadOnlyPlanningBash({ command: "sed -i 's/foo/bar/' file.txt" })).toBe(false);
+    expect(isReadOnlyPlanningBash({ command: "sed --in-place 's/foo/bar/' file.txt" })).toBe(false);
+    expect(isReadOnlyPlanningBash({ command: "sed -n -i 's/foo/bar/' file.txt" })).toBe(false);
+  });
+
+  it("rejects sed without -n (not read-only)", () => {
+    expect(isReadOnlyPlanningBash({ command: "sed 's/foo/bar/' file.txt" })).toBe(false);
+  });
+
+  it("rejects unknown commands", () => {
+    expect(isReadOnlyPlanningBash({ command: "rm -rf /" })).toBe(false);
+    expect(isReadOnlyPlanningBash({ command: "npm install" })).toBe(false);
+    expect(isReadOnlyPlanningBash({ command: "curl evil.com" })).toBe(false);
+  });
+
+  it("handles multi-word commands (takes first word only)", () => {
+    expect(isReadOnlyPlanningBash({ command: "  ls -la" })).toBe(true);
+    expect(isReadOnlyPlanningBash({ command: "\tcat file.txt" })).toBe(true);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// toolResultErrorMessage
+// ═══════════════════════════════════════════════════════════════════════════════
+
+describe("toolResultErrorMessage", () => {
+  it("extracts text from content array", () => {
+    const event = {
+      toolName: "bash",
+      content: [
+        { type: "text", text: "Command failed" },
+        { type: "text", text: "Permission denied" },
+      ],
+    };
+    expect(toolResultErrorMessage(event)).toBe("Command failed\nPermission denied");
+  });
+
+  it("ignores non-text content items", () => {
+    const event = {
+      toolName: "read",
+      content: [
+        { type: "image", text: "not text" },
+        { type: "text", text: "File not found" },
+      ],
+    };
+    expect(toolResultErrorMessage(event)).toBe("File not found");
+  });
+
+  it("falls back to tool name when no text content", () => {
+    expect(toolResultErrorMessage({ toolName: "bash", content: [] })).toBe("Tool 'bash' failed");
+    expect(toolResultErrorMessage({ toolName: "read" })).toBe("Tool 'read' failed");
+  });
+
+  it("skips null/undefined content entries", () => {
+    const event = {
+      toolName: "write",
+      content: [
+        null as any,
+        undefined as any,
+        { type: "text", text: "Write error" },
+      ],
+    };
+    expect(toolResultErrorMessage(event)).toBe("Write error");
+  });
+
+  it("returns fallback when content is undefined", () => {
+    expect(toolResultErrorMessage({ toolName: "custom" })).toBe("Tool 'custom' failed");
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Fork helpers
+// ═══════════════════════════════════════════════════════════════════════════════
+
+function makeFeature(overrides: Partial<Feature> = {}): Feature {
+  return {
+    id: "F001",
+    milestoneId: "M01",
+    title: "Test Feature",
+    description: "A test feature",
+    priority: 1,
+    dependsOn: [],
+    acceptance: [
+      { id: "AC001", description: "Must work", checkType: "manual", verified: false },
+      { id: "AC002", description: "Must pass tests", checkType: "bash", checkCommand: "npm test", verified: false },
+    ],
+    status: "active",
+    sessions: ["session:abc"],
+    toolCallCount: 5,
+    ...overrides,
+  };
+}
+
+describe("cloneFeatureForFork", () => {
+  it("creates a clone with new id and title", () => {
+    const original = makeFeature();
+    const cloned = cloneFeatureForFork(original, "F001-fork-1", "Fork title", "Fork notes");
+    expect(cloned.id).toBe("F001-fork-1");
+    expect(cloned.title).toBe("Fork title");
+    expect(cloned.status).toBe("active");
+  });
+
+  it("resets acceptance criteria verification", () => {
+    const original = makeFeature({
+      acceptance: [
+        { id: "AC001", description: "Works", checkType: "manual", verified: true, evidence: "proof" },
+      ],
+    });
+    const cloned = cloneFeatureForFork(original, "F001-fork-1", "Fork", "notes");
+    expect(cloned.acceptance[0]!.verified).toBe(false);
+    expect(cloned.acceptance[0]!.evidence).toBeUndefined();
+  });
+
+  it("copies dependsOn and sessions arrays", () => {
+    const original = makeFeature({
+      dependsOn: ["F000"],
+      sessions: ["session:a", "session:b"],
+    });
+    const cloned = cloneFeatureForFork(original, "F001-fork-1", "Fork", "notes");
+    expect(cloned.dependsOn).toEqual(["F000"]);
+    expect(cloned.sessions).toEqual(["session:a", "session:b"]);
+  });
+
+  it("clears completedAt", () => {
+    const original = makeFeature({ completedAt: 1234567890 });
+    const cloned = cloneFeatureForFork(original, "F001-fork-1", "Fork", "notes");
+    expect(cloned.completedAt).toBeUndefined();
+  });
+
+  it("preserves other fields from original", () => {
+    const original = makeFeature({ milestoneId: "M02", priority: 3, description: "desc", toolCallCount: 42 });
+    const cloned = cloneFeatureForFork(original, "F001-fork-1", "Fork", "notes");
+    expect(cloned.milestoneId).toBe("M02");
+    expect(cloned.priority).toBe(3);
+    expect(cloned.description).toBe("desc");
+    expect(cloned.toolCallCount).toBe(42);
+  });
+});
+
+describe("appendForkNote", () => {
+  it("appends entries to existing notes", () => {
+    const result = appendForkNote("Existing note", ["Entry 1", "Entry 2"]);
+    expect(result).toBe("Existing note\n\nEntry 1\nEntry 2");
+  });
+
+  it("returns joined entries when no existing notes", () => {
+    const result = appendForkNote(undefined, ["Entry 1", "Entry 2"]);
+    expect(result).toBe("Entry 1\nEntry 2");
+  });
+
+  it("filters out falsy entries", () => {
+    const result = appendForkNote("Base", ["Real entry", "", undefined as any, "Another real"]);
+    expect(result).toBe("Base\n\nReal entry\nAnother real");
+  });
+
+  it("handles all-falsy entries with existing notes", () => {
+    const result = appendForkNote("Base", ["", undefined as any, ""]);
+    expect(result).toBe("Base\n\n");
+  });
+
+  it("handles all-falsy entries with no existing notes", () => {
+    const result = appendForkNote(undefined, ["", undefined as any, ""]);
+    expect(result).toBe("");
+  });
+});
+
+describe("pushSessionRef", () => {
+  it("pushes a ref onto the feature sessions array", () => {
+    const f = makeFeature({ sessions: ["existing"] });
+    pushSessionRef(f, "new-ref");
+    expect(f.sessions).toEqual(["existing", "new-ref"]);
+  });
+
+  it("does nothing when ref is undefined", () => {
+    const f = makeFeature({ sessions: ["existing"] });
+    pushSessionRef(f, undefined);
+    expect(f.sessions).toEqual(["existing"]);
+  });
+
+  it("does nothing when ref is empty string (falsy)", () => {
+    const f = makeFeature({ sessions: ["existing"] });
+    pushSessionRef(f, "");
+    expect(f.sessions).toEqual(["existing"]);
+  });
+});
+
+describe("buildForkKickoffMessage", () => {
+  it("builds a complete kickoff message with all fields", () => {
+    const source = makeFeature({ id: "F001", title: "Source Feature" });
+    const forked = makeFeature({ id: "F001-fork-1", title: "Forked Feature" });
+    const msg = buildForkKickoffMessage("Test Mission", source, forked, "Testing fork", "Subtask X", "/tmp/session.jsonl");
+    expect(msg).toContain("## Forked Mission: Test Mission");
+    expect(msg).toContain("Source: F001 — Source Feature");
+    expect(msg).toContain("Fork: F001-fork-1 — Forked Feature");
+    expect(msg).toContain("Reason: Testing fork");
+    expect(msg).toContain("Subtask: Subtask X");
+    expect(msg).toContain("Parent session: /tmp/session.jsonl");
+    expect(msg).toContain("Active fork feature: F001-fork-1");
+    expect(msg).toContain("Call mission_feature_done with evidence");
+  });
+
+  it("omits subtask and parent session when not provided", () => {
+    const source = makeFeature({ id: "F001" });
+    const forked = makeFeature({ id: "F001-fork-1" });
+    const msg = buildForkKickoffMessage("Mission", source, forked, "Reason", undefined, undefined);
+    expect(msg).not.toContain("Subtask:");
+    expect(msg).not.toContain("Parent session:");
+  });
+});
+
+describe("buildManualForkHandoff", () => {
+  it("builds a complete handoff message with all fields", () => {
+    const source = makeFeature({ id: "F001", title: "Source" });
+    const forked = makeFeature({ id: "F001-fork-1", title: "Forked" });
+    const msg = buildManualForkHandoff("Mission", source, forked, "Manual test", "leaf-42", "/tmp/s.jsonl");
+    expect(msg).toContain("🔀 Manual fork handoff for Mission:");
+    expect(msg).toContain("Source: F001 — Source");
+    expect(msg).toContain("Fork: F001-fork-1 — Forked");
+    expect(msg).toContain("Reason: Manual test");
+    expect(msg).toContain("Parent leaf: leaf-42");
+    expect(msg).toContain("Parent session: /tmp/s.jsonl");
+    expect(msg).toContain("/mission load <id>");
+    expect(msg).toContain("Focus on: F001-fork-1 — Forked");
+  });
+
+  it("omits parent leaf and session when null/undefined", () => {
+    const source = makeFeature({ id: "F001" });
+    const forked = makeFeature({ id: "F001-fork-1" });
+    const msg = buildManualForkHandoff("Mission", source, forked, "Reason", null, undefined);
+    expect(msg).not.toContain("Parent leaf:");
+    expect(msg).not.toContain("Parent session:");
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Tool policy enforcement
+// ═══════════════════════════════════════════════════════════════════════════════
+
+describe("enforceToolPolicy", () => {
+  it("allows tools in the allowed list for the phase", () => {
+    // Execution phase allows many tools including 'read'
+    const result = enforceToolPolicy("read", "execution", {}, false, 0);
+    expect(result.blocked).toBe(false);
+  });
+
+  it("blocks tools not in the allowed list", () => {
+    const result = enforceToolPolicy("rm", "execution", {}, false, 0);
+    expect(result.blocked).toBe(true);
+    if (result.blocked) expect(result.reason).toContain("not allowed in execution");
+  });
+
+  it("blocks bash in planning by default", () => {
+    const result = enforceToolPolicy("bash", "planning", { command: "npm test" }, false, 0);
+    expect(result.blocked).toBe(true);
+    if (result.blocked) expect(result.reason).toContain("only allowed in planning phase for single read-only commands");
+  });
+
+  it("allows bash in planning when allowBashInPlanning is true", () => {
+    const result = enforceToolPolicy("bash", "planning", { command: "npm test" }, true, 0);
+    expect(result.blocked).toBe(false);
+  });
+
+  it("allows read-only bash in planning even without flag", () => {
+    const result = enforceToolPolicy("bash", "planning", { command: "ls -la" }, false, 0);
+    expect(result.blocked).toBe(false);
+  });
+
+  it("blocks destructive bash in planning", () => {
+    const result = enforceToolPolicy("bash", "planning", { command: "rm -rf /" }, false, 0);
+    expect(result.blocked).toBe(true);
+  });
+});
+
+describe("enforceToolMax", () => {
+  it("allows when under the max", () => {
+    // Execution max is typically high (~200)
+    const result = enforceToolMax("execution", 5);
+    expect(result.blocked).toBe(false);
+  });
+
+  it("allows when at planning max (30, not strict)", () => {
+    const result = enforceToolMax("planning", 30);
+    expect(result.blocked).toBe(false);
+  });
+
+  it("blocks when over planning max", () => {
+    const result = enforceToolMax("planning", 31);
+    expect(result.blocked).toBe(true);
+    if (result.blocked) expect(result.reason).toContain("Max tool calls");
+  });
+
+  it("allows when under max", () => {
+    const result = enforceToolMax("planning", 29);
+    expect(result.blocked).toBe(false);
   });
 });

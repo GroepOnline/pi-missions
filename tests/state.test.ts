@@ -22,20 +22,23 @@ import {
   listSessionRefs,
   loadMissionFromDisk,
   migrateMission,
+  migrateMissionOnDisk,
   missionDirSafe,
   missionsRoot,
   progress,
   readHistory,
+  readRawMissionCounts,
+  readRawSchemaVersion,
   saveEvidence,
   saveMissionSafe,
   slugify,
-} from "../src/state.js";
-import { exportMarkdown } from "../src/export.js";
-import { createMissionFromTemplate } from "../src/templates.js";
+} from "../src/core/state.js";
+import { exportMarkdown } from "../src/utils/markdown.js";
+import { createMissionFromTemplate } from "../src/utils/markdown.js";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import type { MissionState } from "../src/types.js";
+import type { MissionState } from "../src/core/types.js";
 
 const tmpRoot = path.join(os.tmpdir(), `pi-missions-test-${process.pid}`);
 
@@ -1094,5 +1097,209 @@ describe("calculateMetricsSummary", () => {
     expect(summary.completedMissions).toBeGreaterThanOrEqual(1); // At least our 1 completed mission
     expect(summary.averageTokensPerMission).toBeGreaterThanOrEqual(0);
     expect(summary.averageFeaturesPerMission).toBeGreaterThan(0);
+  });
+});
+
+describe("readRawSchemaVersion", () => {
+  const origHome = process.env.HOME;
+
+  beforeAll(() => {
+    process.env.HOME = tmpRoot;
+    cleanupTmp();
+    setupTmp();
+  });
+
+  afterAll(() => {
+    process.env.HOME = origHome;
+    cleanupTmp();
+  });
+
+  it("returns null for unknown mission", () => {
+    expect(readRawSchemaVersion("nonexistent-999")).toBeNull();
+  });
+
+  it("returns current schema version for saved mission", async () => {
+    const m = createMission("SchemaCheck", "Test");
+    await saveMissionSafe(m);
+    expect(readRawSchemaVersion(m.id)).toBe(3);
+  });
+
+  it("returns 1 for pre-schemaVersion missions (no schemaVersion field)", async () => {
+    const m = createMission("OldFormat", "Test");
+    await saveMissionSafe(m);
+    // Simulate old format by writing JSON without schemaVersion
+    const dir = missionDirSafe(m.id);
+    const raw = JSON.parse(fs.readFileSync(path.join(dir, "plan.json"), "utf-8"));
+    delete raw.schemaVersion;
+    fs.writeFileSync(path.join(dir, "plan.json"), JSON.stringify(raw), "utf-8");
+    expect(readRawSchemaVersion(m.id)).toBe(1);
+  });
+
+  it("falls back to plan.json.bak when plan.json is corrupted", async () => {
+    const m = createMission("BakVersion", "Test");
+    await saveMissionSafe(m);
+    m.title = "BakVersion modified";
+    await saveMissionSafe(m); // creates plan.json.bak
+    fs.writeFileSync(path.join(missionDirSafe(m.id), "plan.json"), "{corrupted", "utf-8");
+    expect(readRawSchemaVersion(m.id)).toBe(3);
+  });
+});
+
+describe("readRawMissionCounts", () => {
+  const origHome = process.env.HOME;
+
+  beforeAll(() => {
+    process.env.HOME = tmpRoot;
+    cleanupTmp();
+    setupTmp();
+  });
+
+  afterAll(() => {
+    process.env.HOME = origHome;
+    cleanupTmp();
+  });
+
+  it("returns null for unknown mission", () => {
+    expect(readRawMissionCounts("nonexistent-999")).toBeNull();
+  });
+
+  it("returns milestone and feature counts from plan.json", async () => {
+    const m = createMission("Counts", "Test");
+    await saveMissionSafe(m);
+    const counts = readRawMissionCounts(m.id);
+    expect(counts).not.toBeNull();
+    expect(counts!.milestones).toBe(1);
+    expect(counts!.features).toBe(3);
+  });
+
+  it("reads v1 flat features as 1 milestone with N features", async () => {
+    const m = createMission("V1Counts", "Test");
+    await saveMissionSafe(m);
+    // Write a v1-style plan.json with flat features and no milestones
+    const dir = missionDirSafe(m.id);
+    fs.writeFileSync(path.join(dir, "plan.json"), JSON.stringify({
+      id: m.id,
+      title: "V1 mission",
+      goal: "Test",
+      status: "active",
+      features: [
+        { id: "F1", title: "F1", status: "done" },
+        { id: "F2", title: "F2", status: "pending" },
+        { id: "F3", title: "F3", status: "pending" },
+        { id: "F4", title: "F4", status: "pending" },
+      ],
+    }, null, 2), "utf-8");
+    const counts = readRawMissionCounts(m.id);
+    expect(counts).not.toBeNull();
+    expect(counts!.milestones).toBe(1);
+    expect(counts!.features).toBe(4);
+  });
+
+  it("handles plan.json with neither milestones nor features", async () => {
+    const m = createMission("EmptyCounts", "Test");
+    await saveMissionSafe(m);
+    const dir = missionDirSafe(m.id);
+    fs.writeFileSync(path.join(dir, "plan.json"), JSON.stringify({
+      id: m.id, title: "Minimal", status: "active",
+    }, null, 2), "utf-8");
+    const counts = readRawMissionCounts(m.id);
+    expect(counts).not.toBeNull();
+    expect(counts!.milestones).toBe(0);
+    expect(counts!.features).toBe(0);
+  });
+});
+
+describe("migrateMissionOnDisk", () => {
+  const origHome = process.env.HOME;
+
+  beforeAll(() => {
+    process.env.HOME = tmpRoot;
+    cleanupTmp();
+    setupTmp();
+  });
+
+  afterAll(() => {
+    process.env.HOME = origHome;
+    cleanupTmp();
+  });
+
+  it("returns null for unknown mission", async () => {
+    expect(await migrateMissionOnDisk("nonexistent-999")).toBeNull();
+  });
+
+  it("creates pre-migration backup before migrating", async () => {
+    const m = createMission("MigBackup", "Test");
+    await saveMissionSafe(m);
+
+    // Simulate a v1 mission by writing v1 format
+    const dir = missionDirSafe(m.id);
+    fs.writeFileSync(path.join(dir, "plan.json"), JSON.stringify({
+      schemaVersion: 1,
+      id: m.id,
+      title: "MigBackup",
+      goal: "Test",
+      status: "active",
+      features: [
+        { id: "F1", milestoneId: "M01", title: "Old feature", description: "", priority: 1, dependsOn: [], acceptance: [], status: "done", sessions: [] },
+      ],
+    }, null, 2), "utf-8");
+
+    const migrated = await migrateMissionOnDisk(m.id);
+    expect(migrated).not.toBeNull();
+    expect(migrated!.schemaVersion).toBe(3);
+    expect(migrated!.milestones).toHaveLength(1);
+
+    // Verify backup was created
+    const files = fs.readdirSync(dir);
+    const backups = files.filter(f => f.startsWith("plan.json.pre-migration-") && f.endsWith(".bak"));
+    expect(backups.length).toBeGreaterThanOrEqual(1);
+
+    // Verify the backup contains original v1 data
+    const backupContent = JSON.parse(fs.readFileSync(path.join(dir, backups[0]!), "utf-8"));
+    expect(backupContent.schemaVersion).toBe(1);
+  });
+
+  it("migrates v3 mission in-place (no-op but still creates backup)", async () => {
+    const m = createMission("MigV3", "Test");
+    await saveMissionSafe(m);
+
+    const migrated = await migrateMissionOnDisk(m.id);
+    expect(migrated).not.toBeNull();
+    expect(migrated!.schemaVersion).toBe(3);
+
+    // Reload and verify
+    const reloaded = loadMissionFromDisk(m.id);
+    expect(reloaded).not.toBeNull();
+    expect(reloaded!.schemaVersion).toBe(3);
+  });
+
+  it("writes migrated state that is loadable via loadMissionFromDisk", async () => {
+    const m = createMission("MigRoundtrip", "Test");
+    await saveMissionSafe(m);
+
+    // Write v1 format
+    const dir = missionDirSafe(m.id);
+    fs.writeFileSync(path.join(dir, "plan.json"), JSON.stringify({
+      schemaVersion: 1,
+      id: m.id,
+      title: "MigRoundtrip",
+      goal: "Test roundtrip",
+      status: "active",
+      features: [
+        { id: "A1", milestoneId: "M01", title: "Alpha", description: "desc A", priority: 1, dependsOn: [], acceptance: [], status: "done", sessions: [] },
+        { id: "B1", milestoneId: "M01", title: "Beta", description: "desc B", priority: 2, dependsOn: [], acceptance: [], status: "pending", sessions: [] },
+      ],
+    }, null, 2), "utf-8");
+
+    const migrated = await migrateMissionOnDisk(m.id);
+    expect(migrated).not.toBeNull();
+
+    const reloaded = loadMissionFromDisk(m.id);
+    expect(reloaded).not.toBeNull();
+    expect(reloaded!.schemaVersion).toBe(3);
+    expect(reloaded!.milestones).toHaveLength(1);
+    const features = reloaded!.milestones.flatMap(ml => ml.features);
+    expect(features).toHaveLength(2);
+    expect(features.map(f => f.id).sort()).toEqual(["A1", "B1"]);
   });
 });

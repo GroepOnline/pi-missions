@@ -4,11 +4,11 @@ import {
   missionSummaryForTree,
   saveSessionLink,
 } from "../src/commands/index.js";
-import { exportMarkdown } from "../src/export.js";
-import { createMission } from "../src/state.js";
-import type { RuntimeState } from "../src/types.js";
+import { exportMarkdown } from "../src/utils/markdown.js";
+import { createMission } from "../src/core/state.js";
+import type { RuntimeState } from "../src/core/types.js";
 
-function createLargeMission(): import("../src/types.js").MissionState {
+function createLargeMission(): import("../src/core/types.js").MissionState {
   const m = createMission("Command Benchmark", "Testing command helpers");
   const ms = m.milestones[0];
   for (let i = 3; i < 20; i++) {

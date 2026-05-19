@@ -38,6 +38,48 @@ export class SessionMetricsCollector {
 
   // ── Public API ────────────────────────────────────────────────────────
 
+  static getInstance(): SessionMetricsCollector {
+    if (!SessionMetricsCollector.instance) {
+      SessionMetricsCollector.instance = new SessionMetricsCollector();
+    }
+    return SessionMetricsCollector.instance;
+  }
+
+  // Instance methods (delegate to static)
+  recordToolCall(tool: string, success: boolean): void {
+    SessionMetricsCollector.recordToolCall(tool, success);
+  }
+  recordTokenUsage(tokens: number): void {
+    SessionMetricsCollector.addTokens(tokens);
+  }
+  recordFeatureCompleted(): void {
+    SessionMetricsCollector.recordFeatureCompleted();
+  }
+  recordError(category: string): void {
+    SessionMetricsCollector.recordError(category);
+  }
+  recordAutoAdvance(): void {
+    SessionMetricsCollector.recordAutoAdvance();
+  }
+  recordStuckDetection(): void {
+    SessionMetricsCollector.recordStuckDetection();
+  }
+  endSession(): void {
+    SessionMetricsCollector.endSession();
+  }
+  reset(): void {
+    SessionMetricsCollector.reset();
+  }
+  getMetrics() {
+    return SessionMetricsCollector.getMetrics();
+  }
+  getMetricsSummary(): string {
+    return SessionMetricsCollector.getMetricsSummary();
+  }
+  exportMetrics(): string {
+    return JSON.stringify(SessionMetricsCollector.getMetrics());
+  }
+
   static recordToolCall(tool: string, success: boolean): void {
     const s = SessionMetricsCollector.get();
     s.metrics.toolCalls.total++;
@@ -94,5 +136,5 @@ export class SessionMetricsCollector {
   }
 }
 
-// Shorthand alias
-export const sessionMetrics = SessionMetricsCollector;
+// Shorthand alias — singleton instance (backward compat)
+export const sessionMetrics = SessionMetricsCollector.getInstance();

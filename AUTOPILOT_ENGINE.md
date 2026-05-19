@@ -32,10 +32,10 @@ The engine never runs an unbounded loop inside the extension. It chains one cont
 
 ## Main files
 
-- `src/autopilot.ts`
-- `src/types.ts`
-- `src/commands.ts`
+- `src/engines/autopilot.ts`
+- `src/core/types.ts`
+- `src/commands/index.ts`
 - `src/index.ts`
-- `src/tools.ts`
-- `src/ui.ts`
+- `src/tools/index.ts`
+- `src/ui/components.ts`
 - `tests/autopilot.test.ts`

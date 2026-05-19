@@ -8,9 +8,9 @@ import {
   buildWorkerPrompt,
   getAllFeatures,
   getActiveFeature,
-} from "../src/state.js";
-import { exportMarkdown } from "../src/export.js";
-import type { Feature, MissionState } from "../src/types.js";
+} from "../src/core/state.js";
+import { exportMarkdown } from "../src/utils/markdown.js";
+import type { Feature, MissionState } from "../src/core/types.js";
 import * as crypto from "node:crypto";
 
 function makeFeature(

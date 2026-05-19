@@ -4,7 +4,7 @@ import {
   createFeedback, 
   formatError, 
   getErrorSeverity 
-} from "../src/feedback.js";
+} from "../src/utils/feedback.js";
 
 describe("Feedback Handler", () => {
   describe("createFeedback", () => {

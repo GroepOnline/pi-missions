@@ -232,6 +232,7 @@ export const TOOL_POLICIES: Record<ToolPhase, ToolPolicy> = {
       "mission_next_feature", "mission_feature_done", "mission_ask_user",
       "mission_block_self", "mission_fork",
       "mission_error_status", "mission_retry_error",
+      "mission_spawn_worker", "mission_worker_status", "mission_kill_worker",
     ],
     maxToolCalls: 30,
   },
@@ -242,6 +243,7 @@ export const TOOL_POLICIES: Record<ToolPhase, ToolPolicy> = {
       "mission_next_feature", "mission_feature_done", "mission_ask_user",
       "mission_block_self", "mission_fork",
       "mission_error_status", "mission_retry_error",
+      "mission_spawn_worker", "mission_worker_status", "mission_kill_worker",
     ],
     maxToolCalls: 120,
   },
@@ -252,6 +254,7 @@ export const TOOL_POLICIES: Record<ToolPhase, ToolPolicy> = {
       "mission_next_feature", "mission_feature_done", "mission_ask_user",
       "mission_block_self", "mission_fork",
       "mission_error_status", "mission_retry_error",
+      "mission_spawn_worker", "mission_worker_status", "mission_kill_worker",
     ],
     maxToolCalls: 60,
   },
@@ -417,6 +420,13 @@ export interface RetryOptions {
   shouldRetry?: (error: unknown) => boolean;
   operationName?: string;
 }
+
+export type LockOptions = {
+  retries?: number;
+  minTimeout?: number;
+  maxTimeout?: number;
+  stale?: number;
+};
 
 // ═══════════════════════════════════════════════════════════════════════════
 // TypeBox Schemas — for validation and wizard output

@@ -1,12 +1,12 @@
 import { bench, describe } from "vitest";
-import { createMission } from "../src/state.js";
+import { createMission } from "../src/core/state.js";
 import {
   buildMissionContext,
   buildCompactionSummary,
   completionSignal,
   featureSummary,
-} from "../src/context.js";
-import type { Feature, MissionState } from "../src/types.js";
+} from "../src/utils/context.js";
+import type { Feature, MissionState } from "../src/core/types.js";
 import * as crypto from "node:crypto";
 
 function makeFeature(

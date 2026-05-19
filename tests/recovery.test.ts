@@ -9,7 +9,7 @@ import {
   ErrorRecoveryEngine,
   getErrorRecoveryEngine,
   resetErrorRecoveryEngine,
-} from "../src/recovery.js";
+} from "../src/engines/recovery.js";
 
 // ===========================================================================
 // withRetry Tests

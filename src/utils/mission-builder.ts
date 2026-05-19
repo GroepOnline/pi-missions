@@ -1,6 +1,6 @@
 // Shim: mission-builder for backward compat with old tests
-import type { Milestone, MissionState } from "./core/types.js";
-import { missionFromWizardOutput as v2Wizard } from "./utils/markdown.js";
+import type { Milestone, MissionState } from "../core/types.js";
+import { missionFromWizardOutput as v2Wizard } from "./markdown.js";
 
 // ── Goal tree types ──────────────────────────────────────────────────────
 
@@ -159,14 +159,13 @@ export function missionFromWizardOutput(
           };
           // Prefer candidate in the same original milestone
           const sameMilestone = candidates.find(cid => resolveMilestone(cid) === orig._mi);
-          if (sameMilestone) { console.error(`[DEBUG] dep ${d} -> sameMilestone ${sameMilestone}`); return sameMilestone; }
+          if (sameMilestone) return sameMilestone;
           // Next, prefer earlier milestone candidates (strictly before orig._mi)
           const earlier = candidates.find(cid => {
             const mi = resolveMilestone(cid);
             return mi !== undefined && mi < (orig._mi ?? 99);
           });
-          if (earlier) { console.error(`[DEBUG] dep ${d} -> earlier ${earlier}`); return earlier; }
-          console.error(`[DEBUG] dep ${d} -> candidates ${JSON.stringify(candidates)}, orig._mi=${orig._mi}, resolve results: ${candidates.map(c => `${c}->mi${resolveMilestone(c)}`).join(', ')}`);
+          if (earlier) return earlier;
           return candidates[0]!;
         });
     }
@@ -176,7 +175,7 @@ export function missionFromWizardOutput(
 }
 
 // ── Augment MissionState with goalTree ───────────────────────────────────
-declare module "./core/types.js" {
+declare module "../core/types.js" {
   interface MissionState {
     goalTree?: GoalTreeNode;
   }

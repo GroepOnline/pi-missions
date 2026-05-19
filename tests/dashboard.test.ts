@@ -5,9 +5,9 @@ import {
   featureDetailLines,
   featureLabel,
   missionControlOverlay,
-} from "../src/dashboard.js";
-import { createMission } from "../src/state.js";
-import type { Feature } from "../src/types.js";
+} from "../src/ui/dashboard.js";
+import { createMission } from "../src/core/state.js";
+import type { Feature } from "../src/core/types.js";
 
 // ── featureLabel ──────────────────────────────────────────────────────────────
 

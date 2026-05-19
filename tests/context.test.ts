@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { buildCompactionSummary, buildFeatureBrief, buildLeanContext, buildMissionBanner, buildMissionContext, buildMissionHelp, completionSignal, featureSummary } from "../src/context.js";
-import { createMission } from "../src/state.js";
-import type { Feature, MissionState } from "../src/types.js";
+import { buildCompactionSummary, buildFeatureBrief, buildLeanContext, buildMissionBanner, buildMissionContext, buildMissionHelp, completionSignal, featureSummary } from "../src/utils/context.js";
+import { createMission } from "../src/core/state.js";
+import type { Feature, MissionState } from "../src/core/types.js";
 
 function missionFixture(overrides: Partial<MissionState> = {}): MissionState {
   return { ...createMission("Test mission", "Achieve something"), ...overrides };

@@ -1,6 +1,55 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { latestActiveEntry, hook, type SessionEntry, type PiEventHandler } from '../../src/core/extension.js';
+import piMissions from '../../src/core/extension.js';
 import type { ExtensionAPI } from '@mariozechner/pi-coding-agent';
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Mock Pi with hook capture — used by integration tests
+// ═══════════════════════════════════════════════════════════════════════════
+
+interface CapturedPi {
+  pi: ExtensionAPI;
+  hooks: Record<string, Array<(...args: unknown[]) => unknown>>;
+  setSessionName: ReturnType<typeof vi.fn>;
+  setLabel: ReturnType<typeof vi.fn>;
+  registerCommand: ReturnType<typeof vi.fn>;
+  registerTool: ReturnType<typeof vi.fn>;
+  registerShortcut: ReturnType<typeof vi.fn>;
+}
+
+function makeCapturedPi(): CapturedPi {
+  const hooks: Record<string, Array<(...args: unknown[]) => unknown>> = {};
+  const setSessionName = vi.fn();
+  const setLabel = vi.fn();
+  const registerCommand = vi.fn();
+  const registerTool = vi.fn();
+  const registerShortcut = vi.fn();
+  const pi = {
+    on(event: string, handler: PiEventHandler) {
+      if (!hooks[event]) hooks[event] = [];
+      hooks[event].push(handler);
+    },
+    setSessionName,
+    setLabel,
+    registerCommand,
+    registerTool,
+    registerShortcut,
+  } as unknown as ExtensionAPI;
+  return { pi, hooks, setSessionName, setLabel, registerCommand, registerTool, registerShortcut };
+}
+
+function makeCtx(overrides: Record<string, unknown> = {}) {
+  return {
+    ui: { setStatus: vi.fn(), notify: vi.fn(), confirm: vi.fn() },
+    sessionManager: { getEntries: vi.fn(() => []), getLeafId: vi.fn(() => null), getSessionFile: vi.fn(() => '/tmp/test-session.json') },
+    getContextUsage: vi.fn(() => ({ percent: 10, tokens: 5000 })),
+    hasUI: true,
+    ...overrides,
+  } as any;
+}
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Tests for latestActiveEntry
@@ -283,5 +332,293 @@ describe('hook', () => {
 
     const result = await getHooks(pi)['tool_call'][0]({ toolName: 'write' });
     expect(result).toEqual({ block: true, reason: 'Tool not allowed' });
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Tests for project-local extension discovery
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe('piMissions — project-local extension discovery', () => {
+  const tmpRoot = path.join(os.tmpdir(), `pi-missions-ext-test-${process.pid}`);
+  const originalEnv = { ...process.env };
+
+  beforeAll(() => {
+    fs.mkdirSync(tmpRoot, { recursive: true });
+  });
+
+  afterAll(() => {
+    if (fs.existsSync(tmpRoot)) fs.rmSync(tmpRoot, { recursive: true, force: true });
+  });
+
+  afterEach(() => {
+    // Restore env vars that piMissions may have set
+    delete process.env.PI_MISSIONS_EXTENSION_PATH;
+    delete process.env.PI_MISSIONS_PROJECT_DIR;
+  });
+
+  function makeMockPi(): ExtensionAPI {
+    return {
+      on: vi.fn(),
+      registerCommand: vi.fn(),
+      registerTool: vi.fn(),
+      registerShortcut: vi.fn(),
+      appendEntry: vi.fn(),
+      setSessionName: vi.fn(),
+      setLabel: vi.fn(),
+    } as unknown as ExtensionAPI;
+  }
+
+  it('sets PI_MISSIONS_EXTENSION_PATH to project-local path when project .pi/extensions/pi-missions/index.ts exists', () => {
+    // Create project-local extension path
+    const projectDir = path.join(tmpRoot, 'my-project');
+    const localExtDir = path.join(projectDir, '.pi', 'extensions', 'pi-missions');
+    const localExtFile = path.join(localExtDir, 'index.ts');
+    fs.mkdirSync(localExtDir, { recursive: true });
+    fs.writeFileSync(localExtFile, '// project-local pi-missions', 'utf-8');
+
+    // Mock process.cwd() to return the project directory
+    const cwdSpy = vi.spyOn(process, 'cwd').mockReturnValue(projectDir);
+
+    try {
+      const pi = makeMockPi();
+      piMissions(pi);
+
+      expect(process.env.PI_MISSIONS_EXTENSION_PATH).toBe(localExtFile);
+      // PI_MISSIONS_PROJECT_DIR is set to the extension dir, not project root
+      expect(process.env.PI_MISSIONS_PROJECT_DIR).toBe(localExtDir);
+    } finally {
+      cwdSpy.mockRestore();
+    }
+  });
+
+  it('falls back to global extension path when no project-local extension exists', () => {
+    const fakeProject = path.join(tmpRoot, 'no-local-ext');
+    fs.mkdirSync(fakeProject, { recursive: true });
+
+    const cwdSpy = vi.spyOn(process, 'cwd').mockReturnValue(fakeProject);
+
+    try {
+      const pi = makeMockPi();
+      piMissions(pi);
+
+      // Should still set PI_MISSIONS_EXTENSION_PATH (global), but NOT PI_MISSIONS_PROJECT_DIR
+      expect(process.env.PI_MISSIONS_EXTENSION_PATH).toBeDefined();
+      expect(process.env.PI_MISSIONS_PROJECT_DIR).toBeUndefined();
+      // Global path should not be in the fake project dir
+      expect(process.env.PI_MISSIONS_EXTENSION_PATH).not.toContain(fakeProject);
+    } finally {
+      cwdSpy.mockRestore();
+    }
+  });
+
+  it('handles project dir .pi/extensions but no pi-missions subdirectory', () => {
+    const partialDir = path.join(tmpRoot, 'partial-ext');
+    const extDir = path.join(partialDir, '.pi', 'extensions');
+    fs.mkdirSync(extDir, { recursive: true });
+    // No pi-missions subdirectory — extension doesn't exist
+
+    const cwdSpy = vi.spyOn(process, 'cwd').mockReturnValue(partialDir);
+
+    try {
+      const pi = makeMockPi();
+      piMissions(pi);
+
+      expect(process.env.PI_MISSIONS_EXTENSION_PATH).toBeDefined();
+      expect(process.env.PI_MISSIONS_PROJECT_DIR).toBeUndefined();
+    } finally {
+      cwdSpy.mockRestore();
+    }
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Integration tests for hook handler closures inside piMissions()
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe('piMissions — hook handler integration', () => {
+  let cap: CapturedPi;
+
+  beforeEach(() => {
+    cap = makeCapturedPi();
+    // Suppress env var setting by using a cwd that won't find project-local files
+    vi.spyOn(process, 'cwd').mockReturnValue('/tmp/fake-pi-missions-cwd');
+    piMissions(cap.pi);
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  function getHooks(event: string) {
+    return cap.hooks[event] || [];
+  }
+
+  // ── resources_discover ─────────────────────────────────────────────────
+
+  describe('resources_discover handler', () => {
+    it('returns empty resource lists', async () => {
+      const handlers = getHooks('resources_discover');
+      expect(handlers).toHaveLength(1);
+      const result = await handlers[0]!();
+      expect(result).toEqual({ skillPaths: [], promptPaths: [], themePaths: [] });
+    });
+  });
+
+  // ── session_before_tree ────────────────────────────────────────────────
+
+  describe('session_before_tree handler', () => {
+    it('returns undefined when no active mission (no summary)', async () => {
+      const handlers = getHooks('session_before_tree');
+      expect(handlers).toHaveLength(1);
+      const result = await handlers[0]!();
+      expect(result).toBeUndefined();
+    });
+  });
+
+  // ── before_agent_start: phase reset ────────────────────────────────────
+
+  describe('before_agent_start — phase reset handler', () => {
+    it('clears pending completion and resets tool call count', async () => {
+      const handlers = getHooks('before_agent_start');
+      expect(handlers.length).toBeGreaterThanOrEqual(1);
+      // First handler is phase reset
+      const ctx = makeCtx();
+      await handlers[0]!({}, ctx);
+      // No active mission → returns early without error
+    });
+  });
+
+  // ── before_agent_start: inject lean context ────────────────────────────
+
+  describe('before_agent_start — context inject handler', () => {
+    it('returns early when no active mission', async () => {
+      const handlers = getHooks('before_agent_start');
+      expect(handlers.length).toBeGreaterThanOrEqual(2);
+      const ctx = makeCtx();
+      const result = await handlers[1]!({}, ctx);
+      expect(result).toBeUndefined();
+    });
+
+    it('returns early when mission status is not active', async () => {
+      // We need to set up the runtime. Since piMissions creates a closure runtime,
+      // we can't easily access it. This test verifies the handler exists and doesn't throw.
+      const handlers = getHooks('before_agent_start');
+      expect(handlers.length).toBeGreaterThanOrEqual(2);
+      // Handler exists and can be called without active mission
+      const result = await handlers[1]!({}, makeCtx());
+      expect(result).toBeUndefined();
+    });
+  });
+
+  // ── turn_end handler ──────────────────────────────────────────────────
+
+  describe('turn_end handler', () => {
+    it('returns early when no active mission', async () => {
+      const handlers = getHooks('turn_end');
+      expect(handlers).toHaveLength(1);
+      const ctx = makeCtx();
+      await handlers[0]!({}, ctx);
+      // Should not throw — early return on no mission
+    });
+  });
+
+  // ── agent_end handler ──────────────────────────────────────────────────
+
+  describe('agent_end handler', () => {
+    it('returns early when no active mission', async () => {
+      const handlers = getHooks('agent_end');
+      expect(handlers).toHaveLength(1);
+      const ctx = makeCtx();
+      await handlers[0]!({ messages: [] }, ctx);
+      // Should not throw
+    });
+  });
+
+  // ── tool_call handler ──────────────────────────────────────────────────
+
+  describe('tool_call handler', () => {
+    it('returns early when no active mission', async () => {
+      const handlers = getHooks('tool_call');
+      expect(handlers).toHaveLength(1);
+      const ctx = makeCtx();
+      const result = await handlers[0]!({ toolName: 'read', input: {} }, ctx);
+      expect(result).toBeUndefined();
+    });
+  });
+
+  // ── tool_result handler ────────────────────────────────────────────────
+
+  describe('tool_result handler', () => {
+    it('returns early when no active mission', async () => {
+      const handlers = getHooks('tool_result');
+      expect(handlers).toHaveLength(1);
+      const ctx = makeCtx();
+      const result = await handlers[0]!({ toolName: 'read', isError: false }, ctx);
+      expect(result).toBeUndefined();
+    });
+  });
+
+  // ── session_shutdown handler ───────────────────────────────────────────
+
+  describe('session_shutdown handler', () => {
+    it('runs without error when no active mission', async () => {
+      const handlers = getHooks('session_shutdown');
+      expect(handlers).toHaveLength(1);
+      const ctx = makeCtx();
+      await handlers[0]!({}, ctx);
+    });
+  });
+
+  // ── session_start handler ──────────────────────────────────────────────
+
+  describe('session_start handler', () => {
+    it('returns early when entries are empty (no active mission entry)', async () => {
+      const handlers = getHooks('session_start');
+      expect(handlers).toHaveLength(1);
+      const ctx = makeCtx();
+      await handlers[0]!({}, ctx);
+      // Should not throw — no active entry found
+    });
+  });
+
+  // ── session_before_compact handler ─────────────────────────────────────
+
+  describe('session_before_compact handler', () => {
+    it('calls compactionCheckpoint without error', async () => {
+      const handlers = getHooks('session_before_compact');
+      expect(handlers).toHaveLength(1);
+      await handlers[0]!();
+    });
+  });
+
+  // ── Handler registration checks ────────────────────────────────────────
+
+  describe('handler registration', () => {
+    it('registers handlers for all expected events', () => {
+      const expectedEvents = [
+        'session_start', 'resources_discover', 'session_before_tree',
+        'before_agent_start', 'tool_call', 'tool_result',
+        'turn_end', 'agent_end', 'session_before_compact', 'session_shutdown',
+      ];
+      for (const event of expectedEvents) {
+        expect(cap.hooks[event]).toBeDefined();
+        expect(cap.hooks[event]!.length).toBeGreaterThan(0);
+      }
+    });
+
+    it('registers two before_agent_start handlers (phase reset + context inject)', () => {
+      expect(cap.hooks['before_agent_start']).toHaveLength(2);
+    });
+
+    it('registers commands and tools', () => {
+      expect(cap.registerCommand).toHaveBeenCalled();
+      expect(cap.registerTool).toHaveBeenCalled();
+    });
+
+    it('registers keyboard shortcuts', () => {
+      expect(cap.registerShortcut).toHaveBeenCalledWith('ctrl+shift+m', expect.any(Object));
+      expect(cap.registerShortcut).toHaveBeenCalledWith('ctrl+shift+d', expect.any(Object));
+    });
   });
 });

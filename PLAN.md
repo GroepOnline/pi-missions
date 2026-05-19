@@ -902,21 +902,23 @@ import { registerMissionTools } from "./tools.js";
 - [x] `mission_feature_done` + `mission_next_feature` LLM tools
 - [x] Ctrl+Shift+M / Ctrl+Shift+D shortcuts
 
-### v0.3 — Dashboard & Planning Wizard ⬅ CURRENT FOCUS
-- [ ] **Factory Droid Dashboard**: milestone progress bars, feature hierarchy, acceptance criteria inline, active feature detail block
-- [ ] **Planning Wizard AI-generatie**: `/mission new` → AI generates milestones + features via `pi.sendUserMessage()` + JSON parse
-- [ ] **Milestone auto-complete**: when all features in a milestone are done, set milestone.status = "complete"
-- [ ] **More templates**: expand MISSION_TEMPLATES from 3 to 8+ (add: bug-fix, test-coverage, security-audit, docs-update, performance-opt, api-design)
+### v0.3 — Dashboard & Planning Wizard ✅ COMPLETE
+- [x] **Factory Droid Dashboard**: milestone progress bars, feature hierarchy, acceptance criteria inline, active feature detail block
+- [x] **Planning Wizard AI-generatie**: `/mission new` → AI generates milestones + features via `pi.sendUserMessage()` + JSON parse
+- [x] **Milestone auto-complete**: when all features in a milestone are done, set milestone.status = "complete"
+- [x] **More templates**: expand MISSION_TEMPLATES from 3 to 9 (refactor, fix-bug, add-feature, docs, investigate, auth, ci-cd, security-audit, performance-opt)
 
-### v0.4 — Orchestrator & Polish
-- [ ] `dependsOn` blokkering visualisatie in dashboard
-- [ ] `session_before_compact` checkpoint met mission summary
-- [ ] `/handoff` suggestie na grote features
-- [ ] `agent-runtime` worker spawning via `pi.exec()`
-- [ ] `/mission edit <feature-id>` met `ctx.ui.editor()`
-- [ ] History replay: `jq -r '.event + " " + (.featureId // "")' ~/.pi/missions/<id>/history.jsonl`
-- [ ] `pi.setLabel(entryId, featureTitle)` voor /tree navigatie
-- [ ] Project-local `.pi/extensions/pi-missions/` support
+### v0.4 — Orchestrator & Polish ✅ COMPLETE
+- [x] `dependsOn` blokkering visualisatie in dashboard
+- [x] `session_before_compact` checkpoint met mission summary
+- [x] `/handoff` suggestie na grote features
+- [x] `agent-runtime` worker spawning via `child_process.spawn` (3 tools + 3 commands)
+- [x] `/mission edit <feature-id>` met `ctx.ui.editor()`
+- [x] History replay: `/mission history [feature_id|event|search]` met table output + jq hints
+- [x] `pi.setLabel(entryId, featureTitle)` voor /tree navigatie
+- [x] Project-local `.pi/extensions/pi-missions/` support
+- [x] Mission schema migration UI: `/mission migrate` met preview, backup, en confirm flow
+- [x] Legacy shim cleanup: 19 flat `src/*.ts` files deleted; modular subdirectories
 
 ---
 

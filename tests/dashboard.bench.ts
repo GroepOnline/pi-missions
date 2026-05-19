@@ -4,9 +4,9 @@ import {
   buildFeatureItems,
   featureDetailLines,
   missionControlOverlay,
-} from "../src/dashboard.js";
-import { createMission } from "../src/state.js";
-import type { MissionState } from "../src/types.js";
+} from "../src/ui/dashboard.js";
+import { createMission } from "../src/core/state.js";
+import type { MissionState } from "../src/core/types.js";
 
 function createLargeMission(): MissionState {
   const m = createMission("Dashboard Benchmark", "Testing dashboard performance");

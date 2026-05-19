@@ -9,6 +9,7 @@ import {
 } from "../core/state.js";
 import { getCompletionDetector } from "../engines/completion.js";
 import { getErrorRecoveryEngine } from "../engines/recovery.js";
+import { spawnWorker, killWorker, isWorkerRunning, getActiveWorker } from "../engines/worker.js";
 import { updateFooter } from "../ui/components.js";
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -429,6 +430,134 @@ export function registerMissionTools(_pi: ExtensionAPI, runtime: RuntimeState): 
         "", "By severity:", ...Object.entries(stats.bySeverity).map(([k, v]) => `- ${k}: ${v}`),
       ];
       return { content: [{ type: "text", text: lines.join("\n") }], details: { scope, errors, stats }, isError: false };
+    },
+  });
+
+  // ── mission_spawn_worker ─────────────────────────────────────────────
+
+  pi.registerTool({
+    name: "mission_spawn_worker",
+    label: "Spawn Worker",
+    description: "Spawn a worker subprocess to autonomously execute a feature.",
+    promptSnippet: "Spawn a worker to execute a feature autonomously",
+    promptGuidelines: [
+      "Use for large features that need focused execution.",
+      "The worker runs in a separate pi process with the feature context.",
+      "Only one worker runs at a time. Check status with mission_worker_status.",
+    ],
+    parameters: Type.Object({
+      featureId: Type.Optional(Type.String({ description: "Feature ID (defaults to active feature)" })),
+      customPrompt: Type.Optional(Type.String({ description: "Custom instructions for the worker" })),
+      model: Type.Optional(Type.String({ description: "Model override (default: auto)" })),
+    }),
+    async execute(_id: string, params: Record<string, unknown>, _sig: unknown, _upd: unknown, _ctx: ExtensionCommandContext) {
+      const m = runtime.activeMission;
+      const f = m ? getActiveFeature(m) : null;
+      if (!m || !f) throw new Error("No active mission feature.");
+
+      const featureId = typeof params.featureId === "string" ? params.featureId : f.id;
+      const feat = getFeatureById(m, featureId);
+      if (!feat) throw new Error(`Feature not found: ${featureId}`);
+
+      if (isWorkerRunning()) {
+        const aw = getActiveWorker();
+        return {
+          isError: true,
+          content: [{ type: "text", text: `Worker already running for ${aw?.featureId}. Use mission_worker_status to check.` }],
+          details: { running: true, featureId: aw?.featureId },
+        };
+      }
+
+      // Mark the feature as active
+      feat.status = "active";
+      m.activeFeatureId = feat.id;
+      m.activeMilestoneId = feat.milestoneId;
+      m.status = "active";
+
+      appendHistory(m, {
+        event: "worker_spawned",
+        featureId: feat.id,
+        note: `Spawning worker for ${feat.id} — ${feat.title}`,
+        details: { model: params.model, hasCustomPrompt: !!params.customPrompt },
+      });
+
+      await saveMissionSafe(m);
+
+      // Spawn async — don't await, return immediately
+      spawnWorker(m, {
+        featureId: feat.id,
+        customPrompt: typeof params.customPrompt === "string" ? params.customPrompt : undefined,
+        model: typeof params.model === "string" ? params.model : undefined,
+      }).then((result) => {
+        if ("error" in result) {
+          appendHistory(m, { event: "worker_error", featureId: feat.id, note: result.error });
+          saveMissionSafe(m).catch(() => {});
+        }
+      }).catch(() => {});
+
+      return {
+        content: [{
+          type: "text",
+          text: `🚀 Worker spawned for ${feat.id} — ${feat.title}\n\nThe worker runs autonomously in a separate process. Results are logged to history.\nCheck status: /mission worker-status`,
+        }],
+        details: { featureId: feat.id, mode: "async" },
+        isError: false,
+      };
+    },
+  });
+
+  // ── mission_worker_status ─────────────────────────────────────────────
+
+  pi.registerTool({
+    name: "mission_worker_status",
+    label: "Worker Status",
+    description: "Check the status of the currently running worker.",
+    promptSnippet: "Check worker status",
+    promptGuidelines: ["Check if a worker is running and its progress."],
+    parameters: Type.Object({}),
+    async execute(_id: string, _p: unknown, _sig: unknown, _upd: unknown, _ctx: ExtensionCommandContext) {
+      const aw = getActiveWorker();
+      if (!aw) {
+        return { content: [{ type: "text", text: "No worker running." }], details: { running: false }, isError: false };
+      }
+
+      const elapsed = Math.round((Date.now() - aw.startedAt) / 1000);
+      const lines = [
+        `🔧 Worker Status`,
+        `Feature: ${aw.featureId}`,
+        `Status: ${aw.status}`,
+        `Running: ${elapsed}s`,
+      ];
+
+      if (aw.result) {
+        lines.push(
+          "", "## Last Result",
+          `Exit: ${aw.result.exitCode}${aw.result.signal ? ` (${aw.result.signal})` : ""}`,
+          `Duration: ${Math.round(aw.result.durationMs / 1000)}s`,
+          `Stdout: ${aw.result.stdout.slice(0, 500)}`,
+          aw.result.stderr ? `Stderr: ${aw.result.stderr.slice(0, 300)}` : "",
+        );
+      }
+
+      return { content: [{ type: "text", text: lines.filter(Boolean).join("\n") }], details: { running: true, featureId: aw.featureId, status: aw.status, elapsedMs: Date.now() - aw.startedAt }, isError: false };
+    },
+  });
+
+  // ── mission_kill_worker ───────────────────────────────────────────────
+
+  pi.registerTool({
+    name: "mission_kill_worker",
+    label: "Kill Worker",
+    description: "Kill the currently running worker process.",
+    promptSnippet: "Kill running worker",
+    promptGuidelines: ["Use to stop a runaway or stuck worker."],
+    parameters: Type.Object({}),
+    async execute(_id: string, _p: unknown, _sig: unknown, _upd: unknown, _ctx: ExtensionCommandContext) {
+      const killed = killWorker();
+      if (!killed) {
+        return { content: [{ type: "text", text: "No worker running to kill." }], details: { killed: false }, isError: false };
+      }
+      return { content: [{ type: "text", text: "🛑 Worker killed." }], details: { killed: true }, isError: false };
     },
   });
 

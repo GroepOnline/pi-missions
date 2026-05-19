@@ -15,19 +15,26 @@
 
 ---
 
-## v0.4 — Orchestrator & Polish ⬜ NOT STARTED
+## v0.4 — Orchestrator & Polish ✅ COMPLETE
 
 | Priority | Item | Status | Notes |
 |---|---|---|---|
 | 🟡 P1 | **`dependsOn` blokkering visualisatie** in dashboard | ✅ Done | `dependsOnChain()` + `formatDepChain()` show blocking chain |
 | 🟡 P1 | **`session_before_compact` checkpoint** with mission summary | ✅ Done | Hook in extension.ts fires `compactionCheckpoint()` on every compact |
-| 🟡 P1 | **`/handoff` suggestie** after large features | ⬜ | Suggest `/handoff` after feature done |
-| 🟡 P2 | **`agent-runtime` worker spawning** via `pi.exec()` | ⬜ | Orchestrator spawns workers |
+| 🟡 P1 | **`/handoff` suggestie** after large features | ✅ Done | >50 tool calls or >10min: suggests /handoff in handleDone + agent_end |
+| 🟡 P2 | **`agent-runtime` worker spawning** via `child_process.spawn` | ✅ Done | `src/engines/worker.ts` — spawns `pi -e <ext> -p <prompt>`, +3 LLM tools + 3 commands |
 | 🟡 P2 | **`/mission edit <feature-id>`** with `ctx.ui.editor()` | ✅ Done | Already implemented in `handleEdit`
-| 🟡 P2 | **History replay** via `history.jsonl` analysis | ⬜ | `jq` based replay |
-| 🟡 P2 | **`pi.setLabel(entryId, featureTitle)`** for /tree navigatie | ⬜ | Label entries in /tree |
-| 🟡 P3 | **Project-local `.pi/extensions/pi-missions/`** support | ⬜ | Per-project extension installs |
-| 🟡 P3 | **Mission schema migration UI** | ⬜ | Guide users through schema upgrades |
+| 🟡 P2 | **History replay** via `history.jsonl` analysis | ✅ Done | `/mission history [feature_id|event|search]` with table output + jq hints |
+| 🟡 P2 | **`pi.setLabel(entryId, featureTitle)`** for /tree navigatie | ✅ Done | `turn_end` hook labels entries with active feature title |
+| 🟡 P3 | **Project-local `.pi/extensions/pi-missions/`** support | ✅ Done | `extension.ts` checks CWD for `.pi/extensions/pi-missions/index.ts`; sets `PI_MISSIONS_PROJECT_DIR` |
+| 🟡 P3 | **Mission schema migration UI** | ✅ Done | `/mission migrate` lists versions; `/mission migrate <id>` preview; `confirm` executes with lock + backup |
+
+### ✅ v0.4 completed items
+
+- **Legacy shim cleanup**: 19 flat `src/*.ts` files deleted; all imports migrated to modular subdirectories (`src/core/`, `src/engines/`, `src/ui/`, `src/utils/`)
+- **`/mission history`**: filter by feature ID, event type, or full-text search; compact table with timestamp/event/feature/note; jq replay one-liner hint
+- **Handoff suggestie**: triggers in `handleDone` and `agent_end` for features with >50 tool calls or >10min active time
+- **`pi.setLabel()`**: `turn_end` hook labels session tree entries with `🎯 <feature-title>` for /tree navigation
 
 ---
 

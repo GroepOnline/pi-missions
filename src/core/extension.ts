@@ -1,3 +1,6 @@
+import { fileURLToPath } from 'node:url';
+import { dirname, resolve } from 'node:path';
+import * as fs from 'node:fs';
 import type { ExtensionAPI, ExtensionContext } from '@mariozechner/pi-coding-agent';
 import type { ExtensionCommandContext } from '@mariozechner/pi-coding-agent';
 import type { RuntimeState, ToolCallEvent, ToolResultEvent } from '../core/types.js';
@@ -95,6 +98,24 @@ export function hook(pi: ExtensionAPI, event: string, handler: PiEventHandler): 
 // ═══════════════════════════════════════════════════════════════════════════
 
 export default function piMissions(pi: ExtensionAPI): void {
+  // Expose extension path for worker child processes.
+  // Prefer project-local .pi/extensions/pi-missions/ over global install.
+  try {
+    const extDir = dirname(fileURLToPath(import.meta.url));
+    const globalPath = resolve(extDir, '..', 'index.ts');
+    const cwd = typeof process.cwd === 'function' ? process.cwd() : '';
+    const localPath = cwd ? resolve(cwd, '.pi', 'extensions', 'pi-missions', 'index.ts') : '';
+
+    let extensionPath = globalPath;
+    if (localPath && fs.existsSync(localPath)) {
+      extensionPath = localPath;
+      // Also append local templates/config dir to a discoverable env var
+      const localDir = resolve(cwd, '.pi', 'extensions', 'pi-missions');
+      process.env.PI_MISSIONS_PROJECT_DIR = localDir;
+    }
+    process.env.PI_MISSIONS_EXTENSION_PATH = extensionPath;
+  } catch { /* non-ESM fallback, env var should be set manually */ }
+
   const runtime: RuntimeState = {
     activeMission: null, autoSaveInterval: null,
     phaseToolCallCount: 0, currentPhase: 'execution',
@@ -408,7 +429,16 @@ export default function piMissions(pi: ExtensionAPI): void {
       if (next.ok) {
         sessionMetrics.recordAutoAdvance();
         autoBlockBlockedFeatures(m);
-        ctx.ui.notify(`✅ Auto-completed ${completed.feature.id}. Advanced to ${next.next.id} — ${next.next.title}`, 'info');
+        
+        // Suggest handoff for large features (>50 tool calls or >10 min active)
+        const wallMs = (completed.feature.startedAt && completed.feature.completedAt)
+          ? completed.feature.completedAt - completed.feature.startedAt : 0;
+        const isLarge = completed.feature.toolCallCount > 50 || wallMs > 600_000;
+        const handoffHint = isLarge
+          ? `\n🤝 Large feature done (${completed.feature.toolCallCount} calls). Consider /handoff for a fresh session.`
+          : '';
+        
+        ctx.ui.notify(`✅ Auto-completed ${completed.feature.id}. Advanced to ${next.next.id} — ${next.next.title}${handoffHint}`, 'info');
       } else if (next.reason === 'mission_complete') {
         ctx.ui.notify('🎉 Mission complete!', 'info');
       } else {

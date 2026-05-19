@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { detectAgent, getAgent, resetAgentCache, isValidAgent, agentDisplayName } from "../src/agent-detect.js";
+import { detectAgent, getAgent, resetAgentCache, isValidAgent, agentDisplayName } from "../src/utils/agent-detect.js";
 
 describe("detectAgent", () => {
   afterEach(() => {

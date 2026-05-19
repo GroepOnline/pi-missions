@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { logger, LogLevel } from "../src/logger.js";
+import { logger, LogLevel } from "../src/utils/logger.js";
 
 describe("Logger", () => {
   it("has log methods", () => {

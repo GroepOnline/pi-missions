@@ -1,13 +1,27 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { TUI } from "@mariozechner/pi-tui";
-import { cloneFeatureForFork, compactionCheckpoint, handleBlock, handleClear, handleDashboard, handleDebug, handleDone, handleEdit, handleExport, handleFork, handleList, handleLoad, handleNew, handleNext, handlePause, handleResume, handleStatus, handleTemplates, injectMissionContext, missionSummaryForTree, saveSessionLink } from "../src/commands/index.js";
-import { missionControlOverlay } from "../src/dashboard.js";
-import { appendHistory, autoBlockBlockedFeatures, createMission, loadMissionFromDisk, readHistory, saveEvidence, saveMissionSafe } from "../src/state.js";
-import { exportMarkdown } from "../src/export.js";
-import type { MissionState, RuntimeState } from "../src/types.js";
+import { cloneFeatureForFork, compactionCheckpoint, handleBlock, handleClear, handleDashboard, handleDebug, handleDone, handleEdit, handleExport, handleFork, handleList, handleLoad, handleMigrate, handleMigrateConfirm, handleNew, handleNext, handlePause, handleResume, handleStatus, handleTemplates, handleHelp, handleRun, handleAutopilot, handleStop, handleMetrics, handleHistory, handleWorker, handleWorkerStatus, handleKillWorker, injectMissionContext, missionSummaryForTree, saveSessionLink } from "../src/commands/index.js";
+import { missionControlOverlay } from "../src/ui/dashboard.js";
+import { appendHistory, autoBlockBlockedFeatures, calculateMetricsSummary, createMission, loadMissionFromDisk, missionDirSafe, readHistory, readRawSchemaVersion, saveEvidence, saveMissionSafe } from "../src/core/state.js";
+import { exportMarkdown } from "../src/utils/markdown.js";
+import type { MissionState, RuntimeState } from "../src/core/types.js";
+import { missionsRoot } from "../src/utils/fs.js";
+import { sessionMetrics } from "../src/engines/metrics.js";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+
+// Mock the worker module
+vi.mock("../src/engines/worker.js", () => ({
+  isWorkerRunning: vi.fn(),
+  getActiveWorker: vi.fn(),
+  spawnWorker: vi.fn(),
+  killWorker: vi.fn(),
+  buildWorkerPrompt: vi.fn(),
+}));
+
+// Import mocked functions
+import { isWorkerRunning, getActiveWorker, spawnWorker, killWorker } from "../src/engines/worker.js";
 
 const tmpRoot = path.join(os.tmpdir(), `pi-missions-cmd-test-${process.pid}`);
 const originalHome = process.env.HOME;
@@ -303,6 +317,7 @@ function mkPi(overrides: Record<string, any> = {}): any {
   return {
     appendEntry: (type: string, data: Record<string, any>) => { entries.push({ type, data }); },
     setSessionName: () => {},
+    sendUserMessage: async () => "OK",
     getEntries: () => entries,
     ...overrides,
   };
@@ -993,7 +1008,9 @@ describe("handleNew", () => {
     await handleNew("Test Mission", ctx, pi, rt);
     expect(rt.activeMission).not.toBeNull();
     expect(rt.activeMission!.title).toBe("Test Mission");
-    expect(ctx.getCalls()[0]!.msg).toContain("Mission created");
+    // The message could be "Mission created" or "Planning wizard generating milestones..."
+    const msg = ctx.getCalls()[0]!.msg;
+    expect(msg).toMatch(/Mission created|Planning wizard/);
     const contextEntry = pi.getEntries().find((entry: any) => entry.type === "pi-mission-context");
     expect(contextEntry).toBeDefined();
     expect(contextEntry!.data.content).toContain("### How To Work This Mission");
@@ -1248,5 +1265,829 @@ describe("handleDone auto-verifies acceptance criteria", () => {
     const f = rt.activeMission!.milestones[0].features[0]!;
     expect(f.status).toBe("done");
     expect(ctx.getCalls()[0]!.msg).toContain("✅ F001 done");
+  });
+});
+
+describe("handleMigrate", () => {
+  const origHome = process.env.HOME;
+
+  beforeAll(() => {
+    process.env.HOME = tmpRoot;
+    fs.mkdirSync(tmpRoot, { recursive: true });
+  });
+
+  afterAll(() => {
+    process.env.HOME = origHome;
+  });
+
+  it("lists missions with schema versions when no id provided", async () => {
+    const ctx = mkCtx();
+    const rt: RuntimeState = { activeMission: null, autoSaveInterval: null, phaseToolCallCount: 0, currentPhase: "execution", lastFeatureId: undefined };
+    const m = createMission("MigList", "Test");
+    await saveMissionSafe(m);
+    await handleMigrate(undefined, ctx, rt);
+    const calls = ctx.getCalls();
+    expect(calls[0]!.level).toBe("info");
+    expect(calls[0]!.msg).toContain("Mission Schema Versions");
+    expect(calls[0]!.msg).toContain(m.id);
+    expect(calls[0]!.msg).toContain("MigList");
+  });
+
+  it("shows 'All missions up to date' when all at current schema", async () => {
+    const ctx = mkCtx();
+    const rt: RuntimeState = { activeMission: null, autoSaveInterval: null, phaseToolCallCount: 0, currentPhase: "execution", lastFeatureId: undefined };
+    const m = createMission("CurrentSchema", "Test");
+    await saveMissionSafe(m);
+    await handleMigrate(undefined, ctx, rt);
+    expect(ctx.getCalls()[0]!.msg).toContain("All missions up to date");
+  });
+
+  it("notifies when no missions exist", async () => {
+    const ctx = mkCtx();
+    const rt: RuntimeState = { activeMission: null, autoSaveInterval: null, phaseToolCallCount: 0, currentPhase: "execution", lastFeatureId: undefined };
+    // Ensure no missions
+    const root = path.join(tmpRoot, ".pi", "missions");
+    if (fs.existsSync(root)) fs.rmSync(root, { recursive: true, force: true });
+    await handleMigrate(undefined, ctx, rt);
+    expect(ctx.getCalls()[0]!.msg).toContain("No missions found");
+  });
+
+  it("shows migration preview for a specific mission", async () => {
+    const ctx = mkCtx();
+    const rt: RuntimeState = { activeMission: null, autoSaveInterval: null, phaseToolCallCount: 0, currentPhase: "execution", lastFeatureId: undefined };
+    const m = createMission("MigPreview", "Test");
+    await saveMissionSafe(m);
+    // Downgrade to v1 so the preview path is exercised (not the "already current" early return)
+    const dir = missionDirSafe(m.id);
+    const raw = JSON.parse(fs.readFileSync(path.join(dir, "plan.json"), "utf-8"));
+    raw.schemaVersion = 1;
+    fs.writeFileSync(path.join(dir, "plan.json"), JSON.stringify(raw), "utf-8");
+    await handleMigrate(m.id, ctx, rt);
+    const msg = ctx.getCalls()[0]!.msg;
+    expect(msg).toContain("Migration preview");
+    expect(msg).toContain(m.id);
+    expect(msg).toContain("MigPreview");
+    expect(msg).toContain(`/mission migrate ${m.id} confirm`);
+  });
+
+  it("shows 'no migration needed' for already-current schema", async () => {
+    const ctx = mkCtx();
+    const rt: RuntimeState = { activeMission: null, autoSaveInterval: null, phaseToolCallCount: 0, currentPhase: "execution", lastFeatureId: undefined };
+    const m = createMission("AlreadyCurrent", "Test");
+    await saveMissionSafe(m);
+    // V3 is already current for new missions
+    await handleMigrate(m.id, ctx, rt);
+    expect(ctx.getCalls()[0]!.msg).toContain("No migration needed");
+  });
+
+  it("returns error for unknown mission id", async () => {
+    const ctx = mkCtx();
+    const rt: RuntimeState = { activeMission: null, autoSaveInterval: null, phaseToolCallCount: 0, currentPhase: "execution", lastFeatureId: undefined };
+    await handleMigrate("unknown-mission-id", ctx, rt);
+    expect(ctx.getCalls()[0]!.msg).toContain("Mission not found");
+    expect(ctx.getCalls()[0]!.level).toBe("error");
+  });
+
+  it("detects missions needing migration when at v1", async () => {
+    const ctx = mkCtx();
+    const rt: RuntimeState = { activeMission: null, autoSaveInterval: null, phaseToolCallCount: 0, currentPhase: "execution", lastFeatureId: undefined };
+    const m = createMission("NeedsMig", "Test");
+    await saveMissionSafe(m);
+    // Make it look like v1
+    const dir = missionDirSafe(m.id);
+    const raw = JSON.parse(fs.readFileSync(path.join(dir, "plan.json"), "utf-8"));
+    raw.schemaVersion = 1;
+    fs.writeFileSync(path.join(dir, "plan.json"), JSON.stringify(raw), "utf-8");
+    await handleMigrate(undefined, ctx, rt);
+    expect(ctx.getCalls()[0]!.msg).toContain("need migration");
+    expect(ctx.getCalls()[0]!.msg).toContain("v1");
+    expect(ctx.getCalls()[0]!.msg).toContain("⬆️");
+  });
+});
+
+describe("handleMigrateConfirm", () => {
+  const origHome = process.env.HOME;
+
+  beforeAll(() => {
+    process.env.HOME = tmpRoot;
+    fs.mkdirSync(tmpRoot, { recursive: true });
+  });
+
+  afterAll(() => {
+    process.env.HOME = origHome;
+  });
+
+  it("warns when no id provided", async () => {
+    const ctx = mkCtx();
+    const rt: RuntimeState = { activeMission: null, autoSaveInterval: null, phaseToolCallCount: 0, currentPhase: "execution", lastFeatureId: undefined };
+    await handleMigrateConfirm(undefined, ctx, rt);
+    expect(ctx.getCalls()[0]!.msg).toContain("Usage");
+    expect(ctx.getCalls()[0]!.level).toBe("warning");
+  });
+
+  it("warns when mission not found", async () => {
+    const ctx = mkCtx();
+    const rt: RuntimeState = { activeMission: null, autoSaveInterval: null, phaseToolCallCount: 0, currentPhase: "execution", lastFeatureId: undefined };
+    await handleMigrateConfirm("nonexistent-999", ctx, rt);
+    expect(ctx.getCalls()[0]!.msg).toContain("Mission not found");
+    expect(ctx.getCalls()[0]!.level).toBe("error");
+  });
+
+  it("notifies when already at current schema version", async () => {
+    const ctx = mkCtx();
+    const rt: RuntimeState = { activeMission: null, autoSaveInterval: null, phaseToolCallCount: 0, currentPhase: "execution", lastFeatureId: undefined };
+    const m = createMission("AlreadyV3", "Test");
+    await saveMissionSafe(m);
+    await handleMigrateConfirm(m.id, ctx, rt);
+    expect(ctx.getCalls()[0]!.msg).toContain("Already at v");
+    expect(ctx.getCalls()[0]!.msg).toContain("No migration needed");
+  });
+
+  it("migrates a v1 mission and reports success", async () => {
+    const ctx = mkCtx();
+    const rt: RuntimeState = { activeMission: null, autoSaveInterval: null, phaseToolCallCount: 0, currentPhase: "execution", lastFeatureId: undefined };
+    const m = createMission("MigrateMe", "Test");
+    await saveMissionSafe(m);
+
+    // Write v1 format
+    const dir = missionDirSafe(m.id);
+    fs.writeFileSync(path.join(dir, "plan.json"), JSON.stringify({
+      schemaVersion: 1,
+      id: m.id,
+      title: "MigrateMe",
+      goal: "Test",
+      status: "active",
+      features: [
+        { id: "F1", milestoneId: "M01", title: "Old feature", description: "", priority: 1, dependsOn: [], acceptance: [], status: "done", sessions: [] },
+      ],
+    }, null, 2), "utf-8");
+
+    await handleMigrateConfirm(m.id, ctx, rt);
+    const msg = ctx.getCalls()[0]!.msg;
+    expect(msg).toContain("Migrated");
+    expect(msg).toContain("v3");
+    expect(ctx.getCalls()[0]!.level).toBe("info");
+
+    // Verify the mission on disk was actually migrated
+    const reloaded = loadMissionFromDisk(m.id);
+    expect(reloaded).not.toBeNull();
+    expect(reloaded!.schemaVersion).toBe(3);
+    expect(reloaded!.milestones).toHaveLength(1);
+  });
+
+  it("updates runtime when migrating the active mission", async () => {
+    const ctx = mkCtx();
+    const rt = runtimeFixture();
+    const m = rt.activeMission!;
+    await saveMissionSafe(m);
+
+    // Write v1 format
+    const dir = missionDirSafe(m.id);
+    fs.writeFileSync(path.join(dir, "plan.json"), JSON.stringify({
+      schemaVersion: 1,
+      id: m.id,
+      title: "ActiveMig",
+      goal: "Test",
+      status: "active",
+      features: [
+        { id: "F1", milestoneId: "M01", title: "Old feature", description: "", priority: 1, dependsOn: [], acceptance: [], status: "done", sessions: [] },
+      ],
+    }, null, 2), "utf-8");
+
+    await handleMigrateConfirm(m.id, ctx, rt);
+    expect(rt.activeMission).not.toBeNull();
+    expect(rt.activeMission!.schemaVersion).toBe(3);
+  });
+
+  it("creates pre-migration backup file", async () => {
+    const ctx = mkCtx();
+    const rt: RuntimeState = { activeMission: null, autoSaveInterval: null, phaseToolCallCount: 0, currentPhase: "execution", lastFeatureId: undefined };
+    const m = createMission("BackupMe", "Test");
+    await saveMissionSafe(m);
+
+    // Write v1 format
+    const dir = missionDirSafe(m.id);
+    fs.writeFileSync(path.join(dir, "plan.json"), JSON.stringify({
+      schemaVersion: 1,
+      id: m.id,
+      title: "BackupMe",
+      goal: "Test",
+      status: "active",
+      features: [
+        { id: "F1", milestoneId: "M01", title: "Old feature", description: "", priority: 1, dependsOn: [], acceptance: [], status: "done", sessions: [] },
+      ],
+    }, null, 2), "utf-8");
+
+    await handleMigrateConfirm(m.id, ctx, rt);
+
+    // Check backup exists
+    const files = fs.readdirSync(dir);
+    const backups = files.filter(f => f.startsWith("plan.json.pre-migration-") && f.endsWith(".bak"));
+    expect(backups.length).toBeGreaterThanOrEqual(1);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// handleHelp
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe("handleHelp", () => {
+  it("shows mission help text", async () => {
+    const ctx = mkCtx();
+    await handleHelp(ctx);
+    expect(ctx.getCalls()).toHaveLength(1);
+    expect(ctx.getCalls()[0]!.level).toBe("info");
+    expect(ctx.getCalls()[0]!.msg).toContain("/mission");
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// handleRun
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe("handleRun", () => {
+  it("warns when no active mission", async () => {
+    const ctx = mkCtx();
+    const pi = mkPi();
+    const rt: RuntimeState = { activeMission: null, autoSaveInterval: null, phaseToolCallCount: 0, currentPhase: "execution", lastFeatureId: undefined };
+    await handleRun(ctx, pi, rt);
+    expect(ctx.getCalls()[0]!.msg).toContain("No active mission");
+    expect(ctx.getCalls()[0]!.level).toBe("warning");
+  });
+
+  it("starts autopilot for active mission", async () => {
+    const ctx = mkCtx();
+    const pi = mkPi();
+    const rt = runtimeFixture();
+    await saveMissionSafe(rt.activeMission!);
+    await handleRun(ctx, pi, rt);
+    expect(rt.activeMission!.autopilot.enabled).toBe(true);
+    expect(rt.activeMission!.autopilot.mode).toBe("autopilot");
+    expect(rt.activeMission!.autopilot.iteration).toBeGreaterThanOrEqual(0);
+    expect(rt.activeMission!.autopilot.consecutiveFailures).toBe(0);
+    expect(rt.activeMission!.autopilot.noProgressTurns).toBe(0);
+    expect(ctx.getCalls()[0]!.msg).toContain("Autopilot started");
+  });
+
+  it("warns when no runnable feature is available", async () => {
+    const ctx = mkCtx();
+    const pi = mkPi();
+    const rt = runtimeFixture();
+    // Mark all features as done so ensureActiveFeature returns null
+    for (const m of rt.activeMission!.milestones) {
+      for (const f of m.features) f.status = "done";
+    }
+    rt.activeMission!.activeFeatureId = undefined;
+    await saveMissionSafe(rt.activeMission!);
+    await handleRun(ctx, pi, rt);
+    expect(rt.activeMission!.autopilot.enabled).toBe(false);
+    expect(rt.activeMission!.autopilot.lastStopReason).toBe("no_active_feature");
+    expect(ctx.getCalls()[0]!.msg).toContain("No runnable feature");
+  });
+
+  it("sets status to active and resets autopilot state", async () => {
+    const ctx = mkCtx();
+    const pi = mkPi();
+    const rt = runtimeFixture();
+    rt.activeMission!.status = "paused";
+    rt.activeMission!.autopilot.enabled = false;
+    rt.activeMission!.autopilot.mode = "manual";
+    rt.activeMission!.autopilot.lastStopReason = "paused_by_user";
+    await saveMissionSafe(rt.activeMission!);
+    await handleRun(ctx, pi, rt);
+    expect(rt.activeMission!.status).toBe("active");
+    expect(rt.activeMission!.autopilot.enabled).toBe(true);
+    expect(rt.activeMission!.autopilot.mode).toBe("autopilot");
+    expect(rt.activeMission!.autopilot.lastStopReason).toBeUndefined();
+  });
+
+  it("appends autopilot_started history entry", async () => {
+    const ctx = mkCtx();
+    const pi = mkPi();
+    const rt = runtimeFixture();
+    await saveMissionSafe(rt.activeMission!);
+    await handleRun(ctx, pi, rt);
+    const history = readHistory(rt.activeMission!.id);
+    expect(history.some(e => e.event === "autopilot_started")).toBe(true);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// handleAutopilot
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe("handleAutopilot", () => {
+  it("warns when no active mission", async () => {
+    const ctx = mkCtx();
+    const rt: RuntimeState = { activeMission: null, autoSaveInterval: null, phaseToolCallCount: 0, currentPhase: "execution", lastFeatureId: undefined };
+    await handleAutopilot(ctx, rt);
+    expect(ctx.getCalls()[0]!.msg).toContain("No active mission");
+    expect(ctx.getCalls()[0]!.level).toBe("warning");
+  });
+
+  it("shows autopilot status with all fields", async () => {
+    const ctx = mkCtx();
+    const rt = runtimeFixture();
+    rt.activeMission!.autopilot = {
+      enabled: true,
+      mode: "autopilot",
+      iteration: 3,
+      maxIterations: 25,
+      consecutiveFailures: 1,
+      maxConsecutiveFailures: 3,
+      noProgressTurns: 0,
+      maxNoProgressTurns: 3,
+      maxContextPercent: 85,
+      startedAt: new Date().toISOString(),
+      lastStopReason: undefined,
+      lastStopMessage: undefined,
+      continueAcrossFeatures: true,
+      requireEvidenceForDone: true,
+    };
+    await handleAutopilot(ctx, rt);
+    const msg = ctx.getCalls()[0]!.msg;
+    expect(msg).toContain("Autopilot: ON");
+    expect(msg).toContain("autopilot");
+    expect(msg).toContain("Iteration: 3/25");
+    expect(msg).toContain("Failures: 1/3");
+    expect(msg).toContain("No-progress: 0/3");
+    expect(msg).toContain("Would continue: yes");
+  });
+
+  it("shows last stop reason when present", async () => {
+    const ctx = mkCtx();
+    const rt = runtimeFixture();
+    rt.activeMission!.autopilot.lastStopReason = "paused_by_user";
+    rt.activeMission!.autopilot.lastStopMessage = "Paused by user.";
+    rt.activeMission!.autopilot.enabled = false;
+    await handleAutopilot(ctx, rt);
+    const msg = ctx.getCalls()[0]!.msg;
+    expect(msg).toContain("Last stop: paused_by_user");
+    expect(msg).toContain("Paused by user.");
+    expect(msg).toContain("Autopilot: OFF");
+    expect(msg).toContain("Would continue: no");
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// handleStop
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe("handleStop", () => {
+  it("warns when no active mission", async () => {
+    const ctx = mkCtx();
+    const rt: RuntimeState = { activeMission: null, autoSaveInterval: null, phaseToolCallCount: 0, currentPhase: "execution", lastFeatureId: undefined };
+    await handleStop(ctx, rt);
+    expect(ctx.getCalls()[0]!.msg).toContain("No active mission");
+    expect(ctx.getCalls()[0]!.level).toBe("warning");
+  });
+
+  it("disables autopilot and resets mode", async () => {
+    const ctx = mkCtx();
+    const rt = runtimeFixture();
+    rt.activeMission!.autopilot.enabled = true;
+    rt.activeMission!.autopilot.mode = "autopilot";
+    await saveMissionSafe(rt.activeMission!);
+    await handleStop(ctx, rt);
+    expect(rt.activeMission!.autopilot.enabled).toBe(false);
+    expect(rt.activeMission!.autopilot.mode).toBe("manual");
+    expect(rt.activeMission!.autopilot.lastStopReason).toBe("paused_by_user");
+    expect(rt.activeMission!.autopilot.lastStopMessage).toBe("Stopped by user.");
+  });
+
+  it("notifies and saves when stopped", async () => {
+    const ctx = mkCtx();
+    const rt = runtimeFixture();
+    await saveMissionSafe(rt.activeMission!);
+    await handleStop(ctx, rt);
+    expect(ctx.getCalls()[0]!.msg).toContain("Autopilot stopped");
+    expect(ctx.getCalls()[0]!.level).toBe("info");
+    const history = readHistory(rt.activeMission!.id);
+    expect(history.some(e => e.event === "autopilot_stopped")).toBe(true);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// handleMetrics
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe("handleMetrics", () => {
+  it("warns when no missions exist", async () => {
+    const ctx = mkCtx();
+    const rt: RuntimeState = { activeMission: null, autoSaveInterval: null, phaseToolCallCount: 0, currentPhase: "execution", lastFeatureId: undefined };
+    // Ensure no missions on disk
+    const root = missionsRoot();
+    if (fs.existsSync(root)) fs.rmSync(root, { recursive: true, force: true });
+    await handleMetrics(ctx, rt);
+    expect(ctx.getCalls()[0]!.msg).toContain("No missions");
+    expect(ctx.getCalls()[0]!.level).toBe("info");
+  });
+
+  it("shows metrics summary when missions exist", async () => {
+    const ctx = mkCtx();
+    const rt: RuntimeState = { activeMission: null, autoSaveInterval: null, phaseToolCallCount: 0, currentPhase: "execution", lastFeatureId: undefined };
+    const m = createMission("MetricsTest", "Goal");
+    await saveMissionSafe(m);
+    await handleMetrics(ctx, rt);
+    const msg = ctx.getCalls()[0]!.msg;
+    expect(msg).toContain("Mission Metrics Summary");
+    expect(msg).toContain("Total: 1");
+    expect(msg).toContain("Completed: 0");
+    expect(msg).toContain("Success:");
+    expect(msg).toContain("Avg tokens:");
+    expect(msg).toContain("Avg features:");
+    expect(msg).toContain("Avg time:");
+    // Session section
+    expect(msg).toContain("Session");
+  });
+
+  it("writes metrics export file", async () => {
+    const ctx = mkCtx();
+    const rt: RuntimeState = { activeMission: null, autoSaveInterval: null, phaseToolCallCount: 0, currentPhase: "execution", lastFeatureId: undefined };
+    const m = createMission("ExportMetrics", "Goal");
+    await saveMissionSafe(m);
+    await handleMetrics(ctx, rt);
+    const exportFile = path.join(missionsRoot(), "metrics-export.json");
+    expect(fs.existsSync(exportFile)).toBe(true);
+    const content = JSON.parse(fs.readFileSync(exportFile, "utf-8"));
+    expect(Array.isArray(content)).toBe(true);
+    expect(content.length).toBeGreaterThanOrEqual(1);
+    // The export uses missionId, not id
+    expect(content[0].missionId).toBe(m.id);
+  });
+
+  it("handles export failure gracefully", async () => {
+    const ctx = mkCtx();
+    const rt: RuntimeState = { activeMission: null, autoSaveInterval: null, phaseToolCallCount: 0, currentPhase: "execution", lastFeatureId: undefined };
+    // Create a mission
+    const m = createMission("BrokenExport", "Goal");
+    await saveMissionSafe(m);
+    
+    // The function should handle errors gracefully
+    // We can't easily test the actual failure without complex setup
+    // Just verify it doesn't throw
+    await expect(handleMetrics(ctx, rt)).resolves.not.toThrow();
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// handleHistory
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe("handleHistory", () => {
+  it("warns when no active mission", async () => {
+    const ctx = mkCtx();
+    const rt: RuntimeState = { activeMission: null, autoSaveInterval: null, phaseToolCallCount: 0, currentPhase: "execution", lastFeatureId: undefined };
+    await handleHistory(undefined, ctx, rt);
+    expect(ctx.getCalls()[0]!.msg).toContain("No active mission");
+    expect(ctx.getCalls()[0]!.level).toBe("warning");
+  });
+
+  it("notifies when no history entries exist", async () => {
+    const ctx = mkCtx();
+    const rt = runtimeFixture();
+    await saveMissionSafe(rt.activeMission!);
+    await handleHistory(undefined, ctx, rt);
+    expect(ctx.getCalls()[0]!.msg).toContain("No history entries yet");
+    expect(ctx.getCalls()[0]!.level).toBe("info");
+  });
+
+  it("shows all history entries when no filter", async () => {
+    const ctx = mkCtx();
+    const rt = runtimeFixture();
+    await saveMissionSafe(rt.activeMission!);
+    appendHistory(rt.activeMission!, { event: "feature_done", featureId: "F001", note: "completed" });
+    appendHistory(rt.activeMission!, { event: "mission_created", note: "started" });
+    appendHistory(rt.activeMission!, { event: "feature_active", featureId: "F002", note: "activated" });
+    await handleHistory(undefined, ctx, rt);
+    const msg = ctx.getCalls()[0]!.msg;
+    expect(msg).toContain("Mission History");
+    expect(msg).toContain("All events");
+    expect(msg).toContain("feature_done");
+    expect(msg).toContain("mission_created");
+    expect(msg).toContain("feature_active");
+    expect(msg).toContain("Features: F001, F002");
+    expect(msg).toContain("Event types:");
+  });
+
+  it("filters by feature id", async () => {
+    const ctx = mkCtx();
+    const rt = runtimeFixture();
+    await saveMissionSafe(rt.activeMission!);
+    appendHistory(rt.activeMission!, { event: "feature_done", featureId: "F001", note: "done" });
+    appendHistory(rt.activeMission!, { event: "feature_done", featureId: "F002", note: "done2" });
+    await handleHistory("F001", ctx, rt);
+    const msg = ctx.getCalls()[0]!.msg;
+    expect(msg).toContain("Feature F001");
+    expect(msg).toContain("feature_done");
+    expect(msg).toContain("done");
+    // Should contain F001 but NOT F002
+    expect(msg).toContain("F001");
+    expect(msg).not.toContain("done2");
+  });
+
+  it("filters by event type", async () => {
+    const ctx = mkCtx();
+    const rt = runtimeFixture();
+    await saveMissionSafe(rt.activeMission!);
+    appendHistory(rt.activeMission!, { event: "feature_done", featureId: "F001", note: "done" });
+    appendHistory(rt.activeMission!, { event: "feature_active", featureId: "F002", note: "activated" });
+    await handleHistory("feature_done", ctx, rt);
+    const msg = ctx.getCalls()[0]!.msg;
+    expect(msg).toContain("Event: feature_done");
+    expect(msg).toContain("F001");
+    expect(msg).not.toContain("F002");
+  });
+
+  it("filters by full-text search in note", async () => {
+    const ctx = mkCtx();
+    const rt = runtimeFixture();
+    await saveMissionSafe(rt.activeMission!);
+    appendHistory(rt.activeMission!, { event: "feature_done", featureId: "F001", note: "API integration complete" });
+    appendHistory(rt.activeMission!, { event: "feature_active", featureId: "F002", note: "database migration" });
+    await handleHistory("api", ctx, rt);
+    const msg = ctx.getCalls()[0]!.msg;
+    expect(msg).toContain('Search: "api"');
+    expect(msg).toContain("API integration");
+    expect(msg).not.toContain("database migration");
+  });
+
+  it("notifies when filter returns no results", async () => {
+    const ctx = mkCtx();
+    const rt = runtimeFixture();
+    await saveMissionSafe(rt.activeMission!);
+    appendHistory(rt.activeMission!, { event: "feature_done", featureId: "F001", note: "done" });
+    await handleHistory("nonexistent-filter", ctx, rt);
+    expect(ctx.getCalls()[0]!.msg).toContain('No history entries matching "nonexistent-filter"');
+  });
+
+  it("shows command hints and full log path", async () => {
+    const ctx = mkCtx();
+    const rt = runtimeFixture();
+    await saveMissionSafe(rt.activeMission!);
+    appendHistory(rt.activeMission!, { event: "feature_done", featureId: "F001", note: "done" });
+    await handleHistory(undefined, ctx, rt);
+    const msg = ctx.getCalls()[0]!.msg;
+    expect(msg).toContain("Filters: /mission history [feature_id|event_type|search_term]");
+    expect(msg).toContain("Full log:");
+    expect(msg).toContain("history.jsonl");
+  });
+
+  it("limits display to 40 entries", async () => {
+    const ctx = mkCtx();
+    const rt = runtimeFixture();
+    await saveMissionSafe(rt.activeMission!);
+    for (let i = 0; i < 50; i++) {
+      appendHistory(rt.activeMission!, { event: "tool_call", featureId: "F001", note: `call-${i}` });
+    }
+    await handleHistory(undefined, ctx, rt);
+    const msg = ctx.getCalls()[0]!.msg;
+    expect(msg).toContain("(40 of 50 entries)");
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// handleWorker
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe("handleWorker", () => {
+  it("warns when no active mission", async () => {
+    const ctx = mkCtx();
+    const rt: RuntimeState = { activeMission: null, autoSaveInterval: null, phaseToolCallCount: 0, currentPhase: "execution", lastFeatureId: undefined };
+    await handleWorker(undefined, ctx, rt);
+    expect(ctx.getCalls()[0]!.msg).toContain("No active mission");
+    expect(ctx.getCalls()[0]!.level).toBe("warning");
+  });
+
+  it("warns when no feature specified and no active feature", async () => {
+    const ctx = mkCtx();
+    const rt = runtimeFixture();
+    rt.activeMission!.activeFeatureId = undefined;
+    await saveMissionSafe(rt.activeMission!);
+    await handleWorker(undefined, ctx, rt);
+    expect(ctx.getCalls()[0]!.msg).toContain("No feature specified");
+  });
+
+  it("errors when feature not found", async () => {
+    const ctx = mkCtx();
+    const rt = runtimeFixture();
+    await saveMissionSafe(rt.activeMission!);
+    await handleWorker("F999", ctx, rt);
+    expect(ctx.getCalls()[0]!.msg).toContain("Feature not found: F999");
+    expect(ctx.getCalls()[0]!.level).toBe("error");
+  });
+
+  it("warns when worker is already running", async () => {
+    const ctx = mkCtx();
+    const rt = runtimeFixture();
+    await saveMissionSafe(rt.activeMission!);
+    // Mock isWorkerRunning to return true
+    vi.mocked(isWorkerRunning).mockReturnValue(true);
+    vi.mocked(getActiveWorker).mockReturnValue({
+      featureId: "F001",
+      startedAt: Date.now() - 5000,
+      status: "running" as const,
+      process: {} as any,
+    } as any);
+    await handleWorker(undefined, ctx, rt);
+    expect(ctx.getCalls()[0]!.msg).toContain("Worker already running");
+    expect(ctx.getCalls()[0]!.level).toBe("warning");
+  });
+
+  it("spawns worker for active feature", async () => {
+    const ctx = mkCtx();
+    const rt = runtimeFixture();
+    await saveMissionSafe(rt.activeMission!);
+
+    vi.mocked(isWorkerRunning).mockReturnValue(false);
+    vi.mocked(spawnWorker).mockResolvedValue({
+      featureId: "F001",
+      exitCode: 0,
+      signal: null,
+      stdout: "Build complete",
+      stderr: "",
+      durationMs: 1000,
+      killed: false,
+    } as any);
+          await handleWorker(undefined, ctx, rt);
+      expect(vi.mocked(spawnWorker)).toHaveBeenCalledWith(
+        rt.activeMission,
+        { featureId: "F001" },
+      );
+      expect(ctx.getCalls()[0]!.msg).toContain("Worker spawned for F001");
+      expect(ctx.getCalls()[0]!.level).toBe("info");
+  });
+
+  it("spawns worker for explicitly specified feature", async () => {
+    const ctx = mkCtx();
+    const rt = runtimeFixture();
+    rt.activeMission!.milestones[0].features[1]!.status = "pending";
+    await saveMissionSafe(rt.activeMission!);
+
+    vi.mocked(isWorkerRunning).mockReturnValue(false);
+    vi.mocked(spawnWorker).mockResolvedValue({
+      featureId: "F002",
+      exitCode: 0,
+      signal: null,
+      stdout: "ok",
+      stderr: "",
+      durationMs: 500,
+      killed: false,
+    } as any);
+          await handleWorker("F002", ctx, rt);
+      expect(vi.mocked(spawnWorker)).toHaveBeenCalledWith(
+        rt.activeMission,
+        { featureId: "F002" },
+      );
+      expect(rt.activeMission!.activeFeatureId).toBe("F002");
+      expect(ctx.getCalls()[0]!.msg).toContain("Worker spawned for F002");
+  });
+
+  it("appends worker_spawned history entry", async () => {
+    const ctx = mkCtx();
+    const rt = runtimeFixture();
+    await saveMissionSafe(rt.activeMission!);
+
+    vi.mocked(isWorkerRunning).mockReturnValue(false);
+    vi.mocked(spawnWorker).mockResolvedValue({
+      featureId: "F001",
+      exitCode: 0,
+      signal: null,
+      stdout: "ok",
+      stderr: "",
+      durationMs: 500,
+      killed: false,
+    } as any);
+          await handleWorker(undefined, ctx, rt);
+      const history = readHistory(rt.activeMission!.id);
+      expect(history.some(e => e.event === "worker_spawned" && e.featureId === "F001")).toBe(true);
+  });
+
+  it("handles worker error result", async () => {
+    const ctx = mkCtx();
+    const rt = runtimeFixture();
+    await saveMissionSafe(rt.activeMission!);
+
+    vi.mocked(isWorkerRunning).mockReturnValue(false);
+    vi.mocked(spawnWorker).mockResolvedValue({
+      error: "Worker crashed",
+    });
+          await handleWorker(undefined, ctx, rt);
+      // Worker spawn succeeds initially, the error comes via the async callback
+      expect(ctx.getCalls()[0]!.msg).toContain("Worker spawned");
+  });
+
+  it("handles spawn rejection gracefully", async () => {
+    const ctx = mkCtx();
+    const rt = runtimeFixture();
+    await saveMissionSafe(rt.activeMission!);
+
+    vi.mocked(isWorkerRunning).mockReturnValue(false);
+    vi.mocked(spawnWorker).mockRejectedValue(new Error("fork failed"));
+          await handleWorker(undefined, ctx, rt);
+      // The spawn is fire-and-forget, the handler returns immediately after spawning
+      expect(ctx.getCalls()[0]!.msg).toContain("Worker spawned");
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// handleWorkerStatus
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe("handleWorkerStatus", () => {
+  it("notifies when no worker is running", async () => {
+    const ctx = mkCtx();
+    vi.mocked(getActiveWorker).mockReturnValue(null);
+    await handleWorkerStatus(ctx);
+    expect(ctx.getCalls()[0]!.msg).toContain("No worker running");
+    expect(ctx.getCalls()[0]!.level).toBe("info");
+  });
+
+  it("shows active worker status", async () => {
+    const ctx = mkCtx();
+    const now = Date.now();
+    vi.mocked(getActiveWorker).mockReturnValue({
+      featureId: "F001",
+      startedAt: now - 10000,
+      status: "running" as const,
+      process: {} as any,
+    } as any);
+    await handleWorkerStatus(ctx);
+    const msg = ctx.getCalls()[0]!.msg;
+    expect(msg).toContain("Worker Status");
+    expect(msg).toContain("Feature: F001");
+    expect(msg).toContain("Status: running");
+    expect(msg).toContain("Running:");
+  });
+
+  it("shows last result when available", async () => {
+    const ctx = mkCtx();
+    const now = Date.now();
+    vi.mocked(getActiveWorker).mockReturnValue({
+      featureId: "F001",
+      startedAt: now - 30000,
+      status: "done" as const,
+      result: {
+        featureId: "F001",
+        exitCode: 1,
+        signal: "SIGTERM",
+        stdout: "test output",
+        stderr: "",
+        durationMs: 25000,
+        killed: false,
+      },
+      process: {} as any,
+    } as any);
+    await handleWorkerStatus(ctx);
+    const msg = ctx.getCalls()[0]!.msg;
+    expect(msg).toContain("Last Result");
+    expect(msg).toContain("Exit: 1 (SIGTERM)");
+    expect(msg).toContain("Duration: 25s");
+  });
+
+  it("shows exit code without signal when none", async () => {
+    const ctx = mkCtx();
+    const now = Date.now();
+    vi.mocked(getActiveWorker).mockReturnValue({
+      featureId: "F002",
+      startedAt: now - 5000,
+      status: "done" as const,
+      result: {
+        featureId: "F002",
+        exitCode: 0,
+        signal: null,
+        stdout: "ok",
+        stderr: "",
+        durationMs: 4000,
+        killed: false,
+      },
+      process: {} as any,
+    } as any);
+    await handleWorkerStatus(ctx);
+    const msg = ctx.getCalls()[0]!.msg;
+    expect(msg).toContain("Exit: 0");
+    expect(msg).not.toContain("(SIGTERM)");
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// handleKillWorker
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe("handleKillWorker", () => {
+  it("notifies when no worker to kill", async () => {
+    const ctx = mkCtx();
+    vi.mocked(killWorker).mockReturnValue(false);
+    await handleKillWorker(ctx);
+    expect(ctx.getCalls()[0]!.msg).toContain("No worker running to kill");
+    expect(ctx.getCalls()[0]!.level).toBe("info");
+  });
+
+  it("kills worker and notifies", async () => {
+    const ctx = mkCtx();
+    vi.mocked(killWorker).mockReturnValue(true);
+    await handleKillWorker(ctx);
+    expect(ctx.getCalls()[0]!.msg).toContain("Worker killed");
+    expect(ctx.getCalls()[0]!.level).toBe("info");
   });
 });

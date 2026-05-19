@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { 
   SessionMetricsCollector,
   sessionMetrics
-} from "../src/metrics.js";
+} from "../src/engines/metrics.js";
 
 describe("Session Metrics Collector", () => {
   beforeEach(() => {
