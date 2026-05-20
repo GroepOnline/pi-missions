@@ -17,8 +17,6 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
-    env:
-      NODE_OPTIONS: --experimental-sqlite
     steps:
       - uses: actions/checkout@v4
 
@@ -36,14 +34,20 @@ jobs:
 
       - name: Run tests (coverage on Ubuntu only)
         if: matrix.os == 'ubuntu-latest'
+        env:
+          NODE_OPTIONS: --experimental-sqlite
         run: npm run test:coverage
 
       - name: Run tests (no coverage)
         if: matrix.os != 'ubuntu-latest'
+        env:
+          NODE_OPTIONS: --experimental-sqlite
         run: npm test
 
       - name: Build
         run: npm run build
 
       - name: Smoke test extension and CLI (cross-platform)
+        env:
+          NODE_OPTIONS: --experimental-sqlite
         run: npm run smoke:ci
