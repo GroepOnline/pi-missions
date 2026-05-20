@@ -26,12 +26,8 @@ jobs:
           node-version: 22.x
           cache: npm
 
-      - name: Enable experimental sqlite
-        shell: bash
-        run: echo "NODE_OPTIONS=--experimental-sqlite" >> "$GITHUB_ENV"
-
       - name: Install dependencies
-        run: npm ci --no-optional
+        run: npm ci
 
       - name: Type check
         run: npm run check
@@ -39,13 +35,19 @@ jobs:
       - name: Run tests (coverage on Ubuntu only)
         if: matrix.os == 'ubuntu-latest'
         run: npm run test:coverage
+        env:
+          NODE_OPTIONS: --experimental-sqlite
 
       - name: Run tests (no coverage)
         if: matrix.os != 'ubuntu-latest'
         run: npm test
+        env:
+          NODE_OPTIONS: --experimental-sqlite
 
       - name: Build
         run: npm run build
 
       - name: Smoke test extension and CLI (cross-platform)
         run: npm run smoke:ci
+        env:
+          NODE_OPTIONS: --experimental-sqlite
