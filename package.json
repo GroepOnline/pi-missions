@@ -1,6 +1,6 @@
 {
   "name": "@devctx/pi-missions",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Durable mission orchestration for the Pi coding agent",
   "type": "module",
   "private": false,
@@ -66,6 +66,6 @@
     "pi-missions": "./dist/cli/index.js"
   },
   "engines": {
-    "node": ">=22.13.0"
+    "node": ">=22.5.0"
   }
 }
