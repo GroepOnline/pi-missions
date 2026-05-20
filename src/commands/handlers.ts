@@ -20,7 +20,7 @@ import { sessionMetrics } from "../engines/metrics.js";
 import { ensureActiveFeature, shouldContinue, triggerContinuation } from "../engines/autopilot.js";
 import { spawnWorker, killWorker, getActiveWorker, isWorkerRunning, type WorkerResult } from "../engines/worker.js";
 import { calculateMetricsSummary, computeMissionMetrics } from "../core/state.js";
-import { injectMissionContext as injectMissionCtx, enforceToolPolicy, enforceToolMax } from "../tools/index.js";
+import { injectMissionContext as injectMissionCtx, enforceToolPolicy } from "../tools/index.js";
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Planning wizard prompt
