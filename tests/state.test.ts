@@ -1143,6 +1143,31 @@ describe("readRawSchemaVersion", () => {
     fs.writeFileSync(path.join(missionDirSafe(m.id), "plan.json"), "{corrupted", "utf-8");
     expect(readRawSchemaVersion(m.id)).toBe(3);
   });
+
+  it("returns 1 when raw parsed data is an array", async () => {
+    const m = createMission("ArrayVersion", "Test");
+    await saveMissionSafe(m);
+    fs.writeFileSync(path.join(missionDirSafe(m.id), "plan.json"), "[1, 2, 3]", "utf-8");
+    expect(readRawSchemaVersion(m.id)).toBe(1);
+  });
+
+  it("returns 1 when raw parsed data is null", async () => {
+    const m = createMission("NullVersion", "Test");
+    await saveMissionSafe(m);
+    fs.writeFileSync(path.join(missionDirSafe(m.id), "plan.json"), "null", "utf-8");
+    expect(readRawSchemaVersion(m.id)).toBe(1);
+  });
+
+  it("returns 1 when raw parsed data is a primitive", async () => {
+    const m = createMission("PrimitiveVersion", "Test");
+    await saveMissionSafe(m);
+    fs.writeFileSync(path.join(missionDirSafe(m.id), "plan.json"), "42", "utf-8");
+    expect(readRawSchemaVersion(m.id)).toBe(1);
+  });
+
+  it("returns null when all files are missing", () => {
+    expect(readRawSchemaVersion("does-not-exist-at-all")).toBeNull();
+  });
 });
 
 describe("readRawMissionCounts", () => {
