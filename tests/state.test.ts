@@ -12,6 +12,7 @@ import {
 
   createMissionId,
   detectStaleFeature,
+  detectStaleFeatureSafe,
   evidenceIntegrityHash,
   getFeatureById,
   getMilestoneById,
@@ -847,6 +848,25 @@ describe("detectStaleFeature", () => {
     // 31 min elapsed → should be "critical" (past 30min default)
     const critAlert = detectStaleFeature(m, 1 + 31 * 60 * 1000);
     expect(critAlert?.level).toBe("critical");
+  });
+});
+
+describe("detectStaleFeatureSafe", () => {
+  it("delegates to detectStaleFeature when no error is thrown", () => {
+    const m = createMission("StaleSafe", "Test");
+    const f = m.milestones[0].features[0]!;
+    f.startedAt = 1000;
+    f.maxWallClockMs = 1000;
+    // This should trigger a critical alert in detectStaleFeature
+    const alert = detectStaleFeatureSafe(m, 3000);
+    expect(alert).not.toBeNull();
+    expect(alert!.level).toBe("critical");
+  });
+
+  it("returns null when an error is thrown", () => {
+    // Passing null as unknown as MissionState causes a TypeError in detectStaleFeature
+    const alert = detectStaleFeatureSafe(null as unknown as MissionState);
+    expect(alert).toBeNull();
   });
 });
 
