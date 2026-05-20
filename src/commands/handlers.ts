@@ -20,7 +20,7 @@ import { sessionMetrics } from "../engines/metrics.js";
 import { ensureActiveFeature, shouldContinue, triggerContinuation } from "../engines/autopilot.js";
 import { spawnWorker, killWorker, getActiveWorker, isWorkerRunning, type WorkerResult } from "../engines/worker.js";
 import { calculateMetricsSummary, computeMissionMetrics } from "../core/state.js";
-import { injectMissionContext as injectMissionCtx, enforceToolPolicy, enforceToolMax } from "../tools/index.js";
+import { injectMissionContext as injectMissionCtx, enforceToolMax } from "../tools/index.js";
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Planning wizard prompt
@@ -523,8 +523,8 @@ export async function handleMetrics(ctx: ExtensionCommandContext, runtime: Runti
 
   const metricsFile = path.join(missionsRoot(), "metrics-export.json");
   try {
-    fs.mkdirSync(missionsRoot(), { recursive: true });
-    fs.writeFileSync(metricsFile, JSON.stringify(listMissions().map(computeMissionMetrics), null, 2), "utf-8");
+    await fs.promises.mkdir(missionsRoot(), { recursive: true });
+    await fs.promises.writeFile(metricsFile, JSON.stringify(listMissions().map(computeMissionMetrics), null, 2), "utf-8");
     ctx.ui.notify(`📁 Exported: ${metricsFile}`, "info");
   } catch (e) {
     ctx.ui.notify(`Export failed: ${e instanceof Error ? e.message : String(e)}`, "warning");
@@ -613,7 +613,7 @@ export async function handleExport(filename: string | undefined, ctx: ExtensionC
   try {
     const md = exportMarkdown(m);
     if (filename) {
-      fs.writeFileSync(filename, md, "utf-8");
+      await fs.promises.writeFile(filename, md, "utf-8");
       ctx.ui.notify(`✅ Exported to ${filename}`, "info");
     } else {
       ctx.ui.notify(md, "info");
