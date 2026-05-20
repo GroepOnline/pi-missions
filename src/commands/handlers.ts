@@ -18,7 +18,7 @@ import { updateFooter, statusText, dashboardRows } from "../ui/components.js";
 import { missionControlOverlay } from "../ui/dashboard.js";
 import { sessionMetrics } from "../engines/metrics.js";
 import { ensureActiveFeature, shouldContinue, triggerContinuation } from "../engines/autopilot.js";
-import { spawnWorker, killWorker, getActiveWorker, isWorkerRunning, type WorkerResult } from "../engines/worker.js";
+import { spawnWorker, killWorker, getActiveWorker, isWorkerRunning } from "../engines/worker.js";
 import { calculateMetricsSummary, computeMissionMetrics } from "../core/state.js";
 import { injectMissionContext as injectMissionCtx, enforceToolPolicy, enforceToolMax } from "../tools/index.js";
 
@@ -669,7 +669,9 @@ export async function handleWorker(
       ctx.ui.notify(`❌ Worker error: ${result.error}`, "error");
       return;
     }
-    const r = result as WorkerResult;
+    // Type assertion is redundant as TypeScript automatically narrows
+    // 'result' to WorkerResult after the 'in' operator check above.
+    const r = result;
     const duration = Math.round(r.durationMs / 1000);
     const statusIcon = r.killed ? "⏱️" : r.exitCode === 0 ? "✅" : "❌";
     const lines = [
