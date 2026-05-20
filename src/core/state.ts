@@ -453,16 +453,25 @@ export function autoBlockBlockedFeatures(mission: MissionState): number {
 }
 
 export function autoUnblockResolved(mission: MissionState): number {
-  let unblocked = 0;
-  for (const f of getAllFeatures(mission)) {
-    if (f.status !== "waiting") continue;
-    if (f.dependsOn.length === 0 || dependenciesDone(mission, f)) {
-      f.status = "pending";
-      f.notes = undefined;
-      unblocked++;
+  let changed = 0;
+  for (const m of mission.milestones) {
+    for (const f of m.features) {
+      if (f.status === "blocked") {
+        const depsDone = dependenciesDone(mission, f);
+        // Check if no dependencies are currently blocked
+        const noBlockedDeps = !f.dependsOn.some((depId) => {
+          const dep = getFeatureById(mission, depId);
+          return dep && dep.status === "blocked";
+        });
+        if (depsDone || noBlockedDeps) {
+          f.status = "pending";
+          f.notes = f.notes ? f.notes + "\nAuto-unblocked: Dependencies resolved." : "Auto-unblocked: Dependencies resolved.";
+          changed++;
+        }
+      }
     }
   }
-  return unblocked;
+  return changed;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
