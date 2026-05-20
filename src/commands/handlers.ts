@@ -613,7 +613,7 @@ export async function handleExport(filename: string | undefined, ctx: ExtensionC
   try {
     const md = exportMarkdown(m);
     if (filename) {
-      fs.writeFileSync(filename, md, "utf-8");
+      await fs.promises.writeFile(filename, md, "utf-8");
       ctx.ui.notify(`✅ Exported to ${filename}`, "info");
     } else {
       ctx.ui.notify(md, "info");
