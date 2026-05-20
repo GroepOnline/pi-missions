@@ -1,7 +1,7 @@
 {
   "name": "@devctx/pi-missions",
-  "version": "0.1.0",
-  "description": "Long-running missions for the pi coding agent",
+  "version": "0.1.1",
+  "description": "Durable mission orchestration for the Pi coding agent",
   "type": "module",
   "private": false,
   "keywords": [
@@ -30,13 +30,15 @@
     "LICENSE"
   ],
   "scripts": {
-    "build": "tsup src/index.ts --format esm --dts",
+    "build": "tsup && node scripts/copy-build-assets.mjs",
     "check": "tsc --noEmit",
     "lint": "tsc --noEmit",
     "test": "vitest run",
     "bench": "vitest bench",
     "prepublishOnly": "npm run build",
-    "db:init": "node -e \"require('./src/database/index.js').getDatabase()\""
+    "db:init": "node dist/cli/index.js doctor",
+    "test:coverage": "vitest run --coverage",
+    "smoke:ci": "node scripts/ci-smoke.mjs"
   },
   "peerDependencies": {
     "@mariozechner/pi-ai": "^0.73.1",
@@ -46,8 +48,10 @@
   },
   "dependencies": {
     "@sinclair/typebox": "^0.31.28",
-    "proper-lockfile": "^4.1.2",
-    "better-sqlite3": "^11.0.0"
+    "proper-lockfile": "^4.1.2"
+  },
+  "optionalDependencies": {
+    "better-sqlite3": "^11.3.0"
   },
   "devDependencies": {
     "@types/node": "^22.19.18",
@@ -57,5 +61,11 @@
     "typescript": "^5.6.0",
     "vitest": "^2.1.0",
     "@types/better-sqlite3": "^7.6.8"
+  },
+  "bin": {
+    "pi-missions": "./dist/cli/index.js"
+  },
+  "engines": {
+    "node": ">=22.13.0"
   }
 }

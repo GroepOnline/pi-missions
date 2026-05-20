@@ -1,266 +1,102 @@
-# 🚀 Pi Missions
+# Pi Missions
 
-**Intelligent mission orchestration for the Pi coding agent**
+Durable mission orchestration for the Pi coding agent. Pi Missions turns a short Pi session into a structured mission with persistent state, milestones, feature-level acceptance criteria, evidence, recovery helpers, and command/tool support for continuing work across sessions.
 
-<div align="center">
+![Version](https://img.shields.io/badge/version-0.1.1-blue.svg) ![Tests](https://img.shields.io/badge/tests-834%20passing-brightgreen.svg) ![Pi Extension](https://img.shields.io/badge/Pi-Extension-9b59b6.svg)
 
-> **Turn short-lived Pi sessions into durable, long-running execution tracks with AI-powered planning, learning, and parallel execution.**
+## Status
 
-[![Version](https://img.shields.io/badge/version-0.2.0-blue.svg)](https://github.com/OnlineChef/pi-missions)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Tests](https://img.shields.io/badge/tests-834%20passing-brightgreen.svg)](https://github.com/OnlineChef/pi-missions)
-[![Pi Extension](https://img.shields.io/badge/Pi-Extension-9b59b6.svg)](https://github.com/OnlineChef/pi-missions)
+This repository is a hardened `0.1.x` release candidate, not a finished marketplace platform. The extension entrypoint, state management, mission commands, tools, analytics dashboard, CLI, database repositories, and tests are wired. Integration classes for GitHub/Slack/webhooks are still lightweight scaffolding and should not be advertised as production integrations yet.
 
-</div>
+Verified in this snapshot:
 
-## ✨ What is Pi Missions?
+- `npm run check` passes.
+- `npm test` passes: 29 test files, 834 tests.
+- `npm run build` produces `dist/index.js`, `dist/index.d.ts`, `dist/cli/index.js`, and copied database schema assets.
+- `./scripts/smoke-test.sh` confirms the Pi extension exports the default `piMissions` function.
+- `node dist/cli/index.js doctor` works on Node.js 22 using `node:sqlite`.
 
-<p align="center">
-  <img src="./assets/readme/pi-missions-feature-map.svg" alt="Pi Missions feature system showing planning, learning, workers, analytics and integrations" width="100%" />
-</p>
+## Requirements
 
+- Node.js `>=22.5.0` for the built-in `node:sqlite` database driver.
+- Pi coding agent packages compatible with the peer dependencies in `package.json`.
+- Optional: install `better-sqlite3` manually in the host project if you prefer that native SQLite driver. Pi Missions will use it when available and fall back to `node:sqlite` otherwise.
 
-`pi-missions` is a **professional-grade mission orchestration platform** for the Pi coding agent. It provides:
-
-- 🧠 **AI-Powered Planning** — Intelligent mission decomposition with risk analysis
-- 📚 **Learning System** — Learns from past missions to improve future planning
-- ⚡ **Parallel Execution** — Multiple workers with dependency scheduling
-- 📊 **Rich Analytics** — Dashboard with charts, trends, and insights
-- 🔗 **Integrations** — GitHub, Slack, and webhook support
-- 🛠️ **CLI Tool** — Standalone command-line interface
-- 📦 **Template Marketplace** — Community templates for common workflows
-
-## 🚀 Quick Start
-
-<p align="center">
-  <img src="./assets/readme/pi-missions-quickstart-flow.svg" alt="Quick start flow from install to smoke test" width="100%" />
-</p>
-
-
-### Install
+## Install and local development
 
 ```bash
-# From GitHub
-pi install git:github.com/OnlineChef/pi-missions
-
-# From npm
-pi install npm:@devctx/pi-missions@0.2.0
-```
-
-### Local Development
-
-```bash
-git clone https://github.com/OnlineChef/pi-missions.git
-cd pi-missions
-npm install
-npm run build
-pi -e ./dist/index.js
-```
-
-### Run Tests
-
-```bash
-npm test                    # Run all 834 tests
-npm run build               # Build to dist/
-./scripts/smoke-test.sh     # Verify extension loads
-```
-
-## 📋 Commands
-
-<p align="center">
-  <img src="./assets/readme/pi-missions-command-reference.svg" alt="Grouped Pi Missions slash command reference" width="100%" />
-</p>
-
-
-| Command | Description |
-|---------|-------------|
-| `/mission new <title>` | Create a new mission with AI planning |
-| `/mission list` | List all missions |
-| `/mission load <id>` | Load a mission into current session |
-| `/mission status` | Show current status & progress |
-| `/mission dashboard` | Open rich analytics dashboard |
-| `/mission next` | Advance to next feature |
-| `/mission done [evidence]` | Mark feature done with evidence |
-| `/mission block <reason>` | Block current feature |
-| `/mission pause` / `resume` | Pause or resume mission |
-| `/mission fork <reason>` | Fork feature into new session |
-| `/mission templates` | List mission templates |
-| `/mission analytics` | Show analytics overview |
-| `/mission history` | View mission history |
-| `/mission debug` | Inspect debug info |
-
-## 🤖 Agent Tools
-
-<p align="center">
-  <img src="./assets/readme/pi-missions-mission-lifecycle.svg" alt="Mission lifecycle from new mission to analytics with recovery paths" width="100%" />
-</p>
-
-
-| Tool | Purpose |
-|------|---------|
-| `mission_feature_done` | Mark feature complete with evidence |
-| `mission_next_feature` | Advance to next pending feature |
-| `mission_ask_user` | Ask for clarification |
-| `mission_block_self` | Self-block when stuck |
-| `mission_fork` | Fork into alternative approach |
-| `mission_spawn_worker` | Spawn worker for parallel execution |
-| `mission_worker_status` | Check worker status |
-| `mission_kill_worker` | Kill runaway worker |
-
-## 🏗️ Architecture
-
-<p align="center">
-  <img src="./assets/readme/pi-missions-architecture-overview.svg" alt="Architecture overview of interface orchestration persistence and integration layers" width="100%" />
-</p>
-
-
-```
-src/
-├── core/              # Extension runtime, state management
-├── engines/           # AI engines (learning, patterns, workers)
-├── database/          # SQLite database with 12 tables
-├── integrations/      # GitHub, Slack, webhooks
-├── cli/               # Standalone CLI tool
-├── templates/         # Template marketplace
-├── tools/             # LLM tools
-├── ui/                # Dashboard & components
-├── utils/             # Utilities
-└── commands/          # Slash commands
-```
-
-## 📊 Features
-
-### 🧠 Intelligence
-- **Pattern Recognition** — Detects success/failure patterns
-- **Learning System** — Learns from completed missions
-- **Predictions** — Estimates success probability and duration
-- **Smart Recommendations** — AI-powered suggestions
-
-### ⚡ Parallel Execution
-- **Worker Pool** — Multiple concurrent workers
-- **Dependency Scheduling** — Automatic dependency resolution
-- **Resource Monitoring** — CPU, memory, token tracking
-- **Load Balancing** — Optimal work distribution
-
-### 📈 Analytics
-- **Rich Dashboard** — Charts, progress bars, trends
-- **Mission Metrics** — Tokens, time, success rates
-- **Feature Analytics** — Duration, tool calls, errors
-- **Team Performance** — Cross-mission insights
-
-### 🔗 Integrations
-- **GitHub** — Create issues, comments, PRs
-- **Slack** — Notifications, daily summaries
-- **Webhooks** — Custom event notifications
-- **CI/CD** — Trigger workflows
-
-### 🛠️ Developer Experience
-- **CLI Tool** — `pi-missions list`, `status`, `analytics`
-- **Templates** — Community marketplace
-- **SDK** — Programmatic access
-- **Plugin System** — Custom extensions
-
-## 📁 Database Schema
-
-SQLite database with 12 tables:
-
-| Table | Purpose |
-|-------|---------|
-| `missions` | Mission state and metadata |
-| `milestones` | Milestone organization |
-| `features` | Feature tracking |
-| `history` | Append-only event log |
-| `learnings` | AI insights and patterns |
-| `patterns` | Detected patterns |
-| `predictions` | Success predictions |
-| `templates` | Mission templates |
-| `sessions` | Session tracking |
-| `metrics` | Performance metrics |
-| `plugins` | Plugin registry |
-
-## 🧪 Testing
-
-```bash
-# Run all tests
-npm test
-
-# Run specific test suite
-npm test -- tests/database.test.ts
-npm test -- tests/learning.test.ts
-
-# Run with coverage
-npm run test:coverage
-
-# Run benchmarks
-npm run bench
-```
-
-**Test Coverage:**
-- 834 tests passing
-- 29 test suites
-- Unit tests, integration tests, E2E tests
-
-## 📦 Building
-
-```bash
-# Build for production
-npm run build
-
-# Type check
+npm ci
 npm run check
-
-# Smoke test
+npm test
+npm run build
 ./scripts/smoke-test.sh
 
-# Create package
-npm pack
+# Run locally in Pi after build
+pi -e ./dist/index.js
+
+# CLI diagnostics
+node dist/cli/index.js doctor
 ```
 
-## 🔧 Configuration
+## Pi slash commands
 
-### Environment Variables
+| Command | Description |
+| --- | --- |
+| `/mission new <title>` / `/mission start <title>` | Create a new mission. |
+| `/mission list` | List saved missions. |
+| `/mission load <id>` | Load a mission into the current session. |
+| `/mission status` | Show current mission status and progress. |
+| `/mission dashboard` | Render the mission dashboard. |
+| `/mission metrics` | Show metrics overview. |
+| `/mission next` | Advance to the next ready feature. |
+| `/mission done [evidence]` | Mark the active feature done with evidence. |
+| `/mission block <reason>` | Block the active feature. |
+| `/mission pause` / `/mission resume` / `/mission stop` | Control mission execution. |
+| `/mission fork <reason>` | Fork the active feature into a separate track. |
+| `/mission templates` | List or use built-in templates. |
+| `/mission history` | Show mission history. |
+| `/mission worker`, `/mission worker-status`, `/mission kill-worker` | Worker controls. |
+| `/mission migrate` | Inspect or migrate old mission state. |
+| `/mission debug` | Inspect debug information. |
 
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `PI_MISSIONS_DB_PATH` | Database file path | `~/.pi/missions/database` |
-| `PI_MISSIONS_EXTENSION_PATH` | Extension entry point | Auto-detected |
-| `PI_WORKER_MODEL` | Model for workers | `auto` |
-| `PI_PATH` | Path to pi binary | `pi` |
+## Agent tools
 
-## 📈 Performance
+The extension registers these mission tools for agent workflows:
 
-<p align="center">
-  <img src="./assets/readme/pi-missions-performance-snapshot.svg" alt="Performance and reliability metrics including tests build time workers memory and database tables" width="100%" />
-</p>
+- `mission_feature_done`
+- `mission_next_feature`
+- `mission_ask_user`
+- `mission_block_self`
+- `mission_fork`
+- `mission_error_status`
+- `mission_retry_error`
+- `mission_spawn_worker`
+- `mission_worker_status`
+- `mission_kill_worker`
 
+## Architecture
 
-| Metric | Value |
-|--------|-------|
-| Tests | 834 passing |
-| Build time | ~20s |
-| Database | SQLite (WAL mode) |
-| Workers | Up to 10 parallel |
-| Memory | ~50MB base |
+```text
+src/
+├── core/        # Extension runtime, state, migrations, mission transitions
+├── commands/    # /mission command registration and handlers
+├── tools/       # Agent-facing mission tools
+├── engines/     # Autopilot, completion detection, recovery, metrics, workers
+├── database/    # SQLite schema and repository layer
+├── templates/   # Built-in mission templates
+├── ui/          # Dashboard and terminal UI helpers
+├── utils/       # Filesystem, context, markdown, logging, feedback helpers
+└── cli/         # pi-missions CLI
+```
 
-## 🤝 Contributing
+## Database
 
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Add tests
-5. Run `npm test`
-6. Submit a pull request
+Pi Missions stores structured data in SQLite. The schema includes missions, milestones, features, acceptance criteria, history, learnings, patterns, predictions, templates, sessions, metrics, plugins, and summary views. The source schema is copied into `dist/database/schema.sql` during build so the packaged CLI can initialize cleanly.
 
-## 📄 License
+## Package notes
+
+The original native `better-sqlite3` hard dependency was removed from the default install path because it can fail or hang in restricted environments when prebuilt binaries or Node headers are unavailable. Runtime database loading now tries `better-sqlite3` first if the host has installed it, then falls back to Node.js `node:sqlite`.
+
+## License
 
 MIT © OnlineChef
-
----
-
-<div align="center">
-
-**Made with ❤️ for the Pi coding community**
-
-[Report an issue](https://github.com/OnlineChef/pi-missions/issues) • [Contribute](https://github.com/OnlineChef/pi-missions/pulls)
-
-</div>

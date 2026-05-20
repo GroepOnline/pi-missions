@@ -5,9 +5,11 @@
  * and learning system.
  */
 
-import Database from 'better-sqlite3';
+import type Database from 'better-sqlite3';
+import { createRequire } from 'node:module';
 import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { existsSync, mkdirSync } from 'node:fs';
 import { homedir } from 'node:os';
 
@@ -17,6 +19,65 @@ import { homedir } from 'node:os';
 
 let db: Database.Database | null = null;
 
+const require = createRequire(import.meta.url);
+let databaseDriver: 'better-sqlite3' | 'node:sqlite' | null = null;
+const CURRENT_SCHEMA_VERSION = 1;
+
+type DatabaseConstructor = new (filename: string) => Database.Database;
+
+function describeLoadError(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function openSqliteDatabase(filename: string): Database.Database {
+  try {
+    const BetterSqlite3 = require('better-sqlite3') as DatabaseConstructor;
+    databaseDriver = 'better-sqlite3';
+    return new BetterSqlite3(filename);
+  } catch (betterSqliteError) {
+    try {
+      const { DatabaseSync } = require('node:sqlite') as { DatabaseSync: DatabaseConstructor };
+      databaseDriver = 'node:sqlite';
+      return new DatabaseSync(filename);
+    } catch (nodeSqliteError) {
+      throw new Error(
+        'Unable to initialize SQLite. Run on Node.js >=22.5.0, or install better-sqlite3 manually. ' +
+        `better-sqlite3: ${describeLoadError(betterSqliteError)}; ` +
+        `node:sqlite: ${describeLoadError(nodeSqliteError)}`,
+      );
+    }
+  }
+}
+
+function applyPragma(database: Database.Database, pragma: string): void {
+  const maybePragma = (database as unknown as { pragma?: (statement: string) => unknown }).pragma;
+  if (typeof maybePragma === 'function') {
+    maybePragma.call(database, pragma);
+  } else {
+    database.exec(`PRAGMA ${pragma}`);
+  }
+}
+
+export function getDatabaseDriver(): string | null {
+  return databaseDriver;
+}
+
+function resolveSchemaPath(): string {
+  const moduleDir = dirname(fileURLToPath(import.meta.url));
+  const candidates = [
+    join(moduleDir, 'schema.sql'),
+    join(moduleDir, 'database', 'schema.sql'),
+    join(moduleDir, '..', 'database', 'schema.sql'),
+    join(process.cwd(), 'src', 'database', 'schema.sql'),
+    join(process.cwd(), 'dist', 'database', 'schema.sql'),
+  ];
+  const schemaPath = candidates.find(existsSync);
+  if (!schemaPath) {
+    throw new Error(`Unable to locate database schema.sql. Searched: ${candidates.join(', ')}`);
+  }
+  return schemaPath;
+}
+
 export function getDatabase(): Database.Database {
   if (!db) {
     const dbPath = getDatabasePath();
@@ -25,24 +86,34 @@ export function getDatabase(): Database.Database {
     let dbDir: string;
     let dbFile: string;
     
-    if (dbPath.endsWith('.db')) {
-      dbDir = join(dbPath, '..');
+    if (dbPath === ':memory:') {
+      dbDir = '';
+      dbFile = dbPath;
+    } else if (dbPath.endsWith('.db')) {
+      dbDir = dirname(dbPath);
       dbFile = dbPath;
     } else {
       dbDir = dbPath;
       dbFile = join(dbPath, 'pi-missions.db');
     }
     
-    if (!existsSync(dbDir)) {
+    if (dbDir && !existsSync(dbDir)) {
       mkdirSync(dbDir, { recursive: true });
     }
     
-    db = new Database(dbFile);
-    db.pragma('journal_mode = WAL');
-    db.pragma('foreign_keys = ON');
-    
-    // Initialize schema
-    initializeSchema(db);
+    const candidateDb = openSqliteDatabase(dbFile);
+    try {
+      applyPragma(candidateDb, 'journal_mode = WAL');
+      applyPragma(candidateDb, 'foreign_keys = ON');
+
+      // Initialize schema before publishing singleton
+      initializeSchema(candidateDb);
+      runMigrations(candidateDb);
+      db = candidateDb;
+    } catch (error) {
+      candidateDb.close();
+      throw error;
+    }
   }
   
   return db;
@@ -53,30 +124,86 @@ export function getDatabasePath(): string {
 }
 
 function initializeSchema(db: Database.Database): void {
-  const schemaPath = join(__dirname, 'schema.sql');
+  const schemaPath = resolveSchemaPath();
   const schema = readFileSync(schemaPath, 'utf-8');
-  
-  // Remove single-line comments (-- ...)
-  let cleanSchema = schema.replace(/--.*$/gm, '');
-  
-  // Remove multi-line comments (* ... *)
-  cleanSchema = cleanSchema.replace(/\/\*[\s\S]*?\*\//g, '');
-  
-  // Split by semicolons and execute each statement
-  const statements = cleanSchema
-    .split(';')
-    .map(s => s.trim())
-    .filter(s => s.length > 0);
-  
-  for (const stmt of statements) {
-    try {
-      db.exec(stmt + ';');
-    } catch (err) {
-      // Ignore "already exists" errors
-      if (!(err instanceof Error && err.message.includes('already exists'))) {
-        console.error(`Error executing schema statement: ${err}`);
-      }
+
+  try {
+    db.exec(schema);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(`Failed to initialize database schema from ${schemaPath}: ${message}`);
+  }
+}
+
+function ensureSchemaVersionTable(database: Database.Database): void {
+  database.exec(`
+    CREATE TABLE IF NOT EXISTS schema_version (
+      id INTEGER PRIMARY KEY CHECK(id = 1),
+      version INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
+    );
+  `);
+}
+
+function getSchemaVersion(database: Database.Database): number {
+  ensureSchemaVersionTable(database);
+  const row = database.prepare('SELECT version FROM schema_version WHERE id = 1').get() as { version?: number } | undefined;
+  return row?.version ?? 0;
+}
+
+function setSchemaVersion(database: Database.Database, version: number): void {
+  database.prepare(`
+    INSERT INTO schema_version (id, version, updated_at)
+    VALUES (1, ?, ?)
+    ON CONFLICT(id) DO UPDATE SET
+      version = excluded.version,
+      updated_at = excluded.updated_at
+  `).run(version, Date.now());
+}
+
+function baselineExistingSchema(database: Database.Database): void {
+  const row = database.prepare(`
+    SELECT 1 AS exists_flag
+    FROM sqlite_master
+    WHERE type = 'table' AND name = 'missions'
+    LIMIT 1
+  `).get() as { exists_flag?: number } | undefined;
+
+  if (row?.exists_flag === 1) {
+    setSchemaVersion(database, 1);
+  }
+}
+
+function runMigrations(database: Database.Database): void {
+  ensureSchemaVersionTable(database);
+
+  const migrateBody = () => {
+    let version = getSchemaVersion(database);
+
+    if (version === 0) {
+      baselineExistingSchema(database);
+      version = getSchemaVersion(database);
     }
+
+    if (version === 0) {
+      setSchemaVersion(database, CURRENT_SCHEMA_VERSION);
+    }
+  };
+
+  const maybeTransaction = (database as unknown as { transaction?: (fn: () => void) => () => void }).transaction;
+  if (typeof maybeTransaction === 'function') {
+    const migrate = maybeTransaction.call(database, migrateBody);
+    migrate();
+    return;
+  }
+
+  database.exec('BEGIN');
+  try {
+    migrateBody();
+    database.exec('COMMIT');
+  } catch (error) {
+    database.exec('ROLLBACK');
+    throw error;
   }
 }
 
@@ -448,11 +575,17 @@ export class LearningRepository {
   }
   
   findRelevant(tags: string[], limit = 10): LearningRow[] {
-    // Simple tag matching - could be improved with FTS
+    if (tags.length === 0) return [];
+
     const placeholders = tags.map(() => '?').join(',');
     return this.db.prepare(`
       SELECT * FROM learnings 
-      WHERE applicable_to IN (${placeholders})
+      WHERE json_valid(learnings.applicable_to)
+        AND EXISTS (
+        SELECT 1
+        FROM json_each(learnings.applicable_to)
+        WHERE json_each.value IN (${placeholders})
+      )
       ORDER BY confidence DESC, used_count DESC
       LIMIT ?
     `).all(...tags, limit) as LearningRow[];
@@ -541,10 +674,17 @@ export class TemplateRepository {
   }
   
   findByTags(tags: string[]): TemplateRow[] {
+    if (tags.length === 0) return [];
+
     const placeholders = tags.map(() => '?').join(',');
     return this.db.prepare(`
       SELECT * FROM templates 
-      WHERE tags IN (${placeholders})
+      WHERE json_valid(templates.tags)
+        AND EXISTS (
+        SELECT 1
+        FROM json_each(templates.tags)
+        WHERE json_each.value IN (${placeholders})
+      )
       ORDER BY rating DESC
     `).all(...tags) as TemplateRow[];
   }
@@ -642,15 +782,15 @@ export class PredictionRepository {
     this.db = db;
   }
   
-  create(prediction: Omit<PredictionRow, 'id' | 'created_at' | 'validated_at' | 'accuracy'>): PredictionRow {
+  create(prediction: Omit<PredictionRow, 'id' | 'created_at' | 'validated_at' | 'accuracy' | 'actual_value'> & { actual_value?: number | null }): PredictionRow {
     const stmt = this.db.prepare(`
-      INSERT INTO predictions (mission_id, feature_id, prediction_type, predicted_value, confidence, model_version)
-      VALUES (?, ?, ?, ?, ?, ?)
+      INSERT INTO predictions (mission_id, feature_id, prediction_type, predicted_value, actual_value, confidence, model_version)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
     `);
     
     const result = stmt.run(
       prediction.mission_id, prediction.feature_id, prediction.prediction_type,
-      prediction.predicted_value, prediction.confidence, prediction.model_version
+      prediction.predicted_value, prediction.actual_value ?? null, prediction.confidence, prediction.model_version
     );
     
     return this.db.prepare('SELECT * FROM predictions WHERE id = ?')

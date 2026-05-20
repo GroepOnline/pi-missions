@@ -1,12 +1,19 @@
 -- Pi Missions Database Schema
 -- Version: 1.0.0
 
+-- Schema version tracking (migration baseline)
+CREATE TABLE IF NOT EXISTS schema_version (
+    id INTEGER PRIMARY KEY CHECK(id = 1),
+    version INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
+);
+
 -- Missions table
 CREATE TABLE IF NOT EXISTS missions (
     id TEXT PRIMARY KEY,
     title TEXT NOT NULL,
     goal TEXT,
-    status TEXT NOT NULL DEFAULT 'planning' CHECK(status IN ('planning', 'active', 'paused', 'complete', 'blocked', 'budget_limited')),
+    status TEXT NOT NULL DEFAULT 'planning' CHECK(status IN ('planning', 'active', 'paused', 'complete', 'blocked', 'budget_limited', 'failed')),
     created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
     updated_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
     completed_at INTEGER,
@@ -41,7 +48,7 @@ CREATE TABLE IF NOT EXISTS features (
     title TEXT NOT NULL,
     description TEXT,
     priority INTEGER DEFAULT 3 CHECK(priority BETWEEN 1 AND 5),
-    status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending', 'active', 'done', 'blocked', 'failed')),
+    status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending', 'waiting', 'active', 'done', 'blocked', 'failed')),
     depends_on TEXT DEFAULT '[]',
     acceptance_criteria TEXT DEFAULT '[]',
     sessions TEXT DEFAULT '[]',

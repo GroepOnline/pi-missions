@@ -120,7 +120,7 @@ describe("getNextPendingFeature", () => {
 
 describe("missionDirSafe", () => {
   it("guards against traversal", () => {
-    expect(missionDirSafe("../../etc/passwd")).toContain(".pi/missions");
+    expect(missionDirSafe("../../etc/passwd")).toContain(path.join(".pi", "missions"));
   });
 
   it("sanitizes special chars", () => {
@@ -337,7 +337,7 @@ describe("missionsRoot", () => {
 
   it("returns default path when no env var is set", () => {
     const root = missionsRoot();
-    expect(root).toContain(".pi/missions");
+    expect(root).toContain(path.join(".pi", "missions"));
   });
 
   it("respects MISSIONS_ROOT env var", () => {

@@ -26,6 +26,7 @@ function createFeature(id: string, dependsOn: string[] = []): Feature {
 // Helper to create test mission
 function createMission(features: Feature[]): MissionState {
   return {
+    schemaVersion: 3,
     id: 'test-mission',
     title: 'Test Mission',
     goal: 'Test goal',
@@ -41,6 +42,7 @@ function createMission(features: Feature[]): MissionState {
     activeFeatureId: features[0]?.id,
     tokensUsed: 0,
     lastContextTokens: 0,
+    validationToken: 'test-validation-token',
     createdAt: Date.now(),
     updatedAt: Date.now(),
     autopilot: {

@@ -77,6 +77,8 @@ export interface Feature {
   startedAt?: number;
   maxWallClockMs?: number;
   maxToolCalls?: number;
+  /** Token usage attributed to this feature, when known. */
+  tokensUsed?: number;
   toolCallCount: number;
   notes?: string;
   _execFn?: (command: string) => { code: number; stdout: string; stderr?: string };
@@ -456,12 +458,13 @@ export const FeatureSchema = Type.Object({
   ]),
   sessions: Type.Array(Type.String()),
   toolCallCount: Type.Integer({ minimum: 0 }),
+  tokensUsed: Type.Optional(Type.Integer({ minimum: 0 })),
   startedAt: Type.Optional(Type.Integer()),
   completedAt: Type.Optional(Type.Integer()),
   maxWallClockMs: Type.Optional(Type.Integer({ minimum: 0 })),
   maxToolCalls: Type.Optional(Type.Integer({ minimum: 0 })),
   notes: Type.Optional(Type.String({ maxLength: 1000 })),
-});
+}, { additionalProperties: false });
 
 export const MilestoneSchema = Type.Object({
   id: Type.String({ pattern: "^M[0-9]{2}$" }),

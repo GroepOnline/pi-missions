@@ -1,4 +1,6 @@
+#!/usr/bin/env node
 import { getRepositories } from '../database/index.js';
+import { pathToFileURL } from 'node:url';
 
 export interface CLICommand {
   name: string;
@@ -85,4 +87,20 @@ export class CLI {
 
 export function createCLI(): CLI {
   return new CLI();
+}
+
+function isDirectExecution(): boolean {
+  const entry = process.argv[1];
+  return Boolean(entry && import.meta.url === pathToFileURL(entry).href);
+}
+
+if (isDirectExecution()) {
+  createCLI().execute(process.argv.slice(2))
+    .then((output) => {
+      if (output) console.log(output);
+    })
+    .catch((error: unknown) => {
+      console.error(error instanceof Error ? error.message : String(error));
+      process.exitCode = 1;
+    });
 }

@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.1.1
+
+- Fixed strict TypeScript errors around feature token accounting and test fixtures.
+- Hardened SQLite initialization for ESM and packaged builds.
+- Removed the default native SQLite install path; database loading now uses an optional `better-sqlite3` driver when present or Node.js `node:sqlite` otherwise.
+- Added a real CLI build entry and package `bin` mapping.
+- Copied database schema assets into `dist/` during build.
+- Updated README and CI to match the implemented feature set.
+
+# Changelog
+
 All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),

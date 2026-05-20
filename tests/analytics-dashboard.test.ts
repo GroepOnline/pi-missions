@@ -25,6 +25,7 @@ function createFeature(id: string, status: string = 'pending', tokensUsed: numbe
 // Helper to create test mission
 function createMission(features: Feature[]): MissionState {
   return {
+    schemaVersion: 3,
     id: 'test-mission',
     title: 'Test Mission',
     goal: 'Test goal',
@@ -40,6 +41,7 @@ function createMission(features: Feature[]): MissionState {
     activeFeatureId: features.find(f => f.status === 'active')?.id,
     tokensUsed: 50000,
     lastContextTokens: 50000,
+    validationToken: 'test-validation-token',
     createdAt: Date.now() - 86400000,
     updatedAt: Date.now(),
     autopilot: {
