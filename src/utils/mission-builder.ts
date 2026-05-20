@@ -1,6 +1,6 @@
 // Shim: mission-builder for backward compat with old tests
 import type { Milestone, MissionState } from "../core/types.js";
-import { missionFromWizardOutput as v2Wizard } from "./markdown.js";
+import { missionFromWizardOutput as createMissionFromMarkdown } from "./markdown.js";
 
 // ── Goal tree types ──────────────────────────────────────────────────────
 
@@ -171,7 +171,7 @@ export function missionFromWizardOutput(
     }
   }
 
-  return v2Wizard(normalizedOutput as Parameters<typeof v2Wizard>[0], fallbackTitle, goal);
+  return createMissionFromMarkdown(normalizedOutput as Parameters<typeof createMissionFromMarkdown>[0], fallbackTitle, goal);
 }
 
 // ── Augment MissionState with goalTree ───────────────────────────────────
