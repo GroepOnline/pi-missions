@@ -20,7 +20,7 @@ import { sessionMetrics } from "../engines/metrics.js";
 import { ensureActiveFeature, shouldContinue, triggerContinuation } from "../engines/autopilot.js";
 import { spawnWorker, killWorker, getActiveWorker, isWorkerRunning, type WorkerResult } from "../engines/worker.js";
 import { calculateMetricsSummary, computeMissionMetrics } from "../core/state.js";
-import { injectMissionContext as injectMissionCtx, enforceToolPolicy, enforceToolMax } from "../tools/index.js";
+import { injectMissionContext, enforceToolPolicy, enforceToolMax } from "../tools/index.js";
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Planning wizard prompt
@@ -68,13 +68,13 @@ Rules:
 // Injection helper — thin wrapper that builds context before injecting
 // ═══════════════════════════════════════════════════════════════════════════
 
-function injectMissionContext(
+function injectMissionContextWrapper(
   pi: ExtensionAPI,
   ctx: ExtensionCommandContext,
   mission: NonNullable<RuntimeState["activeMission"]>,
   reason: string,
 ): void {
-  injectMissionCtx(pi, ctx, mission, reason, buildMissionContext(mission));
+  injectMissionContext(pi, ctx, mission, reason, buildMissionContext(mission));
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -124,7 +124,7 @@ export async function handleNew(
   await saveMissionSafe(mission);
   appendHistory(mission, { event: "mission_created", note: goal, details: { usedWizard } });
   pi.appendEntry("pi-mission-active", { missionId: mission.id, validationToken: mission.validationToken });
-  injectMissionContext(pi, ctx, mission, "mission_started");
+  injectMissionContextWrapper(pi, ctx, mission, "mission_started");
   pi.setSessionName(`🎯 ${mission.title}`);
   updateFooter(ctx, mission);
   const fc = mission.milestones.reduce((s, m) => s + m.features.length, 0);
@@ -155,7 +155,7 @@ export async function handleTemplates(
     await saveMissionSafe(mission);
     appendHistory(mission, { event: "mission_created", note: `From template: ${arg}` });
     pi.appendEntry("pi-mission-active", { missionId: mission.id, validationToken: mission.validationToken });
-    injectMissionContext(pi, ctx, mission, "mission_started_from_template");
+    injectMissionContextWrapper(pi, ctx, mission, "mission_started_from_template");
     pi.setSessionName(`🎯 ${mission.title}`);
     updateFooter(ctx, mission);
     ctx.ui.notify(`✅ Mission created from '${arg}' template: ${mission.id}`, "info");
@@ -192,7 +192,7 @@ export async function handleLoad(id: string | undefined, ctx: ExtensionCommandCo
   autoBlockBlockedFeatures(mission);
   runtime.activeMission = mission;
   pi.appendEntry("pi-mission-active", { missionId: mission.id, validationToken: mission.validationToken });
-  injectMissionContext(pi, ctx, mission, "mission_loaded");
+  injectMissionContextWrapper(pi, ctx, mission, "mission_loaded");
   pi.setSessionName(`🎯 ${mission.title}`);
   updateFooter(ctx, mission);
   ctx.ui.notify(`Loaded mission: ${mission.title}`, "info");
