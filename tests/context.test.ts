@@ -206,6 +206,18 @@ describe("buildMissionContext", () => {
     expect(ctx).toContain("No active feature.");
     expect(ctx).not.toContain("▶ F001");
   });
+
+  it("shows recently completed features even when there is no active feature", () => {
+    const mission = missionFixture();
+    mission.milestones[0].features = Array.from({ length: 3 }, (_, i) => ({
+      ...featureFixture({ id: `F${String(i).padStart(3, "0")}`, title: `Feature ${i}`, status: "done" }),
+    }));
+    mission.activeFeatureId = undefined;
+    const ctx = buildMissionContext(mission);
+    expect(ctx).toContain("No active feature.");
+    expect(ctx).toContain("### Recently completed: ✅ F000 Feature 0  |  ✅ F001 Feature 1  |  ✅ F002 Feature 2");
+    expect(ctx).not.toContain("▶");
+  });
 });
 
 // ─── Composed: buildLeanContext ──────────────────────────────────────────────
