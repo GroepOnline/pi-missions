@@ -19,6 +19,7 @@ jobs:
         os: [ubuntu-latest, windows-latest, macos-latest]
     env:
       NODE_OPTIONS: --experimental-sqlite
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
     steps:
       - uses: actions/checkout@v4
 
