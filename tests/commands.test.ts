@@ -187,12 +187,13 @@ describe("saveEvidence integration", () => {
 
 describe("autoBlockBlockedFeatures integration", () => {
   it("blocks features correctly in save/load cycle", () => {
-    // F001 active, F002 depends on F001 (not done), F003 depends on F002
-    // So both F002 and F003 should be waiting
     const m = createMission("BlockTest", "Test");
+    m.milestones[0].features[0]!.status = "blocked";
+
+    // Auto-block will cascade to dependencies that are pending/active
     expect(autoBlockBlockedFeatures(m)).toBe(2);
-    expect(m.milestones[0].features[1]!.status).toBe("waiting");
-    expect(m.milestones[0].features[2]!.status).toBe("waiting");
+    expect(m.milestones[0].features[1]!.status).toBe("blocked");
+    expect(m.milestones[0].features[2]!.status).toBe("blocked");
   });
 });
 

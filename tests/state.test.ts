@@ -515,39 +515,70 @@ describe("listSessionRefs", () => {
 
 describe("autoBlockBlockedFeatures", () => {
 
-  it("blocks features with unresolved dependencies", () => {
+  it("blocks a feature if one of its dependencies is blocked", () => {
     const m = createMission("Deps", "Test deps");
-    // F001 active, F002 depends on F001 (not done), F003 depends on F002
-    expect(autoBlockBlockedFeatures(m)).toBe(2); // F002 and F003 waiting
-    expect(m.milestones[0].features[1]!.status).toBe("waiting");
-    expect(m.milestones[0].features[2]!.status).toBe("waiting");
+    // Remove cascading dependency for F003
+    m.milestones[0].features[2]!.dependsOn = [];
+    m.milestones[0].features[0]!.status = "blocked";
+    m.milestones[0].features[1]!.status = "pending";
+    m.milestones[0].features[1]!.dependsOn = ["F001"];
+
+    const changed = autoBlockBlockedFeatures(m);
+    expect(changed).toBe(1);
+    expect(m.milestones[0].features[1]!.status).toBe("blocked");
+    expect(m.milestones[0].features[1]!.notes).toBe("Auto-blocked: Dependency is blocked.");
   });
 
-  it("does not block features with done dependencies", () => {
-    const m = createMission("DepsDone", "Test");
-    m.milestones[0].features[0]!.status = "done";
-    // F001 done → F002 deps resolved → stays pending. F003 depends on F002 (pending) → gets waiting.
-    expect(autoBlockBlockedFeatures(m)).toBe(1);
-    expect(m.milestones[0].features[1]!.status).toBe("pending");
-    expect(m.milestones[0].features[2]!.status).toBe("waiting");
-  });
-
-  it("skips already done features", () => {
-    const m = createMission("Skipped", "Test");
-    m.milestones[0].features[0]!.status = "done";
-    m.milestones[0].features[1]!.status = "done";
-    autoBlockBlockedFeatures(m);
-    expect(m.milestones[0].features[0]!.status).toBe("done");
-    expect(m.milestones[0].features[1]!.status).toBe("done");
-  });
-
-  it("blocks active feature if its deps are not done", () => {
-    const m = createMission("ActiveBlocked", "Test");
-    m.milestones[0].features[0]!.status = "pending";
+  it("appends to existing notes when blocking a feature", () => {
+    const m = createMission("Deps", "Test deps");
+    m.milestones[0].features[2]!.dependsOn = [];
+    m.milestones[0].features[0]!.status = "blocked";
     m.milestones[0].features[1]!.status = "active";
-    m.milestones[0].features[1]!.dependsOn = ["F000"]; // nonexistent dep
-    autoBlockBlockedFeatures(m);
-    expect(m.milestones[0].features[1]!.status).toBe("waiting");
+    m.milestones[0].features[1]!.dependsOn = ["F001"];
+    m.milestones[0].features[1]!.notes = "Existing note.";
+
+    const changed = autoBlockBlockedFeatures(m);
+    expect(changed).toBe(1);
+    expect(m.milestones[0].features[1]!.status).toBe("blocked");
+    expect(m.milestones[0].features[1]!.notes).toBe("Existing note.\nAuto-blocked: Dependency is blocked.");
+  });
+
+  it("does not block features if dependencies are not blocked", () => {
+    const m = createMission("Deps", "Test deps");
+    m.milestones[0].features[2]!.dependsOn = [];
+    m.milestones[0].features[0]!.status = "pending";
+    m.milestones[0].features[1]!.status = "pending";
+    m.milestones[0].features[1]!.dependsOn = ["F001"];
+
+    const changed = autoBlockBlockedFeatures(m);
+    expect(changed).toBe(0);
+    expect(m.milestones[0].features[1]!.status).toBe("pending");
+  });
+
+  it("skips features that are already blocked", () => {
+    const m = createMission("Deps", "Test deps");
+    m.milestones[0].features[2]!.dependsOn = [];
+    m.milestones[0].features[0]!.status = "blocked";
+    m.milestones[0].features[1]!.status = "blocked";
+    m.milestones[0].features[1]!.dependsOn = ["F001"];
+    m.milestones[0].features[1]!.notes = "Original note";
+
+    const changed = autoBlockBlockedFeatures(m);
+    expect(changed).toBe(0);
+    expect(m.milestones[0].features[1]!.status).toBe("blocked");
+    expect(m.milestones[0].features[1]!.notes).toBe("Original note"); // No new note appended
+  });
+
+  it("handles multiple dependencies correctly", () => {
+    const m = createMission("Deps", "Test deps");
+    m.milestones[0].features[0]!.status = "done";
+    m.milestones[0].features[1]!.status = "blocked";
+    m.milestones[0].features[2]!.status = "pending";
+    m.milestones[0].features[2]!.dependsOn = ["F001", "F002"];
+
+    const changed = autoBlockBlockedFeatures(m);
+    expect(changed).toBe(1);
+    expect(m.milestones[0].features[2]!.status).toBe("blocked");
   });
 });
 
