@@ -310,5 +310,5 @@ export function formatDepChain(chain: Array<{ id: string; status: string; title?
 }
 
 export function featureSummary(feature: Feature): string {
-  return `${feature.id} ${feature.status} ${feature.title}`;
+  return `${feature.id}: ${feature.title} [${feature.status}]`;
 }
