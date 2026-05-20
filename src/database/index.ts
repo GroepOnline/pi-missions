@@ -413,7 +413,13 @@ export class MissionRepository {
   }
   
   update(id: string, updates: Partial<MissionRow>): MissionRow | undefined {
-    const fields = Object.keys(updates).filter(k => k !== 'id' && k !== 'created_at');
+    const allowedFields = new Set([
+      'title', 'goal', 'status', 'completed_at',
+      'total_tokens', 'total_features', 'features_completed',
+      'features_failed', 'success_rate', 'tags', 'metadata'
+    ]);
+
+    const fields = Object.keys(updates).filter(k => allowedFields.has(k));
     if (fields.length === 0) return this.findById(id);
     
     const setClause = fields.map(f => `${f} = ?`).join(', ');
@@ -477,7 +483,14 @@ export class FeatureRepository {
   }
   
   update(id: string, missionId: string, updates: Partial<FeatureRow>): FeatureRow | undefined {
-    const fields = Object.keys(updates).filter(k => k !== 'id' && k !== 'mission_id' && k !== 'created_at');
+    const allowedFields = new Set([
+      'milestone_id', 'title', 'description', 'priority', 'status',
+      'depends_on', 'acceptance_criteria', 'sessions', 'tool_call_count',
+      'tokens_used', 'error_count', 'blockers', 'notes', 'started_at',
+      'completed_at', 'evidence'
+    ]);
+
+    const fields = Object.keys(updates).filter(k => allowedFields.has(k));
     if (fields.length === 0) return this.findById(id, missionId);
     
     const setClause = fields.map(f => `${f} = ?`).join(', ');
