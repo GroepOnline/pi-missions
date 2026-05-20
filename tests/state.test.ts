@@ -1207,6 +1207,49 @@ describe("readRawMissionCounts", () => {
     expect(counts!.milestones).toBe(0);
     expect(counts!.features).toBe(0);
   });
+
+  it("falls back to plan.json.bak when plan.json is corrupted", async () => {
+    const m = createMission("BakCounts", "Test");
+    await saveMissionSafe(m);
+    m.title = "BakCounts modified";
+    await saveMissionSafe(m); // creates plan.json.bak
+    const dir = missionDirSafe(m.id);
+    fs.writeFileSync(path.join(dir, "plan.json"), "{corrupted", "utf-8");
+    const counts = readRawMissionCounts(m.id);
+    expect(counts).not.toBeNull();
+    expect(counts!.milestones).toBe(1);
+    expect(counts!.features).toBe(3);
+  });
+
+  it("handles milestones missing features arrays", async () => {
+    const m = createMission("MissingFeatures", "Test");
+    await saveMissionSafe(m);
+    const dir = missionDirSafe(m.id);
+    fs.writeFileSync(path.join(dir, "plan.json"), JSON.stringify({
+      id: m.id,
+      title: "MissingFeatures",
+      status: "active",
+      milestones: [
+        { id: "M01" }, // no features array
+        { id: "M02", features: [{ id: "F1" }, { id: "F2" }] },
+        { id: "M03", features: "not-an-array" } // features is not an array
+      ]
+    }, null, 2), "utf-8");
+    const counts = readRawMissionCounts(m.id);
+    expect(counts).not.toBeNull();
+    expect(counts!.milestones).toBe(3);
+    expect(counts!.features).toBe(2);
+  });
+
+  it("ignores invalid JSON content (e.g. primitives instead of objects)", async () => {
+    const m = createMission("InvalidJSONObj", "Test");
+    await saveMissionSafe(m);
+    const dir = missionDirSafe(m.id);
+    fs.writeFileSync(path.join(dir, "plan.json"), "123", "utf-8");
+    fs.writeFileSync(path.join(dir, "plan.json.bak"), "true", "utf-8");
+    const counts = readRawMissionCounts(m.id);
+    expect(counts).toBeNull();
+  });
 });
 
 describe("migrateMissionOnDisk", () => {
