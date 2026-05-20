@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildCompactionSummary, buildFeatureBrief, buildLeanContext, buildMissionBanner, buildMissionContext, buildMissionHelp, completionSignal, featureSummary } from "../src/utils/context.js";
+import { buildCompactionSummary, buildFeatureBrief, buildLeanContext, buildMissionBanner, buildMissionContext, buildMissionHelp, completionSignal, dependsOnChain, featureSummary } from "../src/utils/context.js";
 import { createMission } from "../src/core/state.js";
 import type { Feature, MissionState } from "../src/core/types.js";
 
@@ -277,5 +277,49 @@ describe("featureSummary", () => {
     expect(featureSummary(featureFixture({ id: "F042", status: "done", title: "Add login" }))).toBe(
       "F042 done Add login"
     );
+  });
+});
+
+describe("dependsOnChain", () => {
+  it("returns an empty array when the feature has no dependencies", () => {
+    const mission = missionFixture();
+    const f = mission.milestones[0].features[0]!;
+    f.dependsOn = [];
+
+    const chain = dependsOnChain(mission, f);
+    expect(chain).toEqual([]);
+  });
+
+  it("returns immediate dependencies when the feature has them", () => {
+    const mission = missionFixture();
+    const f1 = featureFixture({ id: "F001", status: "active", title: "Dep 1" });
+    const f2 = featureFixture({ id: "F002", status: "active", title: "Feature 2", dependsOn: ["F001"] });
+    mission.milestones[0].features = [f1, f2];
+
+    const chain = dependsOnChain(mission, f2);
+    expect(chain).toEqual([{ id: "F001", status: "active", title: "Dep 1" }]);
+  });
+
+  it("ignores dependencies that do not exist in the mission", () => {
+    const mission = missionFixture();
+    const f = featureFixture({ id: "F002", status: "active", title: "Feature 2", dependsOn: ["F999"] });
+    mission.milestones[0].features = [f];
+
+    const chain = dependsOnChain(mission, f);
+    expect(chain).toEqual([]);
+  });
+
+  it("returns multiple valid dependencies correctly", () => {
+    const mission = missionFixture();
+    const f1 = featureFixture({ id: "F001", status: "active", title: "Dep 1" });
+    const f2 = featureFixture({ id: "F002", status: "active", title: "Dep 2" });
+    const f3 = featureFixture({ id: "F003", status: "active", title: "Feature 3", dependsOn: ["F001", "F002", "F999"] });
+    mission.milestones[0].features = [f1, f2, f3];
+
+    const chain = dependsOnChain(mission, f3);
+    expect(chain).toEqual([
+      { id: "F001", status: "active", title: "Dep 1" },
+      { id: "F002", status: "active", title: "Dep 2" }
+    ]);
   });
 });
