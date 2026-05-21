@@ -9,23 +9,35 @@ export type { AgentSource };
 let cachedAgent: AgentSource | null = null;
 
 export function detectAgent(): AgentSource {
+  // Cache result
+  if (cachedAgent) return cachedAgent;
+
+  // Check explicit override first
+  if (process.env.PI_AGENT_OVERRIDE) {
+    const override = process.env.PI_AGENT_OVERRIDE.toLowerCase();
+    if (isValidAgent(override)) {
+      cachedAgent = override;
+      return override;
+    }
+  }
+
   if (process.env.CODING_AGENT) {
     const val = process.env.CODING_AGENT.toLowerCase();
-    if (val === "pi") return "pi";
-    if (val === "devin") return "devin";
-    if (val === "opencode") return "opencode";
-    if (val === "codex") return "codex";
+    if (val === "pi") return cachedAgent = "pi";
+    if (val === "devin") return cachedAgent = "devin";
+    if (val === "opencode") return cachedAgent = "opencode";
+    if (val === "codex") return cachedAgent = "codex";
   }
-  if (process.env.PI_SESSION || process.env.PI_AGENT) return "pi";
-  if (process.env.DEVIN_SESSION || process.env.DEVIN_WORKSPACE) return "devin";
-  if (process.env.OPENCODE_SESSION || process.env.OPENCODE_WORKSPACE) return "opencode";
-  if (process.env.CODEX_SESSION || process.env.CODEX_WORKSPACE) return "codex";
-  return "unknown";
+  if (process.env.PI_SESSION || process.env.PI_AGENT) return cachedAgent = "pi";
+  if (process.env.DEVIN_SESSION || process.env.DEVIN_WORKSPACE) return cachedAgent = "devin";
+  if (process.env.OPENCODE_SESSION || process.env.OPENCODE_WORKSPACE) return cachedAgent = "opencode";
+  if (process.env.CODEX_SESSION || process.env.CODEX_WORKSPACE) return cachedAgent = "codex";
+
+  return cachedAgent = "unknown";
 }
 
 export function getAgent(): AgentSource {
-  if (!cachedAgent) cachedAgent = detectAgent();
-  return cachedAgent;
+  return detectAgent();
 }
 
 export function resetAgentCache(): void {
