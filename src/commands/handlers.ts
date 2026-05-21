@@ -12,7 +12,7 @@ import {
 } from "../core/state.js";
 import { SCHEMA_VERSION } from "../core/types.js";
 import { missionsRoot } from "../utils/fs.js";
-import { buildMissionContext, buildMissionHelp, buildCompactionSummary } from "../utils/context.js";
+import { buildMissionContext, buildMissionHelp } from "../utils/context.js";
 import { createStructuredMission, missionFromWizardOutput, createMissionFromTemplate, MISSION_TEMPLATES, exportMarkdown } from "../utils/markdown.js";
 import { updateFooter, statusText, dashboardRows } from "../ui/components.js";
 import { missionControlOverlay } from "../ui/dashboard.js";
