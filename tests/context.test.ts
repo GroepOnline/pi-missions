@@ -267,6 +267,8 @@ describe("completionSignal", () => {
     ["Working on it", false],
     ["In progress", false],
     ["", false],
+    [null as unknown as string, false],
+    [undefined as unknown as string, false],
   ])('"%s" → %s', (text, expected) => {
     expect(completionSignal(text)).toBe(expected);
   });
