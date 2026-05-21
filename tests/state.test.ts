@@ -500,6 +500,58 @@ describe("listSessionRefs", () => {
     expect(refs[0]!.linkedAt).toBe("");
   });
 
+
+
+  it("handles invalid JSON safely", async () => {
+    const m = createMission("SessionList", "TestInvalidJSON");
+    await saveMissionSafe(m);
+
+    const dir = path.join(missionDirSafe(m.id), "sessions");
+    fs.mkdirSync(dir, { recursive: true });
+
+    // Invalid JSON ref
+    fs.writeFileSync(path.join(dir, "invalid.ref"), "{ invalid_json: 123", "utf-8");
+
+    const refs = listSessionRefs(m.id);
+    expect(refs).toEqual([]);
+  });
+
+  it("returns multiple session refs correctly, ignoring invalid ones", async () => {
+    const m = createMission("SessionList", "TestMultiple");
+    await saveMissionSafe(m);
+
+    const dir = path.join(missionDirSafe(m.id), "sessions");
+    fs.mkdirSync(dir, { recursive: true });
+
+    // Legacy ref
+    fs.writeFileSync(path.join(dir, "a-legacy.ref"), "/path/to/legacy.jsonl", "utf-8");
+
+    // Valid JSON
+    const refData = {
+      sessionFile: "/path/to/valid.jsonl",
+      agent: "test-agent",
+      linkedAt: "2023-10-25T13:00:00Z"
+    };
+    fs.writeFileSync(path.join(dir, "b-valid.ref"), JSON.stringify(refData), "utf-8");
+
+    // Invalid JSON
+    fs.writeFileSync(path.join(dir, "c-invalid.ref"), "{ x }", "utf-8");
+
+    const refs = listSessionRefs(m.id);
+    expect(refs).toHaveLength(2);
+
+    // Order depends on readdirSync, sort for deterministic assertion
+    const sorted = refs.sort((a, b) => a.sessionFile.localeCompare(b.sessionFile));
+
+    expect(sorted[0]).toEqual({
+      sessionFile: "/path/to/legacy.jsonl",
+      agent: "unknown",
+      linkedAt: ""
+    });
+
+    expect(sorted[1]).toEqual(refData);
+  });
+
   it("skips non-.ref files in sessions dir", async () => {
     const m = createMission("Filtered", "Test");
     await saveMissionSafe(m);
