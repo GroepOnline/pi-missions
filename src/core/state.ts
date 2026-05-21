@@ -273,7 +273,7 @@ export function readRawSchemaVersion(id: string): number | null {
   for (const name of ["plan.json", "plan.json.bak"]) {
     try {
       const raw = JSON.parse(fs.readFileSync(path.join(dir, name), "utf-8"));
-      if (raw && typeof raw === "object" && "schemaVersion" in raw) {
+      if (raw && typeof raw === "object" && !Array.isArray(raw) && "schemaVersion" in raw) {
         return (raw as Record<string, unknown>).schemaVersion as number;
       }
       return 1; // pre-schemaVersion missions
