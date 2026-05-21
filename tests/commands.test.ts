@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { TUI } from "@mariozechner/pi-tui";
-import { cloneFeatureForFork, compactionCheckpoint, handleBlock, handleClear, handleDashboard, handleDebug, handleDone, handleEdit, handleExport, handleFork, handleList, handleLoad, handleMigrate, handleMigrateConfirm, handleNew, handleNext, handlePause, handleResume, handleStatus, handleTemplates, handleHelp, handleRun, handleAutopilot, handleStop, handleMetrics, handleHistory, handleWorker, handleWorkerStatus, handleKillWorker, injectMissionContext, missionSummaryForTree, saveSessionLink } from "../src/commands/index.js";
+import { cloneFeatureForFork, handleBlock, handleClear, handleDashboard, handleDebug, handleDone, handleEdit, handleExport, handleFork, handleList, handleLoad, handleMigrate, handleMigrateConfirm, handleNew, handleNext, handlePause, handleResume, handleStatus, handleTemplates, handleHelp, handleRun, handleAutopilot, handleStop, handleMetrics, handleHistory, handleWorker, handleWorkerStatus, handleKillWorker, injectMissionContext, missionSummaryForTree, saveSessionLink } from "../src/commands/index.js";
 import { missionControlOverlay } from "../src/ui/dashboard.js";
 import { appendHistory, autoBlockBlockedFeatures, calculateMetricsSummary, createMission, loadMissionFromDisk, missionDirSafe, readHistory, readRawSchemaVersion, saveEvidence, saveMissionSafe } from "../src/core/state.js";
 import { exportMarkdown } from "../src/utils/markdown.js";
@@ -75,25 +75,6 @@ describe("saveSessionLink", () => {
   it("does nothing when sessionFile is undefined", () => {
     const rt = runtimeFixture();
     expect(() => saveSessionLink(rt, undefined)).not.toThrow();
-  });
-});
-
-describe("compactionCheckpoint", () => {
-  it("does nothing when no mission is active", () => {
-    const mockPi = { appendEntry: () => { throw new Error("should not be called"); } };
-    expect(() =>
-      compactionCheckpoint(mockPi as any, { activeMission: null, autoSaveInterval: null, phaseToolCallCount: 0, currentPhase: "execution", lastFeatureId: undefined })
-    ).not.toThrow();
-  });
-
-  it("calls appendEntry with mission id when active", () => {
-    const calls: any[] = [];
-    const mockPi = { appendEntry: (...args: any[]) => { calls.push(args); } };
-    const rt = runtimeFixture();
-    compactionCheckpoint(mockPi as any, rt);
-    expect(calls).toHaveLength(1);
-    expect(calls[0]![0]).toBe("pi-mission-compaction-checkpoint");
-    expect(calls[0]![1].missionId).toBe(rt.activeMission!.id);
   });
 });
 
