@@ -30,6 +30,8 @@ jobs:
         run: npm ci
 
       - name: Type check
+        env:
+          NODE_OPTIONS: --experimental-sqlite
         run: npm run check
         env:
           NODE_OPTIONS: --experimental-sqlite
@@ -51,6 +53,8 @@ jobs:
           NODE_OPTIONS: --experimental-sqlite
 
       - name: Build
+        env:
+          NODE_OPTIONS: --experimental-sqlite
         run: npm run build
         env:
           NODE_OPTIONS: --experimental-sqlite
