@@ -158,6 +158,65 @@ describe("migrateMission", () => {
   it("throws on unsupported version", () => {
     expect(() => migrateMission({ schemaVersion: 99 })).toThrow("Unsupported mission schemaVersion");
   });
+
+  it("migrates v2 mission with missing optional fields", () => {
+    const v2 = {
+      schemaVersion: 2,
+      id: "m-2",
+    };
+    const m = migrateMission(v2);
+    expect(m.schemaVersion).toBe(3);
+    expect(m.title).toBe("Untitled mission");
+    expect(m.goal).toBe("");
+    expect(m.tokensUsed).toBe(0);
+    expect(m.lastContextTokens).toBe(0);
+    expect(m.createdAt).toBeLessThanOrEqual(Date.now());
+    expect(m.autopilot.startedAt).toBeDefined();
+    expect(m.userPreferences).toBeUndefined();
+  });
+
+  it("handles missing features array during migration", () => {
+    const v1 = { schemaVersion: 1, id: "m-3" };
+    const m = migrateMission(v1);
+    expect(m.schemaVersion).toBe(3);
+    expect(m.milestones[0]!.features).toHaveLength(0);
+  });
+
+  it("ensures toolCallCount defaults to 0 during migration if missing or not a number", () => {
+    const v1 = {
+      schemaVersion: 1,
+      id: "m-4",
+      features: [
+        { id: "F1", title: "Missing count" },
+        { id: "F2", title: "Invalid count", toolCallCount: "not a number" },
+        { id: "F3", title: "Valid count", toolCallCount: 5 }
+      ]
+    };
+    const m = migrateMission(v1);
+    const features = m.milestones[0]!.features;
+    expect(features[0]!.toolCallCount).toBe(0);
+    expect(features[1]!.toolCallCount).toBe(0);
+    expect(features[2]!.toolCallCount).toBe(5);
+  });
+
+  it("handles autopilot and userPreferences during migration", () => {
+    const v2 = {
+      schemaVersion: 2,
+      autopilot: {
+        enabled: true,
+        startedAt: "2024-01-01T00:00:00.000Z",
+        lastStopReason: "manual_stop"
+      },
+      userPreferences: {
+        theme: "dark"
+      }
+    };
+    const m = migrateMission(v2);
+    expect(m.autopilot.enabled).toBe(true);
+    expect(m.autopilot.startedAt).toBe("2024-01-01T00:00:00.000Z");
+    expect(m.autopilot.lastStopReason).toBe("manual_stop");
+    expect(m.userPreferences).toEqual({ theme: "dark" });
+  });
 });
 
 describe("save / load roundtrip", () => {
