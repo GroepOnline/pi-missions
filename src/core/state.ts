@@ -437,19 +437,23 @@ export function listSessionRefs(missionId: string): Array<{ sessionFile: string;
 // ═══════════════════════════════════════════════════════════════════════════
 
 export function autoBlockBlockedFeatures(mission: MissionState): number {
-  let waiting = 0;
-  for (const f of getAllFeatures(mission)) {
-    if (f.status === "blocked" || f.status === "done" || f.status === "failed") continue;
-    if (f.dependsOn.length && !dependenciesDone(mission, f)) {
-      f.status = "waiting";
-      f.notes = `Waiting on ${f.dependsOn.filter(id => getFeatureById(mission, id)?.status !== "done").join(", ")}`;
-      waiting++;
-    } else if (f.status === "waiting") {
-      f.status = "pending";
-      f.notes = undefined;
+  let changed = 0;
+  for (const m of mission.milestones) {
+    for (const f of m.features) {
+      if (f.status === "pending" || f.status === "active") {
+        const isBlocked = f.dependsOn.some((depId) => {
+          const dep = getFeatureById(mission, depId);
+          return dep && dep.status === "blocked";
+        });
+        if (isBlocked) {
+          f.status = "blocked";
+          f.notes = f.notes ? f.notes + "\nAuto-blocked: Dependency is blocked." : "Auto-blocked: Dependency is blocked.";
+          changed++;
+        }
+      }
     }
   }
-  return waiting;
+  return changed;
 }
 
 export function autoUnblockResolved(mission: MissionState): number {
