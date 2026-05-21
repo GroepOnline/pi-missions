@@ -7,7 +7,7 @@
     "skipLibCheck": true,
     "esModuleInterop": true,
     "forceConsistentCasingInFileNames": true,
-    "types": ["node"],
+    "types": ["node", "vitest/globals"],
     "noEmit": true
   },
   "include": ["src/**/*.ts", "tests/**/*.ts"]
