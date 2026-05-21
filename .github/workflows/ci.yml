@@ -33,35 +33,25 @@ jobs:
         env:
           NODE_OPTIONS: --experimental-sqlite
         run: npm run check
-        env:
-          NODE_OPTIONS: --experimental-sqlite
 
       - name: Run tests (coverage on Ubuntu only)
         if: matrix.os == 'ubuntu-latest'
         env:
           NODE_OPTIONS: --experimental-sqlite
         run: npm run test:coverage
-        env:
-          NODE_OPTIONS: --experimental-sqlite
 
       - name: Run tests (no coverage)
         if: matrix.os != 'ubuntu-latest'
         env:
           NODE_OPTIONS: --experimental-sqlite
         run: npm test
-        env:
-          NODE_OPTIONS: --experimental-sqlite
 
       - name: Build
         env:
           NODE_OPTIONS: --experimental-sqlite
         run: npm run build
-        env:
-          NODE_OPTIONS: --experimental-sqlite
 
       - name: Smoke test extension and CLI (cross-platform)
         env:
           NODE_OPTIONS: --experimental-sqlite
         run: npm run smoke:ci
-        env:
-          NODE_OPTIONS: --experimental-sqlite
