@@ -78,7 +78,7 @@ export async function withMissionLock<T>(
 export async function cleanupStaleLocks(): Promise<void> {
   const root = missionsRoot();
   if (!fs.existsSync(root)) return;
-  for (const entry of fs.readdirSync(root, { withFileTypes: true })) {
+  for (const entry of await fs.promises.readdir(root, { withFileTypes: true })) {
     if (!entry.isDirectory()) continue;
     try {
       await lockfile.unlock(path.join(root, entry.name, ".lock"), { realpath: false });
