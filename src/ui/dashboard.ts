@@ -1,4 +1,4 @@
-import type { Component, TUI } from "@mariozechner/pi-tui";
+import type { Component, TUI } from "@earendil-works/pi-tui";
 import type { Feature, MissionState } from "../core/types.js";
 import { getFeatureById, progress } from "../core/state.js";
 import { acceptanceProgress, clip, dependsOnChain, featureStatusIcon, formatDepChain, missionStatusIcon, pendingAcceptance, progressBar } from "../utils/context.js";

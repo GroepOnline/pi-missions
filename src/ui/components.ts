@@ -1,4 +1,4 @@
-import type { ExtensionCommandContext } from "@mariozechner/pi-coding-agent";
+import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import type { Feature, MissionState, Milestone } from "../core/types.js";
 import { getActiveFeature, getAllFeatures, getMissionPhase, getNextPendingFeature, progress } from "../core/state.js";
 import {

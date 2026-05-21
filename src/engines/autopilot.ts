@@ -1,4 +1,4 @@
-import type { ExtensionAPI, ExtensionCommandContext } from "@mariozechner/pi-coding-agent";
+import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import type { ContinuationDecision, Feature, MissionState, RuntimeState } from "../core/types.js";
 import {
   appendHistory, autoUnblockResolved, getActiveFeature, getNextPendingFeature, saveMissionSafe,

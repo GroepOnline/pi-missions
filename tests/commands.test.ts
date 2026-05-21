@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import type { TUI } from "@mariozechner/pi-tui";
+import type { TUI } from "@earendil-works/pi-tui";
 import { cloneFeatureForFork, compactionCheckpoint, handleBlock, handleClear, handleDashboard, handleDebug, handleDone, handleEdit, handleExport, handleFork, handleList, handleLoad, handleMigrate, handleMigrateConfirm, handleNew, handleNext, handlePause, handleResume, handleStatus, handleTemplates, handleHelp, handleRun, handleAutopilot, handleStop, handleMetrics, handleHistory, handleWorker, handleWorkerStatus, handleKillWorker, injectMissionContext, missionSummaryForTree, saveSessionLink } from "../src/commands/index.js";
 import { missionControlOverlay } from "../src/ui/dashboard.js";
 import { appendHistory, autoBlockBlockedFeatures, calculateMetricsSummary, createMission, loadMissionFromDisk, missionDirSafe, readHistory, readRawSchemaVersion, saveEvidence, saveMissionSafe } from "../src/core/state.js";

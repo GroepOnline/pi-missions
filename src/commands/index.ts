@@ -1,4 +1,4 @@
-import type { ExtensionAPI, ExtensionCommandContext } from "@mariozechner/pi-coding-agent";
+import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import type { RuntimeState } from "../core/types.js";
 import { handleNew, handleTemplates } from "./handlers.js";
 import { handleList, handleLoad, handleStatus, handleHelp } from "./handlers.js";

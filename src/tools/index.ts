@@ -1,5 +1,5 @@
 import { Type } from "@sinclair/typebox";
-import type { ExtensionAPI, ExtensionCommandContext } from "@mariozechner/pi-coding-agent";
+import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import type { Feature, ForkSessionManager, ForkReplacementContext, MissionContextSessionManager, MissionState, RuntimeState, ToolPhase } from "../core/types.js";
 import { TOOL_POLICIES } from "../core/types.js";
 import {
