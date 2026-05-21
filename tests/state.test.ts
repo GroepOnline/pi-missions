@@ -633,6 +633,31 @@ describe("getMissionPhase", () => {
     m.milestones[0].features[0]!.title = "Implement the feature";
     expect(getMissionPhase(m)).toBe("execution");
   });
+
+  it("returns verification based on description keywords", () => {
+    const m = createMission("Phase", "Test");
+    m.milestones[0].features[0]!.title = "Neutral title";
+    m.milestones[0].features[0]!.description = "We need to verify the implementation.";
+    expect(getMissionPhase(m)).toBe("verification");
+  });
+
+  it("returns planning based on description keywords", () => {
+    const m = createMission("Phase", "Test");
+    m.milestones[0].features[0]!.title = "Neutral title";
+    m.milestones[0].features[0]!.description = "Research the requirements for this part.";
+    expect(getMissionPhase(m)).toBe("planning");
+  });
+
+  it("handles undefined description properly", () => {
+    const m = createMission("Phase", "Test");
+    m.milestones[0].features[0]!.title = "Neutral title";
+    // Force description to be undefined instead of string to trigger fallback
+    m.milestones[0].features[0]!.description = undefined as any;
+    expect(getMissionPhase(m)).toBe("execution");
+
+    m.milestones[0].features[0]!.title = "Test title with undef desc";
+    expect(getMissionPhase(m)).toBe("verification");
+  });
 });
 
 describe("buildWorkerPrompt", () => {
