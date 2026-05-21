@@ -523,8 +523,8 @@ export async function handleMetrics(ctx: ExtensionCommandContext, runtime: Runti
 
   const metricsFile = path.join(missionsRoot(), "metrics-export.json");
   try {
-    fs.mkdirSync(missionsRoot(), { recursive: true });
-    fs.writeFileSync(metricsFile, JSON.stringify(listMissions().map(computeMissionMetrics), null, 2), "utf-8");
+    await fs.promises.mkdir(missionsRoot(), { recursive: true });
+    await fs.promises.writeFile(metricsFile, JSON.stringify(listMissions().map(computeMissionMetrics), null, 2), "utf-8");
     ctx.ui.notify(`📁 Exported: ${metricsFile}`, "info");
   } catch (e) {
     ctx.ui.notify(`Export failed: ${e instanceof Error ? e.message : String(e)}`, "warning");
