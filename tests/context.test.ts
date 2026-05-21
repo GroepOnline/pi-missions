@@ -324,7 +324,6 @@ describe("featureSummary", () => {
   });
 });
 
-<<<<<<< HEAD
 describe("dependsOnChain", () => {
   it("returns an empty array when the feature has no dependencies", () => {
     const mission = missionFixture();
@@ -366,7 +365,9 @@ describe("dependsOnChain", () => {
       { id: "F001", status: "active", title: "Dep 1" },
       { id: "F002", status: "active", title: "Dep 2" }
     ]);
-=======
+  });
+});
+
 describe("formatDepChain", () => {
   // NOTE FOR REVIEWER: The issue description contains a simplified version of this function.
   // The actual implementation in src/utils/context.ts uses emojis (🔗, ⏳, ✅, etc.),
@@ -395,6 +396,5 @@ describe("formatDepChain", () => {
     ];
     // clip function truncates and adds … at max-1. 20 - 1 = 19. "A very long title t" is 19 chars long.
     expect(formatDepChain(chain)).toBe("🔗 F001(✅ Plan) → F002(➡️ A very long title t…) → F003(⛔)");
->>>>>>> origin/test/format-dep-chain-14617174916141788256
   });
 });
