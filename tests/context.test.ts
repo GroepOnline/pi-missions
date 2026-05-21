@@ -273,9 +273,39 @@ describe("completionSignal", () => {
 });
 
 describe("featureSummary", () => {
-  it("formats id, status and title", () => {
+  it("formats id, status and title for done status", () => {
     expect(featureSummary(featureFixture({ id: "F042", status: "done", title: "Add login" }))).toBe(
-      "F042 done Add login"
+      "F042: Add login [done]"
+    );
+  });
+
+  it("formats id, status and title for active status", () => {
+    expect(featureSummary(featureFixture({ id: "F043", status: "active", title: "Refactor auth" }))).toBe(
+      "F043: Refactor auth [active]"
+    );
+  });
+
+  it("formats id, status and title for blocked status", () => {
+    expect(featureSummary(featureFixture({ id: "F044", status: "blocked", title: "Database migration" }))).toBe(
+      "F044: Database migration [blocked]"
+    );
+  });
+
+  it("formats id, status and title for failed status", () => {
+    expect(featureSummary(featureFixture({ id: "F045", status: "failed", title: "Fix flaky test" }))).toBe(
+      "F045: Fix flaky test [failed]"
+    );
+  });
+
+  it("formats id, status and title for pending status", () => {
+    expect(featureSummary(featureFixture({ id: "F046", status: "pending", title: "Update README" }))).toBe(
+      "F046: Update README [pending]"
+    );
+  });
+
+  it("formats id, status and title for waiting status", () => {
+    expect(featureSummary(featureFixture({ id: "F047", status: "waiting", title: "Review PR" }))).toBe(
+      "F047: Review PR [waiting]"
     );
   });
 });
