@@ -1,6 +1,6 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 import { registerMissionCommand, injectMissionContext, compactionCheckpoint, missionSummaryForTree, saveSessionLink } from "../src/commands/index.js";
-import type { ExtensionAPI, ExtensionCommandContext } from "@mariozechner/pi-coding-agent";
+import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import type { RuntimeState } from "../src/core/types.js";
 
 // Mock commands handlers
