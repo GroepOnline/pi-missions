@@ -18,6 +18,20 @@ describe("mission builder goal tree", () => {
     expect(renderGoalTree(tree, 4)).toContain("  …");
   });
 
+  it("generates a new goal tree when mission.goalTree is undefined", () => {
+    const mission = createMission("Tree", "Goal");
+    // Ensure goalTree is undefined initially (createMission might not set it, but we delete it to be sure)
+    delete mission.goalTree;
+
+    const tree = getMissionGoalTree(mission);
+
+    expect(tree).toBeDefined();
+    expect(tree.label).toBe("Tree");
+    expect(tree.children.length).toBeGreaterThan(0);
+    // The tree root should point to itself
+    expect(tree.root).toBe(tree);
+  });
+
   it("refreshes stale goalTree snapshots from current mission state", () => {
     const mission = createMission("Tree", "Goal");
     mission.goalTree = buildMissionGoalTree(mission.title, mission.goal, mission.milestones);

@@ -12,15 +12,15 @@ import {
 } from "../core/state.js";
 import { SCHEMA_VERSION } from "../core/types.js";
 import { missionsRoot } from "../utils/fs.js";
-import { buildMissionContext, buildMissionHelp, buildCompactionSummary } from "../utils/context.js";
+import { buildMissionContext, buildMissionHelp } from "../utils/context.js";
 import { createStructuredMission, missionFromWizardOutput, createMissionFromTemplate, MISSION_TEMPLATES, exportMarkdown } from "../utils/markdown.js";
-import { updateFooter, statusText, dashboardRows } from "../ui/components.js";
+import { updateFooter, statusText } from "../ui/components.js";
 import { missionControlOverlay } from "../ui/dashboard.js";
 import { sessionMetrics } from "../engines/metrics.js";
 import { ensureActiveFeature, shouldContinue, triggerContinuation } from "../engines/autopilot.js";
-import { spawnWorker, killWorker, getActiveWorker, isWorkerRunning, type WorkerResult } from "../engines/worker.js";
+import { spawnWorker, killWorker, getActiveWorker, isWorkerRunning } from "../engines/worker.js";
 import { calculateMetricsSummary, computeMissionMetrics } from "../core/state.js";
-import { injectMissionContext as injectMissionCtx, enforceToolPolicy, enforceToolMax } from "../tools/index.js";
+import { injectMissionContext } from "../tools/index.js";
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Planning wizard prompt
@@ -68,13 +68,13 @@ Rules:
 // Injection helper — thin wrapper that builds context before injecting
 // ═══════════════════════════════════════════════════════════════════════════
 
-function injectMissionContext(
+function injectMissionContextWrapper(
   pi: ExtensionAPI,
   ctx: ExtensionCommandContext,
   mission: NonNullable<RuntimeState["activeMission"]>,
   reason: string,
 ): void {
-  injectMissionCtx(pi, ctx, mission, reason, buildMissionContext(mission));
+  injectMissionContext(pi, ctx, mission, reason, buildMissionContext(mission));
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -124,7 +124,7 @@ export async function handleNew(
   await saveMissionSafe(mission);
   appendHistory(mission, { event: "mission_created", note: goal, details: { usedWizard } });
   pi.appendEntry("pi-mission-active", { missionId: mission.id, validationToken: mission.validationToken });
-  injectMissionContext(pi, ctx, mission, "mission_started");
+  injectMissionContextWrapper(pi, ctx, mission, "mission_started");
   pi.setSessionName(`🎯 ${mission.title}`);
   updateFooter(ctx, mission);
   const fc = mission.milestones.reduce((s, m) => s + m.features.length, 0);
@@ -155,7 +155,7 @@ export async function handleTemplates(
     await saveMissionSafe(mission);
     appendHistory(mission, { event: "mission_created", note: `From template: ${arg}` });
     pi.appendEntry("pi-mission-active", { missionId: mission.id, validationToken: mission.validationToken });
-    injectMissionContext(pi, ctx, mission, "mission_started_from_template");
+    injectMissionContextWrapper(pi, ctx, mission, "mission_started_from_template");
     pi.setSessionName(`🎯 ${mission.title}`);
     updateFooter(ctx, mission);
     ctx.ui.notify(`✅ Mission created from '${arg}' template: ${mission.id}`, "info");
@@ -192,7 +192,7 @@ export async function handleLoad(id: string | undefined, ctx: ExtensionCommandCo
   autoBlockBlockedFeatures(mission);
   runtime.activeMission = mission;
   pi.appendEntry("pi-mission-active", { missionId: mission.id, validationToken: mission.validationToken });
-  injectMissionContext(pi, ctx, mission, "mission_loaded");
+  injectMissionContextWrapper(pi, ctx, mission, "mission_loaded");
   pi.setSessionName(`🎯 ${mission.title}`);
   updateFooter(ctx, mission);
   ctx.ui.notify(`Loaded mission: ${mission.title}`, "info");
@@ -523,8 +523,8 @@ export async function handleMetrics(ctx: ExtensionCommandContext, runtime: Runti
 
   const metricsFile = path.join(missionsRoot(), "metrics-export.json");
   try {
-    fs.mkdirSync(missionsRoot(), { recursive: true });
-    fs.writeFileSync(metricsFile, JSON.stringify(listMissions().map(computeMissionMetrics), null, 2), "utf-8");
+    await fs.promises.mkdir(missionsRoot(), { recursive: true });
+    await fs.promises.writeFile(metricsFile, JSON.stringify(listMissions().map(computeMissionMetrics), null, 2), "utf-8");
     ctx.ui.notify(`📁 Exported: ${metricsFile}`, "info");
   } catch (e) {
     ctx.ui.notify(`Export failed: ${e instanceof Error ? e.message : String(e)}`, "warning");
@@ -613,7 +613,7 @@ export async function handleExport(filename: string | undefined, ctx: ExtensionC
   try {
     const md = exportMarkdown(m);
     if (filename) {
-      fs.writeFileSync(filename, md, "utf-8");
+      await fs.promises.writeFile(filename, md, "utf-8");
       ctx.ui.notify(`✅ Exported to ${filename}`, "info");
     } else {
       ctx.ui.notify(md, "info");
@@ -669,7 +669,9 @@ export async function handleWorker(
       ctx.ui.notify(`❌ Worker error: ${result.error}`, "error");
       return;
     }
-    const r = result as WorkerResult;
+    // Type assertion is redundant as TypeScript automatically narrows
+    // 'result' to WorkerResult after the 'in' operator check above.
+    const r = result;
     const duration = Math.round(r.durationMs / 1000);
     const statusIcon = r.killed ? "⏱️" : r.exitCode === 0 ? "✅" : "❌";
     const lines = [

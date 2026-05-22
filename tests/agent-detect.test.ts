@@ -12,6 +12,7 @@ describe("detectAgent", () => {
     delete process.env.OPENCODE_WORKSPACE;
     delete process.env.CODEX_SESSION;
     delete process.env.CODEX_WORKSPACE;
+    delete process.env.PI_AGENT_OVERRIDE;
     resetAgentCache();
   });
 
@@ -65,6 +66,16 @@ describe("detectAgent", () => {
     expect(detectAgent()).toBe("devin");
   });
 
+  it("detects agent from CODING_AGENT env var for pi", () => {
+    process.env.CODING_AGENT = "pi";
+    expect(detectAgent()).toBe("pi");
+  });
+
+  it("detects agent from CODING_AGENT env var for codex", () => {
+    process.env.CODING_AGENT = "codex";
+    expect(detectAgent()).toBe("codex");
+  });
+
   it("returns unknown for invalid CODING_AGENT value", () => {
     process.env.CODING_AGENT = "not-a-real-agent";
     expect(detectAgent()).toBe("unknown");
@@ -72,6 +83,32 @@ describe("detectAgent", () => {
 
   it("is case-insensitive for CODING_AGENT", () => {
     process.env.CODING_AGENT = "OPEnCODE";
+    expect(detectAgent()).toBe("opencode");
+  });
+
+  it("caches the result of detectAgent", () => {
+    process.env.CODING_AGENT = "pi";
+    expect(detectAgent()).toBe("pi");
+
+    // Changing the env var should not change the result since it's cached
+    process.env.CODING_AGENT = "devin";
+    expect(detectAgent()).toBe("pi");
+  });
+
+  it("respects PI_AGENT_OVERRIDE over CODING_AGENT", () => {
+    process.env.CODING_AGENT = "pi";
+    process.env.PI_AGENT_OVERRIDE = "devin";
+    expect(detectAgent()).toBe("devin");
+  });
+
+  it("ignores invalid PI_AGENT_OVERRIDE values", () => {
+    process.env.CODING_AGENT = "pi";
+    process.env.PI_AGENT_OVERRIDE = "invalid_agent";
+    expect(detectAgent()).toBe("pi");
+  });
+
+  it("is case-insensitive for PI_AGENT_OVERRIDE", () => {
+    process.env.PI_AGENT_OVERRIDE = "OPEnCODE";
     expect(detectAgent()).toBe("opencode");
   });
 });

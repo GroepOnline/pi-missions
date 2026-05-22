@@ -78,25 +78,6 @@ describe("saveSessionLink", () => {
   });
 });
 
-describe("compactionCheckpoint", () => {
-  it("does nothing when no mission is active", () => {
-    const mockPi = { appendEntry: () => { throw new Error("should not be called"); } };
-    expect(() =>
-      compactionCheckpoint(mockPi as any, { activeMission: null, autoSaveInterval: null, phaseToolCallCount: 0, currentPhase: "execution", lastFeatureId: undefined })
-    ).not.toThrow();
-  });
-
-  it("calls appendEntry with mission id when active", () => {
-    const calls: any[] = [];
-    const mockPi = { appendEntry: (...args: any[]) => { calls.push(args); } };
-    const rt = runtimeFixture();
-    compactionCheckpoint(mockPi as any, rt);
-    expect(calls).toHaveLength(1);
-    expect(calls[0]![0]).toBe("pi-mission-compaction-checkpoint");
-    expect(calls[0]![1].missionId).toBe(rt.activeMission!.id);
-  });
-});
-
 describe("injectMissionContext", () => {
   it("appends full mission context to Pi session state and LLM context", () => {
     const pi = mkPi();
@@ -187,12 +168,13 @@ describe("saveEvidence integration", () => {
 
 describe("autoBlockBlockedFeatures integration", () => {
   it("blocks features correctly in save/load cycle", () => {
-    // F001 active, F002 depends on F001 (not done), F003 depends on F002
-    // So both F002 and F003 should be waiting
     const m = createMission("BlockTest", "Test");
+    m.milestones[0].features[0]!.status = "blocked";
+
+    // Auto-block will cascade to dependencies that are pending/active
     expect(autoBlockBlockedFeatures(m)).toBe(2);
-    expect(m.milestones[0].features[1]!.status).toBe("waiting");
-    expect(m.milestones[0].features[2]!.status).toBe("waiting");
+    expect(m.milestones[0].features[1]!.status).toBe("blocked");
+    expect(m.milestones[0].features[2]!.status).toBe("blocked");
   });
 });
 

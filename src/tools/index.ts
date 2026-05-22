@@ -44,8 +44,14 @@ export function isReadOnlyPlanningBash(input: Record<string, unknown> | undefine
   if (/[;&|`$<>\n\r\t]/.test(cmd)) return false;
   const w = firstWord(cmd);
   if (PLANNING_RO_BASH.has(w)) return true;
-  if (w === "find") return isReadOnlyFind(cmd);
-  if (w === "sed") return isReadOnlySed(cmd);
+  // Require that the command doesn't contain a built-in tool that escapes bash like -exec or -e "eval"
+  // But allow quotes for grep/rg/find.
+  // Actually, we must use word tokenization or just block specific substrings entirely.
+  // The vulnerability is that quotes bypass the regex checking flags.
+  // Let's strip all quotes and backslashes before checking for bad flags.
+  const strippedCmd = cmd.replace(/['"\\]/g, "");
+  if (w === "find") return isReadOnlyFind(strippedCmd);
+  if (w === "sed") return isReadOnlySed(strippedCmd);
   if (w === "git") return /^git\s+(?:status|diff|show|log)(?:\s|$)/.test(cmd);
   return false;
 }

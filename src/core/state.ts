@@ -78,7 +78,7 @@ export async function withMissionLock<T>(
 export async function cleanupStaleLocks(): Promise<void> {
   const root = missionsRoot();
   if (!fs.existsSync(root)) return;
-  for (const entry of fs.readdirSync(root, { withFileTypes: true })) {
+  for (const entry of await fs.promises.readdir(root, { withFileTypes: true })) {
     if (!entry.isDirectory()) continue;
     try {
       await lockfile.unlock(path.join(root, entry.name, ".lock"), { realpath: false });
@@ -273,7 +273,7 @@ export function readRawSchemaVersion(id: string): number | null {
   for (const name of ["plan.json", "plan.json.bak"]) {
     try {
       const raw = JSON.parse(fs.readFileSync(path.join(dir, name), "utf-8"));
-      if (raw && typeof raw === "object" && "schemaVersion" in raw) {
+      if (raw && typeof raw === "object" && !Array.isArray(raw) && "schemaVersion" in raw) {
         return (raw as Record<string, unknown>).schemaVersion as number;
       }
       return 1; // pre-schemaVersion missions
@@ -437,32 +437,45 @@ export function listSessionRefs(missionId: string): Array<{ sessionFile: string;
 // ═══════════════════════════════════════════════════════════════════════════
 
 export function autoBlockBlockedFeatures(mission: MissionState): number {
-  let waiting = 0;
-  for (const f of getAllFeatures(mission)) {
-    if (f.status === "blocked" || f.status === "done" || f.status === "failed") continue;
-    if (f.dependsOn.length && !dependenciesDone(mission, f)) {
-      f.status = "waiting";
-      f.notes = `Waiting on ${f.dependsOn.filter(id => getFeatureById(mission, id)?.status !== "done").join(", ")}`;
-      waiting++;
-    } else if (f.status === "waiting") {
-      f.status = "pending";
-      f.notes = undefined;
+  let changed = 0;
+  for (const m of mission.milestones) {
+    for (const f of m.features) {
+      if (f.status === "pending" || f.status === "active") {
+        const isBlocked = f.dependsOn.some((depId) => {
+          const dep = getFeatureById(mission, depId);
+          return dep && dep.status === "blocked";
+        });
+        if (isBlocked) {
+          f.status = "blocked";
+          f.notes = f.notes ? f.notes + "\nAuto-blocked: Dependency is blocked." : "Auto-blocked: Dependency is blocked.";
+          changed++;
+        }
+      }
     }
   }
-  return waiting;
+  return changed;
 }
 
 export function autoUnblockResolved(mission: MissionState): number {
-  let unblocked = 0;
-  for (const f of getAllFeatures(mission)) {
-    if (f.status !== "waiting") continue;
-    if (f.dependsOn.length === 0 || dependenciesDone(mission, f)) {
-      f.status = "pending";
-      f.notes = undefined;
-      unblocked++;
+  let changed = 0;
+  for (const m of mission.milestones) {
+    for (const f of m.features) {
+      if (f.status === "blocked") {
+        const depsDone = dependenciesDone(mission, f);
+        // Check if no dependencies are currently blocked
+        const noBlockedDeps = !f.dependsOn.some((depId) => {
+          const dep = getFeatureById(mission, depId);
+          return dep && dep.status === "blocked";
+        });
+        if (depsDone || noBlockedDeps) {
+          f.status = "pending";
+          f.notes = f.notes ? f.notes + "\nAuto-unblocked: Dependencies resolved." : "Auto-unblocked: Dependencies resolved.";
+          changed++;
+        }
+      }
     }
   }
-  return unblocked;
+  return changed;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

@@ -12,6 +12,7 @@ import {
 
   createMissionId,
   detectStaleFeature,
+  detectStaleFeatureSafe,
   evidenceIntegrityHash,
   getFeatureById,
   getMilestoneById,
@@ -156,6 +157,65 @@ describe("migrateMission", () => {
 
   it("throws on unsupported version", () => {
     expect(() => migrateMission({ schemaVersion: 99 })).toThrow("Unsupported mission schemaVersion");
+  });
+
+  it("migrates v2 mission with missing optional fields", () => {
+    const v2 = {
+      schemaVersion: 2,
+      id: "m-2",
+    };
+    const m = migrateMission(v2);
+    expect(m.schemaVersion).toBe(3);
+    expect(m.title).toBe("Untitled mission");
+    expect(m.goal).toBe("");
+    expect(m.tokensUsed).toBe(0);
+    expect(m.lastContextTokens).toBe(0);
+    expect(m.createdAt).toBeLessThanOrEqual(Date.now());
+    expect(m.autopilot.startedAt).toBeDefined();
+    expect(m.userPreferences).toBeUndefined();
+  });
+
+  it("handles missing features array during migration", () => {
+    const v1 = { schemaVersion: 1, id: "m-3" };
+    const m = migrateMission(v1);
+    expect(m.schemaVersion).toBe(3);
+    expect(m.milestones[0]!.features).toHaveLength(0);
+  });
+
+  it("ensures toolCallCount defaults to 0 during migration if missing or not a number", () => {
+    const v1 = {
+      schemaVersion: 1,
+      id: "m-4",
+      features: [
+        { id: "F1", title: "Missing count" },
+        { id: "F2", title: "Invalid count", toolCallCount: "not a number" },
+        { id: "F3", title: "Valid count", toolCallCount: 5 }
+      ]
+    };
+    const m = migrateMission(v1);
+    const features = m.milestones[0]!.features;
+    expect(features[0]!.toolCallCount).toBe(0);
+    expect(features[1]!.toolCallCount).toBe(0);
+    expect(features[2]!.toolCallCount).toBe(5);
+  });
+
+  it("handles autopilot and userPreferences during migration", () => {
+    const v2 = {
+      schemaVersion: 2,
+      autopilot: {
+        enabled: true,
+        startedAt: "2024-01-01T00:00:00.000Z",
+        lastStopReason: "manual_stop"
+      },
+      userPreferences: {
+        theme: "dark"
+      }
+    };
+    const m = migrateMission(v2);
+    expect(m.autopilot.enabled).toBe(true);
+    expect(m.autopilot.startedAt).toBe("2024-01-01T00:00:00.000Z");
+    expect(m.autopilot.lastStopReason).toBe("manual_stop");
+    expect(m.userPreferences).toEqual({ theme: "dark" });
   });
 });
 
@@ -499,6 +559,58 @@ describe("listSessionRefs", () => {
     expect(refs[0]!.linkedAt).toBe("");
   });
 
+
+
+  it("handles invalid JSON safely", async () => {
+    const m = createMission("SessionList", "TestInvalidJSON");
+    await saveMissionSafe(m);
+
+    const dir = path.join(missionDirSafe(m.id), "sessions");
+    fs.mkdirSync(dir, { recursive: true });
+
+    // Invalid JSON ref
+    fs.writeFileSync(path.join(dir, "invalid.ref"), "{ invalid_json: 123", "utf-8");
+
+    const refs = listSessionRefs(m.id);
+    expect(refs).toEqual([]);
+  });
+
+  it("returns multiple session refs correctly, ignoring invalid ones", async () => {
+    const m = createMission("SessionList", "TestMultiple");
+    await saveMissionSafe(m);
+
+    const dir = path.join(missionDirSafe(m.id), "sessions");
+    fs.mkdirSync(dir, { recursive: true });
+
+    // Legacy ref
+    fs.writeFileSync(path.join(dir, "a-legacy.ref"), "/path/to/legacy.jsonl", "utf-8");
+
+    // Valid JSON
+    const refData = {
+      sessionFile: "/path/to/valid.jsonl",
+      agent: "test-agent",
+      linkedAt: "2023-10-25T13:00:00Z"
+    };
+    fs.writeFileSync(path.join(dir, "b-valid.ref"), JSON.stringify(refData), "utf-8");
+
+    // Invalid JSON
+    fs.writeFileSync(path.join(dir, "c-invalid.ref"), "{ x }", "utf-8");
+
+    const refs = listSessionRefs(m.id);
+    expect(refs).toHaveLength(2);
+
+    // Order depends on readdirSync, sort for deterministic assertion
+    const sorted = refs.sort((a, b) => a.sessionFile.localeCompare(b.sessionFile));
+
+    expect(sorted[0]).toEqual({
+      sessionFile: "/path/to/legacy.jsonl",
+      agent: "unknown",
+      linkedAt: ""
+    });
+
+    expect(sorted[1]).toEqual(refData);
+  });
+
   it("skips non-.ref files in sessions dir", async () => {
     const m = createMission("Filtered", "Test");
     await saveMissionSafe(m);
@@ -515,39 +627,70 @@ describe("listSessionRefs", () => {
 
 describe("autoBlockBlockedFeatures", () => {
 
-  it("blocks features with unresolved dependencies", () => {
+  it("blocks a feature if one of its dependencies is blocked", () => {
     const m = createMission("Deps", "Test deps");
-    // F001 active, F002 depends on F001 (not done), F003 depends on F002
-    expect(autoBlockBlockedFeatures(m)).toBe(2); // F002 and F003 waiting
-    expect(m.milestones[0].features[1]!.status).toBe("waiting");
-    expect(m.milestones[0].features[2]!.status).toBe("waiting");
+    // Remove cascading dependency for F003
+    m.milestones[0].features[2]!.dependsOn = [];
+    m.milestones[0].features[0]!.status = "blocked";
+    m.milestones[0].features[1]!.status = "pending";
+    m.milestones[0].features[1]!.dependsOn = ["F001"];
+
+    const changed = autoBlockBlockedFeatures(m);
+    expect(changed).toBe(1);
+    expect(m.milestones[0].features[1]!.status).toBe("blocked");
+    expect(m.milestones[0].features[1]!.notes).toBe("Auto-blocked: Dependency is blocked.");
   });
 
-  it("does not block features with done dependencies", () => {
-    const m = createMission("DepsDone", "Test");
-    m.milestones[0].features[0]!.status = "done";
-    // F001 done → F002 deps resolved → stays pending. F003 depends on F002 (pending) → gets waiting.
-    expect(autoBlockBlockedFeatures(m)).toBe(1);
-    expect(m.milestones[0].features[1]!.status).toBe("pending");
-    expect(m.milestones[0].features[2]!.status).toBe("waiting");
-  });
-
-  it("skips already done features", () => {
-    const m = createMission("Skipped", "Test");
-    m.milestones[0].features[0]!.status = "done";
-    m.milestones[0].features[1]!.status = "done";
-    autoBlockBlockedFeatures(m);
-    expect(m.milestones[0].features[0]!.status).toBe("done");
-    expect(m.milestones[0].features[1]!.status).toBe("done");
-  });
-
-  it("blocks active feature if its deps are not done", () => {
-    const m = createMission("ActiveBlocked", "Test");
-    m.milestones[0].features[0]!.status = "pending";
+  it("appends to existing notes when blocking a feature", () => {
+    const m = createMission("Deps", "Test deps");
+    m.milestones[0].features[2]!.dependsOn = [];
+    m.milestones[0].features[0]!.status = "blocked";
     m.milestones[0].features[1]!.status = "active";
-    m.milestones[0].features[1]!.dependsOn = ["F000"]; // nonexistent dep
-    autoBlockBlockedFeatures(m);
-    expect(m.milestones[0].features[1]!.status).toBe("waiting");
+    m.milestones[0].features[1]!.dependsOn = ["F001"];
+    m.milestones[0].features[1]!.notes = "Existing note.";
+
+    const changed = autoBlockBlockedFeatures(m);
+    expect(changed).toBe(1);
+    expect(m.milestones[0].features[1]!.status).toBe("blocked");
+    expect(m.milestones[0].features[1]!.notes).toBe("Existing note.\nAuto-blocked: Dependency is blocked.");
+  });
+
+  it("does not block features if dependencies are not blocked", () => {
+    const m = createMission("Deps", "Test deps");
+    m.milestones[0].features[2]!.dependsOn = [];
+    m.milestones[0].features[0]!.status = "pending";
+    m.milestones[0].features[1]!.status = "pending";
+    m.milestones[0].features[1]!.dependsOn = ["F001"];
+
+    const changed = autoBlockBlockedFeatures(m);
+    expect(changed).toBe(0);
+    expect(m.milestones[0].features[1]!.status).toBe("pending");
+  });
+
+  it("skips features that are already blocked", () => {
+    const m = createMission("Deps", "Test deps");
+    m.milestones[0].features[2]!.dependsOn = [];
+    m.milestones[0].features[0]!.status = "blocked";
+    m.milestones[0].features[1]!.status = "blocked";
+    m.milestones[0].features[1]!.dependsOn = ["F001"];
+    m.milestones[0].features[1]!.notes = "Original note";
+
+    const changed = autoBlockBlockedFeatures(m);
+    expect(changed).toBe(0);
+    expect(m.milestones[0].features[1]!.status).toBe("blocked");
+    expect(m.milestones[0].features[1]!.notes).toBe("Original note"); // No new note appended
+  });
+
+  it("handles multiple dependencies correctly", () => {
+    const m = createMission("Deps", "Test deps");
+    m.milestones[0].features[0]!.status = "done";
+    m.milestones[0].features[1]!.status = "blocked";
+    m.milestones[0].features[2]!.status = "pending";
+    m.milestones[0].features[2]!.dependsOn = ["F001", "F002"];
+
+    const changed = autoBlockBlockedFeatures(m);
+    expect(changed).toBe(1);
+    expect(m.milestones[0].features[2]!.status).toBe("blocked");
   });
 });
 
@@ -600,6 +743,31 @@ describe("getMissionPhase", () => {
     const m = createMission("Phase", "Test");
     m.milestones[0].features[0]!.title = "Implement the feature";
     expect(getMissionPhase(m)).toBe("execution");
+  });
+
+  it("returns verification based on description keywords", () => {
+    const m = createMission("Phase", "Test");
+    m.milestones[0].features[0]!.title = "Neutral title";
+    m.milestones[0].features[0]!.description = "We need to verify the implementation.";
+    expect(getMissionPhase(m)).toBe("verification");
+  });
+
+  it("returns planning based on description keywords", () => {
+    const m = createMission("Phase", "Test");
+    m.milestones[0].features[0]!.title = "Neutral title";
+    m.milestones[0].features[0]!.description = "Research the requirements for this part.";
+    expect(getMissionPhase(m)).toBe("planning");
+  });
+
+  it("handles undefined description properly", () => {
+    const m = createMission("Phase", "Test");
+    m.milestones[0].features[0]!.title = "Neutral title";
+    // Force description to be undefined instead of string to trigger fallback
+    m.milestones[0].features[0]!.description = undefined as any;
+    expect(getMissionPhase(m)).toBe("execution");
+
+    m.milestones[0].features[0]!.title = "Test title with undef desc";
+    expect(getMissionPhase(m)).toBe("verification");
   });
 });
 
@@ -850,36 +1018,81 @@ describe("detectStaleFeature", () => {
   });
 });
 
-describe("autoUnblockResolved", () => {
+describe("detectStaleFeatureSafe", () => {
+  it("delegates to detectStaleFeature when no error is thrown", () => {
+    const m = createMission("StaleSafe", "Test");
+    const f = m.milestones[0].features[0]!;
+    f.startedAt = 1000;
+    f.maxWallClockMs = 1000;
+    // This should trigger a critical alert in detectStaleFeature
+    const alert = detectStaleFeatureSafe(m, 3000);
+    expect(alert).not.toBeNull();
+    expect(alert!.level).toBe("critical");
+  });
 
+  it("returns null when an error is thrown", () => {
+    // Passing null as unknown as MissionState causes a TypeError in detectStaleFeature
+    const alert = detectStaleFeatureSafe(null as unknown as MissionState);
+    expect(alert).toBeNull();
+  });
+});
+
+describe("autoUnblockResolved", () => {
   it("unblocks features whose dependencies are now done", () => {
     const m = createMission("Unblock", "Test");
-    // F001 done, F002 waiting (waiting on F001), F003 pending
+    // Setup F001 done, F002 blocked (waiting on F001), F003 pending
     m.milestones[0].features[0]!.status = "done";
-    m.milestones[0].features[1]!.status = "waiting";
-    m.milestones[0].features[1]!.notes = "Waiting on F001";
+    m.milestones[0].features[1]!.status = "blocked";
+
     expect(autoUnblockResolved(m)).toBe(1);
     expect(m.milestones[0].features[1]!.status).toBe("pending");
-    expect(m.milestones[0].features[1]!.notes).toBeUndefined();
+    expect(m.milestones[0].features[1]!.notes).toBe("Auto-unblocked: Dependencies resolved.");
   });
 
-  it("unblocks features with no deps", () => {
+  it("unblocks features with no blocked dependencies", () => {
     const m = createMission("Unblock", "Test");
-    // Add a waiting feature with no dependencies
-    m.milestones[0].features[0]!.status = "waiting";
-    m.milestones[0].features[0]!.dependsOn = [];
-    m.milestones[0].features[0]!.notes = "Stuck";
+    // Setup F001 pending, F002 blocked (waiting on F001)
+    // F001 is pending (not done), but it is NOT blocked.
+    // So F002 should unblock because `noBlockedDeps` is true.
+    m.milestones[0].features[0]!.status = "pending";
+    m.milestones[0].features[1]!.status = "blocked";
+
     expect(autoUnblockResolved(m)).toBe(1);
-    expect(m.milestones[0].features[0]!.status).toBe("pending");
+    expect(m.milestones[0].features[1]!.status).toBe("pending");
   });
 
-  it("does not unblock when deps still unresolved", () => {
+  it("does not unblock when deps are still blocked", () => {
     const m = createMission("Unblock", "Test");
-    m.milestones[0].features[1]!.status = "waiting";
-    m.milestones[0].features[1]!.notes = "Waiting";
-    // F001 is not done, so F002 should stay waiting
-    expect(autoUnblockResolved(m)).toBe(0);
-    expect(m.milestones[0].features[1]!.status).toBe("waiting");
+
+    // Configure features so F002 is checked first and sees F001 as still blocked.
+    // Since autoUnblockResolved loops sequentially over the array, we reverse the array.
+    m.milestones[0].features[1]!.status = "blocked"; // F002 depends on F001
+    m.milestones[0].features[0]!.status = "blocked"; // F001 has no deps
+
+    m.milestones[0].features.reverse(); // Array order is now: F003, F002, F001
+
+    // When autoUnblockResolved processes this:
+    // 1. F003 is ignored (not blocked).
+    // 2. F002 is blocked, but its dependency F001 is also still blocked. Thus, F002 is NOT unblocked.
+    // 3. F001 is blocked, has no dependencies. It WILL be unblocked.
+
+    expect(autoUnblockResolved(m)).toBe(1); // Only F001 unblocks!
+
+    const f002 = m.milestones[0].features.find(f => f.id === "F002")!;
+    const f001 = m.milestones[0].features.find(f => f.id === "F001")!;
+
+    expect(f002.status).toBe("blocked");
+    expect(f001.status).toBe("pending");
+  });
+
+  it("appends to existing notes correctly", () => {
+    const m = createMission("Unblock", "Test");
+    m.milestones[0].features[0]!.status = "done";
+    m.milestones[0].features[1]!.status = "blocked";
+    m.milestones[0].features[1]!.notes = "Existing note.";
+
+    expect(autoUnblockResolved(m)).toBe(1);
+    expect(m.milestones[0].features[1]!.notes).toBe("Existing note.\nAuto-unblocked: Dependencies resolved.");
   });
 
   it("returns 0 when nothing to unblock", () => {
@@ -1143,6 +1356,31 @@ describe("readRawSchemaVersion", () => {
     fs.writeFileSync(path.join(missionDirSafe(m.id), "plan.json"), "{corrupted", "utf-8");
     expect(readRawSchemaVersion(m.id)).toBe(3);
   });
+
+  it("returns 1 when raw parsed data is an array", async () => {
+    const m = createMission("ArrayVersion", "Test");
+    await saveMissionSafe(m);
+    fs.writeFileSync(path.join(missionDirSafe(m.id), "plan.json"), "[1, 2, 3]", "utf-8");
+    expect(readRawSchemaVersion(m.id)).toBe(1);
+  });
+
+  it("returns 1 when raw parsed data is null", async () => {
+    const m = createMission("NullVersion", "Test");
+    await saveMissionSafe(m);
+    fs.writeFileSync(path.join(missionDirSafe(m.id), "plan.json"), "null", "utf-8");
+    expect(readRawSchemaVersion(m.id)).toBe(1);
+  });
+
+  it("returns 1 when raw parsed data is a primitive", async () => {
+    const m = createMission("PrimitiveVersion", "Test");
+    await saveMissionSafe(m);
+    fs.writeFileSync(path.join(missionDirSafe(m.id), "plan.json"), "42", "utf-8");
+    expect(readRawSchemaVersion(m.id)).toBe(1);
+  });
+
+  it("returns null when all files are missing", () => {
+    expect(readRawSchemaVersion("does-not-exist-at-all")).toBeNull();
+  });
 });
 
 describe("readRawMissionCounts", () => {
@@ -1206,6 +1444,49 @@ describe("readRawMissionCounts", () => {
     expect(counts).not.toBeNull();
     expect(counts!.milestones).toBe(0);
     expect(counts!.features).toBe(0);
+  });
+
+  it("falls back to plan.json.bak when plan.json is corrupted", async () => {
+    const m = createMission("BakCounts", "Test");
+    await saveMissionSafe(m);
+    m.title = "BakCounts modified";
+    await saveMissionSafe(m); // creates plan.json.bak
+    const dir = missionDirSafe(m.id);
+    fs.writeFileSync(path.join(dir, "plan.json"), "{corrupted", "utf-8");
+    const counts = readRawMissionCounts(m.id);
+    expect(counts).not.toBeNull();
+    expect(counts!.milestones).toBe(1);
+    expect(counts!.features).toBe(3);
+  });
+
+  it("handles milestones missing features arrays", async () => {
+    const m = createMission("MissingFeatures", "Test");
+    await saveMissionSafe(m);
+    const dir = missionDirSafe(m.id);
+    fs.writeFileSync(path.join(dir, "plan.json"), JSON.stringify({
+      id: m.id,
+      title: "MissingFeatures",
+      status: "active",
+      milestones: [
+        { id: "M01" }, // no features array
+        { id: "M02", features: [{ id: "F1" }, { id: "F2" }] },
+        { id: "M03", features: "not-an-array" } // features is not an array
+      ]
+    }, null, 2), "utf-8");
+    const counts = readRawMissionCounts(m.id);
+    expect(counts).not.toBeNull();
+    expect(counts!.milestones).toBe(3);
+    expect(counts!.features).toBe(2);
+  });
+
+  it("ignores invalid JSON content (e.g. primitives instead of objects)", async () => {
+    const m = createMission("InvalidJSONObj", "Test");
+    await saveMissionSafe(m);
+    const dir = missionDirSafe(m.id);
+    fs.writeFileSync(path.join(dir, "plan.json"), "123", "utf-8");
+    fs.writeFileSync(path.join(dir, "plan.json.bak"), "true", "utf-8");
+    const counts = readRawMissionCounts(m.id);
+    expect(counts).toBeNull();
   });
 });
 
