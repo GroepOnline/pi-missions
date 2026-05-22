@@ -1,7 +1,7 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { latestActiveEntry, hook, type SessionEntry, type PiEventHandler } from '../../src/core/extension.js';
 import piMissions from '../../src/core/extension.js';
-import type { ExtensionAPI } from '@mariozechner/pi-coding-agent';
+import type { ExtensionAPI } from '@earendil-works/pi-coding-agent';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';

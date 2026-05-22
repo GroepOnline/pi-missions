@@ -1,8 +1,8 @@
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 import * as fs from 'node:fs';
-import type { ExtensionAPI, ExtensionContext } from '@mariozechner/pi-coding-agent';
-import type { ExtensionCommandContext } from '@mariozechner/pi-coding-agent';
+import type { ExtensionAPI, ExtensionContext } from '@earendil-works/pi-coding-agent';
+import type { ExtensionCommandContext } from '@earendil-works/pi-coding-agent';
 import type { RuntimeState, ToolCallEvent, ToolResultEvent } from '../core/types.js';
 import { getMissionPhase } from '../core/state.js';
 import {

@@ -15,8 +15,8 @@ export default defineConfig({
   platform: 'node',
   external: [
     '@mariozechner/pi-ai',
-    '@mariozechner/pi-coding-agent',
-    '@mariozechner/pi-tui',
+    '@earendil-works/pi-coding-agent',
+    '@earendil-works/pi-tui',
     'typebox',
     '@sinclair/typebox',
     'proper-lockfile',
