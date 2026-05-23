@@ -372,6 +372,12 @@ export interface PredictionRow {
 // Repository classes
 // ═══════════════════════════════════════════════════════════════════════════
 
+const MISSION_UPDATABLE_COLUMNS = new Set([
+  'title', 'goal', 'status', 'updated_at', 'completed_at',
+  'total_tokens', 'total_features', 'features_completed',
+  'features_failed', 'success_rate', 'tags', 'metadata'
+]);
+
 export class MissionRepository {
   private db: Database.Database;
   
@@ -413,13 +419,7 @@ export class MissionRepository {
   }
   
   update(id: string, updates: Partial<MissionRow>): MissionRow | undefined {
-    const allowedFields = new Set([
-      'title', 'goal', 'status', 'completed_at',
-      'total_tokens', 'total_features', 'features_completed',
-      'features_failed', 'success_rate', 'tags', 'metadata'
-    ]);
-
-    const fields = Object.keys(updates).filter(k => allowedFields.has(k));
+    const fields = Object.keys(updates).filter(k => MISSION_UPDATABLE_COLUMNS.has(k));
     if (fields.length === 0) return this.findById(id);
     
     const setClause = fields.map(f => `${f} = ?`).join(', ');
@@ -440,6 +440,13 @@ export class MissionRepository {
     return (this.db.prepare('SELECT COUNT(*) as count FROM missions').get() as any).count;
   }
 }
+
+const FEATURE_UPDATABLE_COLUMNS = new Set([
+  'milestone_id', 'title', 'description', 'priority', 'status',
+  'depends_on', 'acceptance_criteria', 'sessions', 'tool_call_count',
+  'tokens_used', 'error_count', 'blockers', 'notes', 'started_at',
+  'completed_at', 'evidence'
+]);
 
 export class FeatureRepository {
   private db: Database.Database;
@@ -483,14 +490,7 @@ export class FeatureRepository {
   }
   
   update(id: string, missionId: string, updates: Partial<FeatureRow>): FeatureRow | undefined {
-    const allowedFields = new Set([
-      'milestone_id', 'title', 'description', 'priority', 'status',
-      'depends_on', 'acceptance_criteria', 'sessions', 'tool_call_count',
-      'tokens_used', 'error_count', 'blockers', 'notes', 'started_at',
-      'completed_at', 'evidence'
-    ]);
-
-    const fields = Object.keys(updates).filter(k => allowedFields.has(k));
+    const fields = Object.keys(updates).filter(k => FEATURE_UPDATABLE_COLUMNS.has(k));
     if (fields.length === 0) return this.findById(id, missionId);
     
     const setClause = fields.map(f => `${f} = ?`).join(', ');
