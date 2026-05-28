@@ -228,19 +228,22 @@ export function buildLeanContext(mission: MissionState): string {
 export function buildCompactionSummary(mission: MissionState): string {
   const active = getActiveFeature(mission);
   const p = progress(mission);
-  const g = getAllFeatures(mission);
-  const blocked = g.filter(f => f.status === "blocked").length;
-  const waiting = g.filter(f => f.status === "waiting").length;
+  let blocked = 0;
+  let waiting = 0;
+  for (const m of mission.milestones) {
+    for (const f of m.features) {
+      if (f.status === "blocked") blocked++;
+      else if (f.status === "waiting") waiting++;
+    }
+  }
 
-  return [
-    `Mission: ${mission.title}  |  ID: ${mission.id}`,
-    `Goal: ${mission.goal}`,
-    `Progress: ${p.done}/${p.total} features (${p.pct}%)  |  ${p.done}/${p.total} leaf goals (${p.pct}%)  |  Status: ${mission.status}`,
-    active ? `Active: ${active.id} — ${active.title}` : "Active: none",
-    `Blocked/Waiting: ${blocked}/${waiting}`,
-    `State: ~/.pi/missions/${mission.id}/`,
-    "Resume by loading mission state and continuing the active feature.",
-  ].join("\n  ");
+  return `Mission: ${mission.title}  |  ID: ${mission.id}
+  Goal: ${mission.goal}
+  Progress: ${p.done}/${p.total} features (${p.pct}%)  |  ${p.done}/${p.total} leaf goals (${p.pct}%)  |  Status: ${mission.status}
+  ${active ? `Active: ${active.id} — ${active.title}` : "Active: none"}
+  Blocked/Waiting: ${blocked}/${waiting}
+  State: ~/.pi/missions/${mission.id}/
+  Resume by loading mission state and continuing the active feature.`;
 }
 
 export function completionSignal(text: string): boolean {

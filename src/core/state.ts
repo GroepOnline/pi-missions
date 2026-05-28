@@ -91,7 +91,13 @@ export async function cleanupStaleLocks(): Promise<void> {
 // ═══════════════════════════════════════════════════════════════════════════
 
 export function getAllFeatures(mission: MissionState): Feature[] {
-  return mission.milestones.flatMap(m => m.features);
+  const result: Feature[] = [];
+  for (const m of mission.milestones) {
+    for (const f of m.features) {
+      result.push(f);
+    }
+  }
+  return result;
 }
 
 export function getMilestoneById(mission: MissionState, id: string): Milestone | undefined {
@@ -99,11 +105,17 @@ export function getMilestoneById(mission: MissionState, id: string): Milestone |
 }
 
 export function getFeatureById(mission: MissionState, id: string): Feature | undefined {
-  return getAllFeatures(mission).find(f => f.id === id);
+  for (const m of mission.milestones) {
+    for (const f of m.features) {
+      if (f.id === id) return f;
+    }
+  }
+  return undefined;
 }
 
 export function getActiveFeature(mission: MissionState): Feature | null {
-  return mission.activeFeatureId ? getFeatureById(mission, mission.activeFeatureId) ?? null : null;
+  if (!mission.activeFeatureId) return null;
+  return getFeatureById(mission, mission.activeFeatureId) ?? null;
 }
 
 export function dependenciesDone(mission: MissionState, feature: Feature): boolean {
@@ -117,9 +129,15 @@ export function getNextPendingFeature(mission: MissionState): Feature | null {
 }
 
 export function progress(mission: MissionState): { done: number; total: number; pct: number } {
-  const all = getAllFeatures(mission);
-  const done = all.filter(f => f.status === "done").length;
-  return { done, total: all.length, pct: all.length ? Math.round((done / all.length) * 100) : 0 };
+  let done = 0;
+  let total = 0;
+  for (const m of mission.milestones) {
+    for (const f of m.features) {
+      total++;
+      if (f.status === "done") done++;
+    }
+  }
+  return { done, total, pct: total ? Math.round((done / total) * 100) : 0 };
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

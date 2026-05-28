@@ -29,12 +29,18 @@ export function featureDescription(f: Feature, milestoneId: string): string {
 }
 
 export function buildFeatureItems(mission: MissionState): Array<{ value: string; label: string; description: string }> {
-  const items: Array<{ value: string; label: string; description: string }> = [{
+  let len = 1;
+  for (const m of mission.milestones) {
+    len += m.features.length;
+  }
+  const items = new Array(len);
+  items[0] = {
     value: "__session_metrics__", label: "📊 Session Metrics", description: "View current session performance metrics",
-  }];
+  };
+  let idx = 1;
   for (const m of mission.milestones) {
     for (const f of m.features) {
-      items.push({ value: f.id, label: featureLabel(f), description: featureDescription(f, m.id) });
+      items[idx++] = { value: f.id, label: featureLabel(f), description: featureDescription(f, m.id) };
     }
   }
   return items;
@@ -66,6 +72,8 @@ export function sessionMetricsLines(width: number): string[] {
 export function featureDetailLines(feature: Feature, width: number): string[] {
   const bar = "─".repeat(Math.min(width - 2, 78));
   const ac = acceptanceProgress(feature);
+
+
   const lines: string[] = [bar];
 
   lines.push(`📋 ${feature.id} — ${feature.title}`);

@@ -68,10 +68,16 @@ export function toolResultErrorMessage(event: { toolName: string; content?: Arra
 // ═══════════════════════════════════════════════════════════════════════════
 
 export function cloneFeatureForFork(feature: Feature, id: string, title: string, notes: string): Feature {
+  const acLen = feature.acceptance.length;
+  const newAcceptance = new Array(acLen);
+  for (let i = 0; i < acLen; i++) {
+    const ac = feature.acceptance[i];
+    newAcceptance[i] = { ...ac, verified: false, evidence: undefined };
+  }
   return {
     ...feature, id, title, status: "active", notes,
     completedAt: undefined, dependsOn: [...feature.dependsOn], sessions: [...feature.sessions],
-    acceptance: feature.acceptance.map(ac => ({ ...ac, verified: false, evidence: undefined })),
+    acceptance: newAcceptance,
   };
 }
 
