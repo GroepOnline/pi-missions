@@ -688,8 +688,8 @@ describe("piMissions extension registration", () => {
         expect(result.message.customType).toBe("pi-mission-context");
         // Lean context has banner but NOT full help
         expect(result.message.content).toContain("## Pi Missions Extension — Active");
-        expect(result.message.content).toContain("**Acceptance:**");
-        expect(result.message.content).toContain("Use /mission status for full overview");
+        expect(result.message.content).toContain("- [ ] **AC001**: Relevant files and constraints documented");
+
         // Should NOT contain the full commands/tools reference
         expect(result.message.content).not.toContain("### Mission Commands");
         expect(result.message.content).not.toContain("### Mission Tools");

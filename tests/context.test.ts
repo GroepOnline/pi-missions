@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildCompactionSummary, buildFeatureBrief, buildLeanContext, buildMissionBanner, buildMissionContext, buildMissionHelp, completionSignal, dependsOnChain, featureSummary, formatDepChain } from "../src/utils/context.js";
+import { buildCompactionSummary, buildFeatureBrief, buildLeanContext, buildMissionBanner, buildMissionContext, buildMissionHelp, completionSignal, dependsOnChain, featureSummary, formatDepChain, clip, progressBar, featureStatusIcon, missionStatusIcon, acceptanceProgress, pendingAcceptance } from "../src/utils/context.js";
 import { createMission } from "../src/core/state.js";
 import type { Feature, MissionState } from "../src/core/types.js";
 
@@ -223,28 +223,29 @@ describe("buildMissionContext", () => {
 // ─── Composed: buildLeanContext ──────────────────────────────────────────────
 
 describe("buildLeanContext", () => {
-  it("includes banner and feature brief but NOT full help", () => {
-    const ctx = buildLeanContext(missionFixture());
-    expect(ctx).toContain("## Pi Missions Extension — Active");
-    expect(ctx).toContain("**Acceptance:**");
-    expect(ctx).toContain("Goal tree:");
-    // Should NOT contain the full help section
-    expect(ctx).not.toContain("### Mission Commands");
-    expect(ctx).not.toContain("### Mission Tools");
-    // Should have the one-line reminder instead
-    expect(ctx).toContain("Use /mission status for full overview");
-  });
+  it("includes banner and acceptance criteria when active feature exists", () => {
+    const mission = missionFixture();
+    const f = mission.milestones[0].features[0]!;
+    f.acceptance = [
+      { id: "AC001", description: "Tests pass", checkType: "bash", checkCommand: "npm test", verified: false },
+      { id: "AC002", description: "No behavior change", checkType: "manual", verified: true },
+      { id: "AC003", description: "Waived test", checkType: "manual", verified: false, waived: true },
+    ];
+    mission.activeFeatureId = "F001";
 
-  it("includes phase-specific instruction", () => {
-    const ctx = buildLeanContext(missionFixture());
-    expect(ctx).toContain("Phase: planning");
+    const ctx = buildLeanContext(mission);
+    expect(ctx).toContain("## Pi Missions Extension — Active");
+    expect(ctx).toContain("- [ ] **AC001**: Tests pass");
+    expect(ctx).toContain("- [x] **AC002**: No behavior change");
+    expect(ctx).toContain("- [x] **AC003**: Waived test");
   });
 
   it("handles mission without active feature", () => {
     const mission = missionFixture();
     mission.activeFeatureId = undefined;
     const ctx = buildLeanContext(mission);
-    expect(ctx).toContain("No active feature.");
+    expect(ctx).toContain("## Pi Missions Extension — Active");
+    expect(ctx).toContain("No active feature. Use `/mission status` for overview.");
   });
 });
 
@@ -281,7 +282,7 @@ describe("completionSignal", () => {
     ["", false],
     [null as unknown as string, false],
     [undefined as unknown as string, false],
-  ])('"%s" → %s', (text, expected) => {
+  ])("%s → %s", (text, expected) => {
     expect(completionSignal(text)).toBe(expected);
   });
 });
@@ -324,6 +325,83 @@ describe("featureSummary", () => {
   });
 });
 
+// ─── UI Primitives & Small Helpers ──────────────────────────────────────────
+
+describe("clip", () => {
+  it("clips text longer than max", () => {
+    expect(clip("hello world", 5)).toBe("hell…");
+  });
+  it("leaves text shorter than max", () => {
+    expect(clip("hello", 10)).toBe("hello");
+  });
+});
+
+describe("progressBar", () => {
+  it("returns empty bar for 0 total", () => {
+    expect(progressBar(0, 0, 10)).toBe("[░░░░░░░░░░]");
+  });
+  it("calculates ratio correctly", () => {
+    expect(progressBar(5, 10, 10)).toBe("[█████░░░░░]");
+    expect(progressBar(10, 10, 10)).toBe("[██████████]");
+    expect(progressBar(12, 10, 10)).toBe("[██████████]"); // maxes out at 1
+    expect(progressBar(-1, 10, 10)).toBe("[░░░░░░░░░░]"); // mins at 0
+  });
+});
+
+describe("featureStatusIcon", () => {
+  it("returns correct icon for status", () => {
+    expect(featureStatusIcon("done")).toBe("✅");
+    expect(featureStatusIcon("active")).toBe("➡️");
+    expect(featureStatusIcon("blocked")).toBe("⛔");
+    expect(featureStatusIcon("failed")).toBe("❌");
+    expect(featureStatusIcon("waiting")).toBe("⏳");
+    expect(featureStatusIcon("unknown")).toBe("•");
+  });
+});
+
+describe("missionStatusIcon", () => {
+  it("returns correct icon for status", () => {
+    expect(missionStatusIcon("complete")).toBe("✅");
+    expect(missionStatusIcon("paused")).toBe("⏸");
+    expect(missionStatusIcon("blocked")).toBe("⛔");
+    expect(missionStatusIcon("budget_limited")).toBe("⚠️");
+    expect(missionStatusIcon("active")).toBe("🎯");
+  });
+});
+
+describe("acceptanceProgress", () => {
+  it("calculates progress of acceptance criteria", () => {
+    const f = featureFixture({
+      acceptance: [
+        { id: "AC1", description: "1", checkType: "manual", verified: true },
+        { id: "AC2", description: "2", checkType: "manual", verified: false, waived: true },
+        { id: "AC3", description: "3", checkType: "manual", verified: false },
+      ]
+    });
+    expect(acceptanceProgress(f)).toEqual({ done: 2, total: 3, label: "2/3" });
+  });
+});
+
+describe("pendingAcceptance", () => {
+  it("lists pending acceptance items", () => {
+    const f = featureFixture({
+      acceptance: [
+        { id: "AC1", description: "First check", checkType: "manual", verified: true },
+        { id: "AC2", description: "Second check", checkType: "bash", checkCommand: "echo OK", verified: false },
+        { id: "AC3", description: "Third check", checkType: "manual", verified: false, waived: true },
+        { id: "AC4", description: "Fourth check", checkType: "manual", verified: false },
+      ]
+    });
+    const pending = pendingAcceptance(f, "->");
+    expect(pending).toEqual([
+      "AC2: Second check -> echo OK",
+      "AC4: Fourth check"
+    ]);
+  });
+});
+
+// ─── Dependency Chain Helpers ───────────────────────────────────────────────
+
 describe("dependsOnChain", () => {
   it("returns an empty array when the feature has no dependencies", () => {
     const mission = missionFixture();
@@ -364,6 +442,43 @@ describe("dependsOnChain", () => {
     expect(chain).toEqual([
       { id: "F001", status: "active", title: "Dep 1" },
       { id: "F002", status: "active", title: "Dep 2" }
+    ]);
+  });
+
+  it("traces transitive dependency chain", () => {
+    const m = missionFixture();
+    const f1 = featureFixture({ id: "F1", status: "pending", title: "F1" });
+    const f2 = featureFixture({ id: "F2", status: "waiting", title: "F2", dependsOn: ["F1"] });
+    const f3 = featureFixture({ id: "F3", status: "blocked", title: "F3", dependsOn: ["F2"] });
+    m.milestones[0].features = [f1, f2, f3];
+
+    const chain = dependsOnChain(m, f3);
+    expect(chain).toEqual([
+      { id: "F2", status: "waiting", title: "F2" },
+      { id: "F1", status: "pending", title: "F1" }
+    ]);
+  });
+
+  it("skips done dependencies", () => {
+    const m = missionFixture();
+    const f1 = featureFixture({ id: "F1", status: "done", title: "F1" });
+    const f2 = featureFixture({ id: "F2", status: "blocked", title: "F2", dependsOn: ["F1"] });
+    m.milestones[0].features = [f1, f2];
+
+    const chain = dependsOnChain(m, f2);
+    expect(chain).toEqual([]);
+  });
+
+  it("handles circular dependencies gracefully", () => {
+    const m = missionFixture();
+    const f1 = featureFixture({ id: "F1", status: "blocked", title: "F1", dependsOn: ["F2"] });
+    const f2 = featureFixture({ id: "F2", status: "blocked", title: "F2", dependsOn: ["F1"] });
+    m.milestones[0].features = [f1, f2];
+
+    const chain = dependsOnChain(m, f1);
+    expect(chain).toEqual([
+      { id: "F2", status: "blocked", title: "F2" },
+      { id: "F1", status: "blocked", title: "F1" }
     ]);
   });
 });

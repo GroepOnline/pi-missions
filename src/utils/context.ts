@@ -215,23 +215,14 @@ export function buildMissionContext(mission: MissionState): string {
 /** Lean context: banner + feature brief only. ~250 tokens */
 export function buildLeanContext(mission: MissionState): string {
   const active = getActiveFeature(mission);
-  const banner = buildMissionBanner(mission);
-  const brief = active ? buildFeatureBrief(mission, active, 200) : "";
+  if (!active) return `${buildMissionBanner(mission)}\n\nNo active feature. Use \`/mission status\` for overview.`;
 
-  const parts = [banner];
-  if (brief) parts.push("", brief);
+  const acLines = active.acceptance.map((a) => {
+    const mark = a.verified || a.waived ? "[x]" : "[ ]";
+    return `- ${mark} **${a.id}**: ${a.description}`;
+  });
 
-  parts.push(
-    "",
-    "Goal tree:",
-    active ? `▶ ${active.id} ${active.title}` : "",
-    "",
-    "Use /mission status for full overview.",
-    "",
-    "**Tools**: mission_feature_done, mission_next_feature, mission_ask_user, mission_block_self, mission_fork, mission_error_status, mission_retry_error",
-  );
-
-  return parts.join("\n");
+  return `${buildMissionBanner(mission)}\n\n${acLines.join("\n")}`;
 }
 
 export function buildCompactionSummary(mission: MissionState): string {
