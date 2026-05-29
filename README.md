@@ -1,6 +1,16 @@
-# Pi Missions
+<div align="center">
 
-Durable mission orchestration for the Pi coding agent. Pi Missions turns a short Pi session into a structured mission with persistent state, milestones, feature-level acceptance criteria, evidence, recovery helpers, and command/tool support for continuing work across sessions.
+![Pi Missions Banner](docs/images/missions_banner.png)
+
+# 🚀 @groepchef/pi-missions
+
+**Durable mission orchestration + task queues + state handoffs for the Pi coding agent**
+
+---
+
+</div>
+
+`pi-missions` turns short-lived Pi sessions into long-running execution tracks. It gives an agent a durable mission plan, feature queue, history log, evidence folder, and session handoff layer so multi-step work can survive restarts, context resets, forks, and interruptions.
 
 [![Version](https://img.shields.io/badge/version-0.1.3-blue.svg)](https://github.com/OnlineChefGroep/pi-missions/releases/tag/v0.1.3) ![Tests](https://img.shields.io/badge/tests-892%20passing-brightgreen.svg) ![Pi Extension](https://img.shields.io/badge/Pi-Extension-9b59b6.svg) ![License](https://img.shields.io/badge/license-MIT-green.svg)
 
@@ -112,6 +122,27 @@ Pi Missions stores structured data in SQLite. The schema includes missions, mile
 ## Package notes
 
 The original native `better-sqlite3` hard dependency was removed from the default install path because it can fail or hang in restricted environments when prebuilt binaries or Node headers are unavailable. Runtime database loading now tries `better-sqlite3` first if the host has installed it, then falls back to Node.js `node:sqlite`.
+
+## State Model
+
+![Pi Missions State Model](docs/images/missions_state_model.png)
+
+Mission state is stored locally under `~/.pi/missions/<mission-id>/`:
+- `plan.json`: Current mission plan, feature list, and active pointer.
+- `plan.json.bak`: Backup copy for recovery.
+- `history.jsonl`: Append-style event log for transitions.
+- `evidence/`: Completion proof and artifacts.
+- `sessions/`: Session attachment and handoff metadata.
+
+## Typical Workflow
+
+![Pi Missions Typical Workflow](docs/images/missions_workflow.png)
+
+1. Create a mission with `/mission new <title>`.
+2. Break the mission into features or load an existing plan.
+3. Advance to the next unblocked feature with `/mission next`.
+4. Let the agent work on the current feature.
+5. Capture proof with `/mission done [evidence]`.
 
 ## License
 
