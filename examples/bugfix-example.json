@@ -1,0 +1,93 @@
+{
+  "title": "Fix Production Login Timeout Bug",
+  "goal": "Investigate and fix the login timeout issue reported by users where login requests hang for 30+ seconds.",
+  "constraints": "Minimal changes only. Add regression test. Verify fix with evidence. Do not refactor unrelated code.",
+  "milestones": [
+    {
+      "id": "M01",
+      "title": "Investigation",
+      "status": "active",
+      "features": [
+        {
+          "id": "F001",
+          "title": "Reproduce the bug",
+          "description": "Set up a test environment and reproduce the login timeout issue. Document the exact steps and conditions.",
+          "priority": 1,
+          "dependsOn": [],
+          "acceptance": [
+            { "id": "AC1", "description": "Bug reproduced consistently", "checkType": "manual" },
+            { "id": "AC2", "description": "Steps documented", "checkType": "manual" },
+            { "id": "AC3", "description": "Conditions identified", "checkType": "manual" }
+          ],
+          "status": "active"
+        },
+        {
+          "id": "F002",
+          "title": "Identify root cause",
+          "description": "Use logging, debugging, and code analysis to identify the root cause of the timeout.",
+          "priority": 1,
+          "dependsOn": ["F001"],
+          "acceptance": [
+            { "id": "AC1", "description": "Root cause identified", "checkType": "manual" },
+            { "id": "AC2", "description": "Evidence from logs/debugging", "checkType": "manual" },
+            { "id": "AC3", "description": "Root cause documented", "checkType": "manual" }
+          ],
+          "status": "pending"
+        }
+      ]
+    },
+    {
+      "id": "M02",
+      "title": "Fix Implementation",
+      "status": "pending",
+      "features": [
+        {
+          "id": "F003",
+          "title": "Implement minimal fix",
+          "description": "Implement the minimal code change that fixes the root cause. Do not refactor or change unrelated code.",
+          "priority": 1,
+          "dependsOn": ["F002"],
+          "acceptance": [
+            { "id": "AC1", "description": "Fix addresses root cause", "checkType": "manual" },
+            { "id": "AC2", "description": "Changes are minimal", "checkType": "manual" },
+            { "id": "AC3", "description": "No unrelated changes", "checkType": "manual" }
+          ],
+          "status": "pending"
+        },
+        {
+          "id": "F004",
+          "title": "Add regression test",
+          "description": "Write a test that would catch this bug if it were reintroduced.",
+          "priority": 1,
+          "dependsOn": ["F003"],
+          "acceptance": [
+            { "id": "AC1", "description": "Test catches the original bug", "checkType": "auto" },
+            { "id": "AC2", "description": "Test is deterministic", "checkType": "auto" },
+            { "id": "AC3", "description": "Test passes with fix", "checkType": "auto" }
+          ],
+          "status": "pending"
+        }
+      ]
+    },
+    {
+      "id": "M03",
+      "title": "Verification",
+      "status": "pending",
+      "features": [
+        {
+          "id": "F005",
+          "title": "Verify fix in production",
+          "description": "Deploy the fix to staging and verify it resolves the issue. Then deploy to production.",
+          "priority": 1,
+          "dependsOn": ["F004"],
+          "acceptance": [
+            { "id": "AC1", "description": "Fix verified in staging", "checkType": "manual" },
+            { "id": "AC2", "description": "No new issues introduced", "checkType": "manual" },
+            { "id": "AC3", "description": "Fix deployed to production", "checkType": "manual" }
+          ],
+          "status": "pending"
+        }
+      ]
+    }
+  ]
+}

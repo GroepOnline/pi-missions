@@ -1,0 +1,92 @@
+{
+  "title": "Refactor Authentication Module",
+  "goal": "Refactor the legacy authentication module to use modern patterns, improve testability, and add proper error handling.",
+  "constraints": "Existing tests must pass. No behavior changes. Keep the public API compatible. All changes must be backward compatible.",
+  "milestones": [
+    {
+      "id": "M01",
+      "title": "Analyze and Plan",
+      "status": "active",
+      "features": [
+        {
+          "id": "F001",
+          "title": "Analyze current auth module",
+          "description": "Read and understand the current authentication module. Document the public API, dependencies, and pain points.",
+          "priority": 1,
+          "dependsOn": [],
+          "acceptance": [
+            { "id": "AC1", "description": "Public API documented", "checkType": "manual" },
+            { "id": "AC2", "description": "Dependencies identified", "checkType": "manual" },
+            { "id": "AC3", "description": "Pain points listed", "checkType": "manual" }
+          ],
+          "status": "active"
+        },
+        {
+          "id": "F002",
+          "title": "Create refactoring plan",
+          "description": "Based on the analysis, create a step-by-step plan for refactoring the auth module.",
+          "priority": 2,
+          "dependsOn": ["F001"],
+          "acceptance": [
+            { "id": "AC1", "description": "Plan includes all identified pain points", "checkType": "manual" },
+            { "id": "AC2", "description": "Plan maintains backward compatibility", "checkType": "manual" }
+          ],
+          "status": "pending"
+        }
+      ]
+    },
+    {
+      "id": "M02",
+      "title": "Implement Changes",
+      "status": "pending",
+      "features": [
+        {
+          "id": "F003",
+          "title": "Extract token validation",
+          "description": "Extract token validation logic into a separate, testable module.",
+          "priority": 1,
+          "dependsOn": ["F002"],
+          "acceptance": [
+            { "id": "AC1", "description": "Token validation extracted to separate file", "checkType": "auto" },
+            { "id": "AC2", "description": "Unit tests pass for new module", "checkType": "auto" },
+            { "id": "AC3", "description": "Existing tests still pass", "checkType": "auto" }
+          ],
+          "status": "pending"
+        },
+        {
+          "id": "F004",
+          "title": "Add proper error handling",
+          "description": "Replace generic errors with specific error types and proper error messages.",
+          "priority": 2,
+          "dependsOn": ["F003"],
+          "acceptance": [
+            { "id": "AC1", "description": "Custom error types defined", "checkType": "auto" },
+            { "id": "AC2", "description": "All error paths have specific messages", "checkType": "manual" },
+            { "id": "AC3", "description": "Error handling tests added", "checkType": "auto" }
+          ],
+          "status": "pending"
+        }
+      ]
+    },
+    {
+      "id": "M03",
+      "title": "Verify and Document",
+      "status": "pending",
+      "features": [
+        {
+          "id": "F005",
+          "title": "Run full test suite",
+          "description": "Run the complete test suite and verify all tests pass. Fix any regressions.",
+          "priority": 1,
+          "dependsOn": ["F004"],
+          "acceptance": [
+            { "id": "AC1", "description": "All existing tests pass", "checkType": "auto" },
+            { "id": "AC2", "description": "New tests pass", "checkType": "auto" },
+            { "id": "AC3", "description": "No regressions identified", "checkType": "manual" }
+          ],
+          "status": "pending"
+        }
+      ]
+    }
+  ]
+}

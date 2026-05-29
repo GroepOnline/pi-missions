@@ -1,0 +1,36 @@
+{
+  "title": "Add User Profile API Endpoint",
+  "goal": "Create RESTful API endpoints for user profile management",
+  "milestones": [
+    {
+      "id": "M01",
+      "title": "Profile CRUD",
+      "features": [
+        {
+          "id": "F001",
+          "title": "GET /api/profile endpoint",
+          "description": "Implement endpoint to retrieve user profile with caching",
+          "priority": 1,
+          "dependsOn": [],
+          "acceptance": [
+            { "id": "AC1", "description": "Returns profile data for authenticated user", "checkType": "automated" },
+            { "id": "AC2", "description": "Returns 401 for unauthenticated requests", "checkType": "automated" },
+            { "id": "AC3", "description": "Response time < 100ms with cache hit", "checkType": "manual" }
+          ]
+        },
+        {
+          "id": "F002",
+          "title": "PUT /api/profile endpoint",
+          "description": "Implement endpoint to update user profile with validation",
+          "priority": 1,
+          "dependsOn": ["F001"],
+          "acceptance": [
+            { "id": "AC1", "description": "Validates input schema", "checkType": "automated" },
+            { "id": "AC2", "description": "Updates profile and returns updated data", "checkType": "automated" },
+            { "id": "AC3", "description": "Invalidates cache on update", "checkType": "automated" }
+          ]
+        }
+      ]
+    }
+  ]
+}

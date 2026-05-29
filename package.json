@@ -8,8 +8,22 @@
     "pi-package",
     "pi-extension",
     "missions",
-    "coding-agent"
+    "coding-agent",
+    "orchestration",
+    "task-management",
+    "sqlite",
+    "cli"
   ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/OnlineChefGroep/pi-missions.git"
+  },
+  "homepage": "https://github.com/OnlineChefGroep/pi-missions#readme",
+  "bugs": {
+    "url": "https://github.com/OnlineChefGroep/pi-missions/issues"
+  },
+  "author": "OnlineChefGroep",
+  "license": "MIT",
   "pi": {
     "extensions": [
       "./dist/index.js"

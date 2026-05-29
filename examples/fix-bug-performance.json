@@ -1,0 +1,35 @@
+{
+  "title": "Fix Database Query Performance",
+  "goal": "Resolve N+1 query issues in the dashboard endpoint causing slow page loads",
+  "milestones": [
+    {
+      "id": "M01",
+      "title": "Query Optimization",
+      "features": [
+        {
+          "id": "F001",
+          "title": "Identify slow queries",
+          "description": "Add query logging and identify the N+1 queries in dashboard endpoint",
+          "priority": 1,
+          "dependsOn": [],
+          "acceptance": [
+            { "id": "AC1", "description": "Query logging is implemented", "checkType": "automated" },
+            { "id": "AC2", "description": "Slow queries are identified and documented", "checkType": "manual" }
+          ]
+        },
+        {
+          "id": "F002",
+          "title": "Implement eager loading",
+          "description": "Replace N+1 queries with eager loading using JOIN queries",
+          "priority": 1,
+          "dependsOn": ["F001"],
+          "acceptance": [
+            { "id": "AC1", "description": "Dashboard loads in < 200ms", "checkType": "automated" },
+            { "id": "AC2", "description": "No N+1 queries in query log", "checkType": "automated" },
+            { "id": "AC3", "description": "All existing tests still pass", "checkType": "automated" }
+          ]
+        }
+      ]
+    }
+  ]
+}

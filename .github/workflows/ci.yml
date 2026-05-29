@@ -29,6 +29,10 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Security audit
+        if: matrix.os == 'ubuntu-latest'
+        run: npm audit --audit-level=high || true
+
       - name: Type check
         env:
           NODE_OPTIONS: --experimental-sqlite

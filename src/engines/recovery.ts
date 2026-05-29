@@ -46,8 +46,11 @@ export function withRetrySync<T>(fn: () => T, opts: RetryOptions = {}): T {
       lastError = error;
       if (attempt >= maxRetries) break;
       if (shouldRetry && !shouldRetry(error)) break;
-      const deadline = Date.now() + backoffDelay(attempt, baseDelayMs, maxDelayMs, jitterFactor);
-      while (Date.now() < deadline) { /* busy-wait */ }
+      const delayMs = backoffDelay(attempt, baseDelayMs, maxDelayMs, jitterFactor);
+      // Use Atomics.wait for CPU-friendly blocking sleep
+      const sab = new SharedArrayBuffer(4);
+      const int32 = new Int32Array(sab);
+      Atomics.wait(int32, 0, 0, delayMs);
     }
   }
   throw lastError;

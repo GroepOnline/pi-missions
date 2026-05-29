@@ -2,7 +2,7 @@
 
 Durable mission orchestration for the Pi coding agent. Pi Missions turns a short Pi session into a structured mission with persistent state, milestones, feature-level acceptance criteria, evidence, recovery helpers, and command/tool support for continuing work across sessions.
 
-![Version](https://img.shields.io/badge/version-0.1.1-blue.svg) ![Tests](https://img.shields.io/badge/tests-834%20passing-brightgreen.svg) ![Pi Extension](https://img.shields.io/badge/Pi-Extension-9b59b6.svg)
+![Version](https://img.shields.io/badge/version-0.1.2-blue.svg) ![Tests](https://img.shields.io/badge/tests-834%20passing-brightgreen.svg) ![Pi Extension](https://img.shields.io/badge/Pi-Extension-9b59b6.svg)
 
 ## Status
 

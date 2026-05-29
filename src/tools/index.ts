@@ -503,9 +503,13 @@ export function registerMissionTools(_pi: ExtensionAPI, runtime: RuntimeState): 
       }).then((result) => {
         if ("error" in result) {
           appendHistory(m, { event: "worker_error", featureId: feat.id, note: result.error });
-          saveMissionSafe(m).catch(() => {});
+          saveMissionSafe(m).catch((saveErr) => {
+            process.stderr.write(`[pi-missions] Failed to save after worker error: ${saveErr}\n`);
+          });
         }
-      }).catch(() => {});
+      }).catch((spawnErr) => {
+        process.stderr.write(`[pi-missions] Worker spawn failed for ${feat.id}: ${spawnErr}\n`);
+      });
 
       return {
         content: [{

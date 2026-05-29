@@ -1,0 +1,107 @@
+{
+  "title": "Add User Profile API Endpoint",
+  "goal": "Implement a new REST API endpoint for user profile management with CRUD operations.",
+  "constraints": "Follow existing API patterns. Add comprehensive tests. Include input validation and error handling.",
+  "milestones": [
+    {
+      "id": "M01",
+      "title": "Design and Schema",
+      "status": "active",
+      "features": [
+        {
+          "id": "F001",
+          "title": "Design API schema",
+          "description": "Design the request/response schema for the user profile endpoint. Include all fields and validation rules.",
+          "priority": 1,
+          "dependsOn": [],
+          "acceptance": [
+            { "id": "AC1", "description": "Schema defined with all required fields", "checkType": "manual" },
+            { "id": "AC2", "description": "Validation rules documented", "checkType": "manual" },
+            { "id": "AC3", "description": "Schema reviewed by team", "checkType": "manual" }
+          ],
+          "status": "active"
+        },
+        {
+          "id": "F002",
+          "title": "Create database migration",
+          "description": "Create the database migration for the user_profiles table.",
+          "priority": 2,
+          "dependsOn": ["F001"],
+          "acceptance": [
+            { "id": "AC1", "description": "Migration file created", "checkType": "auto" },
+            { "id": "AC2", "description": "Migration runs without errors", "checkType": "auto" },
+            { "id": "AC3", "description": "Rollback migration works", "checkType": "auto" }
+          ],
+          "status": "pending"
+        }
+      ]
+    },
+    {
+      "id": "M02",
+      "title": "Implementation",
+      "status": "pending",
+      "features": [
+        {
+          "id": "F003",
+          "title": "Implement GET endpoint",
+          "description": "Implement the GET /api/users/:id/profile endpoint with proper error handling.",
+          "priority": 1,
+          "dependsOn": ["F002"],
+          "acceptance": [
+            { "id": "AC1", "description": "Endpoint returns user profile", "checkType": "auto" },
+            { "id": "AC2", "description": "Returns 404 for non-existent user", "checkType": "auto" },
+            { "id": "AC3", "description": "Returns 401 for unauthorized requests", "checkType": "auto" }
+          ],
+          "status": "pending"
+        },
+        {
+          "id": "F004",
+          "title": "Implement POST/PUT endpoints",
+          "description": "Implement POST (create) and PUT (update) endpoints for user profiles.",
+          "priority": 2,
+          "dependsOn": ["F003"],
+          "acceptance": [
+            { "id": "AC1", "description": "POST creates new profile", "checkType": "auto" },
+            { "id": "AC2", "description": "PUT updates existing profile", "checkType": "auto" },
+            { "id": "AC3", "description": "Input validation works correctly", "checkType": "auto" },
+            { "id": "AC4", "description": "Returns appropriate error codes", "checkType": "auto" }
+          ],
+          "status": "pending"
+        }
+      ]
+    },
+    {
+      "id": "M03",
+      "title": "Testing and Documentation",
+      "status": "pending",
+      "features": [
+        {
+          "id": "F005",
+          "title": "Add integration tests",
+          "description": "Write comprehensive integration tests for all profile endpoints.",
+          "priority": 1,
+          "dependsOn": ["F004"],
+          "acceptance": [
+            { "id": "AC1", "description": "Tests cover all CRUD operations", "checkType": "auto" },
+            { "id": "AC2", "description": "Tests cover error scenarios", "checkType": "auto" },
+            { "id": "AC3", "description": "All tests pass", "checkType": "auto" }
+          ],
+          "status": "pending"
+        },
+        {
+          "id": "F006",
+          "title": "Update API documentation",
+          "description": "Update the API documentation with the new profile endpoints.",
+          "priority": 2,
+          "dependsOn": ["F005"],
+          "acceptance": [
+            { "id": "AC1", "description": "Endpoints documented with examples", "checkType": "manual" },
+            { "id": "AC2", "description": "Error responses documented", "checkType": "manual" },
+            { "id": "AC3", "description": "Documentation reviewed", "checkType": "manual" }
+          ],
+          "status": "pending"
+        }
+      ]
+    }
+  ]
+}

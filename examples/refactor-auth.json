@@ -1,0 +1,34 @@
+{
+  "title": "Refactor Authentication Module",
+  "goal": "Modernize the authentication system to use JWT tokens with refresh token rotation",
+  "milestones": [
+    {
+      "id": "M01",
+      "title": "JWT Infrastructure",
+      "features": [
+        {
+          "id": "F001",
+          "title": "Add JWT token generation",
+          "description": "Implement JWT token generation with configurable expiry and secret management",
+          "priority": 1,
+          "dependsOn": [],
+          "acceptance": [
+            { "id": "AC1", "description": "JWT tokens are generated with correct payload", "checkType": "automated" },
+            { "id": "AC2", "description": "Token expiry is configurable via environment variable", "checkType": "automated" }
+          ]
+        },
+        {
+          "id": "F002",
+          "title": "Implement refresh token rotation",
+          "description": "Add refresh token storage and rotation logic",
+          "priority": 1,
+          "dependsOn": ["F001"],
+          "acceptance": [
+            { "id": "AC1", "description": "Refresh tokens are stored securely", "checkType": "manual" },
+            { "id": "AC2", "description": "Old refresh tokens are invalidated on rotation", "checkType": "automated" }
+          ]
+        }
+      ]
+    }
+  ]
+}
