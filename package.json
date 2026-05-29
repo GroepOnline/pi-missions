@@ -1,5 +1,5 @@
 {
-  "name": "@devctx/pi-missions",
+  "name": "@onlinechefgroep/pi-missions",
   "version": "0.1.2",
   "description": "Durable mission orchestration for the Pi coding agent",
   "type": "module",
@@ -81,5 +81,8 @@
   },
   "engines": {
     "node": ">=22.5.0"
+  },
+  "publishConfig": {
+    "registry": "https://npm.pkg.github.com"
   }
 }

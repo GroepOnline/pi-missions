@@ -8,7 +8,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.1.2] - 2026-05-29
 
 ### Changed
+- Migrated package scope from `@devctx/pi-missions` to `@onlinechefgroep/pi-missions`.
 - Migrated peer dependencies from `@mariozechner/pi-*` to `@earendil-works/pi-*` scope.
+- Updated test count from 834 to 892 (31 test files).
+- Added `publishConfig` for GitHub Packages.
 - Optimized hot-path array allocations and iterations in state management.
 - Hardened database initialization with dual driver detection (better-sqlite3 / node:sqlite).
 - Added CI smoke test script for build artifact verification.

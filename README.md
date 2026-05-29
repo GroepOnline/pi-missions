@@ -2,7 +2,7 @@
 
 Durable mission orchestration for the Pi coding agent. Pi Missions turns a short Pi session into a structured mission with persistent state, milestones, feature-level acceptance criteria, evidence, recovery helpers, and command/tool support for continuing work across sessions.
 
-![Version](https://img.shields.io/badge/version-0.1.2-blue.svg) ![Tests](https://img.shields.io/badge/tests-834%20passing-brightgreen.svg) ![Pi Extension](https://img.shields.io/badge/Pi-Extension-9b59b6.svg)
+![Version](https://img.shields.io/badge/version-0.1.2-blue.svg) ![Tests](https://img.shields.io/badge/tests-892%20passing-brightgreen.svg) ![Pi Extension](https://img.shields.io/badge/Pi-Extension-9b59b6.svg) ![License](https://img.shields.io/badge/license-MIT-green.svg)
 
 ## Status
 
@@ -11,7 +11,7 @@ This repository is a hardened `0.1.x` release candidate, not a finished marketpl
 Verified in this snapshot:
 
 - `npm run check` passes.
-- `npm test` passes: 29 test files, 834 tests.
+- `npm test` passes: 31 test files, 892 tests.
 - `npm run build` produces `dist/index.js`, `dist/index.d.ts`, `dist/cli/index.js`, and copied database schema assets.
 - `./scripts/smoke-test.sh` confirms the Pi extension exports the default `piMissions` function.
 - `node dist/cli/index.js doctor` works on Node.js 22 using `node:sqlite`.
@@ -21,6 +21,22 @@ Verified in this snapshot:
 - Node.js `>=22.5.0` for the built-in `node:sqlite` database driver.
 - Pi coding agent packages compatible with the peer dependencies in `package.json`.
 - Optional: install `better-sqlite3` manually in the host project if you prefer that native SQLite driver. Pi Missions will use it when available and fall back to `node:sqlite` otherwise.
+
+## Quick Start
+
+```bash
+# Install the extension
+pi install git:github.com/OnlineChefGroep/pi-missions
+
+# Start a mission
+/mission start "Implement user auth"
+
+# Check progress
+/mission status
+
+# Mark features done
+/mission done "Login form works, tests pass"
+```
 
 ## Install and local development
 
