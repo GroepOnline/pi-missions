@@ -41,7 +41,7 @@
     "smoke:ci": "node scripts/ci-smoke.mjs"
   },
   "peerDependencies": {
-    "@mariozechner/pi-ai": "^0.73.1",
+    "@earendil-works/pi-ai": "^0.77.0",
     "@earendil-works/pi-coding-agent": "^0.74.0",
     "@earendil-works/pi-tui": "^0.74.0",
     "typebox": "^1.1.38"

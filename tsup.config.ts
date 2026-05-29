@@ -14,7 +14,7 @@ export default defineConfig({
   target: 'es2022',
   platform: 'node',
   external: [
-    '@mariozechner/pi-ai',
+    '@earendil-works/pi-ai',
     '@earendil-works/pi-coding-agent',
     '@earendil-works/pi-tui',
     'typebox',
