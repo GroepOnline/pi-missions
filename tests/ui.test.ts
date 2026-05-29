@@ -13,7 +13,8 @@ describe("dashboardRows", () => {
     expect(rows.some((r) => r.includes("🎯 My mission") || r.includes("✅ My mission"))).toBe(true);
     expect(rows.some((r) => r.includes("Goal: Improve the codebase"))).toBe(true);
     expect(rows.some((r) => r.includes("Focus: F001"))).toBe(true);
-    expect(rows.some((r) => r.includes("Status: active") && r.includes("Tokens:"))).toBe(true);
+    expect(rows.some((r) => r.includes("Status: active"))).toBe(true);
+    expect(rows.some((r) => r.includes("Tokens:"))).toBe(true);
   });
 
   it("shows milestones and features with status indicators", () => {
@@ -68,7 +69,7 @@ describe("dashboardRows", () => {
       },
     ];
     const rows = dashboardRows(mission);
-    expect(rows.some((r) => r.includes("F001") && r.includes("failed"))).toBe(true);
+    expect(rows.some((r) => r.includes("F001") && r.includes("✗"))).toBe(true);
   });
 
   it("sorts features by status then priority", () => {
@@ -88,8 +89,8 @@ describe("dashboardRows", () => {
     ];
     const rows = dashboardRows(mission);
     // Active should be first, then blocked, then done
-    // Use regex to find feature ID lines (7-space indent + icon + ID)
-    const featureIdLines = rows.filter((r) => r.startsWith("       ") && r.includes("[P") && /F00\d/.test(r));
+    // Use regex to find feature ID lines (5-space indent + icon + ID)
+    const featureIdLines = rows.filter((r) => r.startsWith("     ") && !r.includes("Focus:") && r.includes("[P") && /F00\d/.test(r));
     expect(featureIdLines[0]).toContain("F001"); // active
     expect(featureIdLines[1]).toContain("F002"); // blocked
     expect(featureIdLines[2]).toContain("F003"); // done

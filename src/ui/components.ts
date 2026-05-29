@@ -26,13 +26,22 @@ export interface MissionControlSummary {
   handoff: string;
 }
 
-function milestoneProgressBar(milestone: Milestone): string {
+function milestoneProgressBar(milestone: Milestone, width = 20): string {
   const done = milestone.features.filter(f => f.status === "done").length;
-  return progressBar(done, milestone.features.length, 20);
+  return progressBar(done, milestone.features.length, width);
 }
 
 function milestoneProgressBarSimple(done: number, total: number, width = 16): string {
   return progressBar(done, total, width);
+}
+
+function tokenBudgetBar(used: number, budget: number | undefined, width = 20): string {
+  if (!budget || budget <= 0) return `${used.toLocaleString()} tokens`;
+  const ratio = Math.min(1, used / budget);
+  const filled = Math.round(ratio * width);
+  const bar = `[${"█".repeat(filled)}${"░".repeat(width - filled)}]`;
+  const pct = Math.round(ratio * 100);
+  return `${bar} ${used.toLocaleString()}/${budget.toLocaleString()} (${pct}%)`;
 }
 
 function deriveNextAction(feature: Feature): string {
@@ -115,7 +124,8 @@ export function dashboardRows(mission: MissionState): string[] {
     `     Blocked/Waiting: ${s.blocked.length} blocked · ${s.waiting.length} waiting`,
     `     Next action: ${nextAction}`,
     `     Handoff: Carry over: ${s.handoff.startsWith("Carry over: ") ? s.handoff.slice(12) : s.handoff}`,
-    `     Status: ${mission.status} | Tokens: ${mission.tokensUsed.toLocaleString()} | Autopilot: ${mission.autopilot.enabled ? "ON" : "OFF"} (${mission.autopilot.mode})`,
+    `     Tokens: ${tokenBudgetBar(mission.tokensUsed, mission.tokensBudget)}`,
+    `     Status: ${mission.status} | Autopilot: ${mission.autopilot.enabled ? "ON" : "OFF"} (${mission.autopilot.mode})`,
     "  " + "─".repeat(76),
     `  ${phaseLine(phase)}`,
     "",
@@ -146,8 +156,7 @@ export function dashboardRows(mission: MissionState): string[] {
     const mDone = m.features.filter(f => f.status === "done").length;
     const mTotal = m.features.length;
     const mi = m.status === "active" ? "➡️" : m.status === "complete" ? "✅" : "•";
-    rows.push(`  ${mi} ${m.id}: ${m.title}`);
-    rows.push(`     ${milestoneProgressBar(m)} ${mDone}/${mTotal}`);
+    rows.push(`  ${mi} ${m.id}: ${m.title}  ${milestoneProgressBar(m, 24)} ${mDone}/${mTotal}`);
 
     const order: Record<string, number> = { active: 0, pending: 1, waiting: 2, blocked: 3, failed: 4, done: 5 };
     const sorted = [...m.features].sort((a, b) => (order[a.status] ?? 5) - (order[b.status] ?? 5) || a.priority - b.priority);
@@ -155,25 +164,25 @@ export function dashboardRows(mission: MissionState): string[] {
     for (const f of sorted) {
       const fi = featureStatusIcon(f.status);
       const deps = f.dependsOn.length ? ` 🔗${f.dependsOn.join(",")}` : "";
-      const blocked = f.status === "blocked" && f.notes ? ` ↳ ${f.notes.slice(0, 50)}` : "";
-      const failed = f.status === "failed" ? " [failed]" : "";
+      const blocked = f.status === "blocked" && f.notes ? ` — ${clip(f.notes, 50)}` : "";
+      const failed = f.status === "failed" ? " ✗" : "";
       const ac = acceptanceProgress(f);
-      const badge = f.acceptance.length ? ` [${ac.label} AC]` : "";
+      const badge = f.acceptance.length ? ` [${ac.label}]` : "";
 
       if (f.status === "active") {
-        rows.push(`       ${fi} ${f.id} [P${f.priority}] ${f.title}${badge}${deps}`);
-        rows.push(`         📝 ${f.description}`);
+        rows.push(`     ▶ ${fi} ${f.id} [P${f.priority}] ${f.title}${badge}${deps}`);
+        if (f.description) rows.push(`       ${clip(f.description, 72)}`);
         const chain = dependsOnChain(mission, f);
-        if (chain.length) rows.push(`         🔗 Blocking chain: ${formatDepChain(chain)}`);
-        for (const a of pendingAcceptance(f, "->")) rows.push(`         ☐ ${clip(a, 66)}`);
+        if (chain.length) rows.push(`       🔗 ${formatDepChain(chain)}`);
+        for (const a of pendingAcceptance(f, "->")) rows.push(`       ☐ ${clip(a, 68)}`);
         if (f.startedAt && Date.now() - f.startedAt > 600_000) {
-          rows.push(`         Active ${Math.round((Date.now() - f.startedAt) / 60000)}min`);
+          rows.push(`       ⏱ Active ${Math.round((Date.now() - f.startedAt) / 60000)}min`);
         }
-        if (f.toolCallCount > 50) rows.push(`         ${f.toolCallCount} tool calls`);
+        if (f.toolCallCount > 50) rows.push(`       🔧 ${f.toolCallCount} tool calls`);
         rows.push(`     👉 ${deriveNextAction(f)}`);
         rows.push(`     🤝 ${s.handoff}`);
       } else {
-        rows.push(`       ${fi} ${f.id} [P${f.priority}] ${f.title}${badge}${deps}${blocked}${failed}`);
+        rows.push(`     ${fi} ${f.id} [P${f.priority}] ${f.title}${badge}${deps}${blocked}${failed}`);
       }
     }
     rows.push("");
