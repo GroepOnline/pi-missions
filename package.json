@@ -1,6 +1,6 @@
 {
   "name": "@onlinechefgroep/pi-missions",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "Durable mission orchestration for the Pi coding agent",
   "type": "module",
   "private": false,
