@@ -1,0 +1,29 @@
+{
+  "name": "pi-missions environment",
+  "image": "mcr.microsoft.com/devcontainers/base:oraclelinux-9",
+  "features": {
+    "ghcr.io/devcontainers/features/node:1": {
+      "version": "22"
+    },
+    "ghcr.io/devcontainers/features/github-cli:1": {},
+    "ghcr.io/devcontainers/features/common-utils:2": {}
+  },
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "GitHub.copilot",
+        "GitHub.vscode-pull-request-github",
+        "EditorConfig.EditorConfig"
+      ],
+      "settings": {
+        "terminal.integrated.env.linux": {
+          "NODE_OPTIONS": "--max-old-space-size=8192"
+        }
+      }
+    }
+  },
+  "postCreateCommand": "npm ci",
+  "remoteEnv": {
+    "NODE_OPTIONS": "--max-old-space-size=8192"
+  }
+}
