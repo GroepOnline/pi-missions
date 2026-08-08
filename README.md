@@ -12,7 +12,7 @@
 
 `pi-missions` turns short-lived Pi sessions into long-running execution tracks. It gives an agent a durable mission plan, feature queue, history log, evidence folder, and session handoff layer so multi-step work can survive restarts, context resets, forks, and interruptions.
 
-[![Version](https://img.shields.io/badge/version-0.1.3-blue.svg)](https://github.com/OnlineChefGroep/pi-missions/releases/tag/v0.1.3) ![Tests](https://img.shields.io/badge/tests-892%20passing-brightgreen.svg) ![Pi Extension](https://img.shields.io/badge/Pi-Extension-9b59b6.svg) ![License](https://img.shields.io/badge/license-MIT-green.svg)
+[![Version](https://img.shields.io/badge/version-0.1.3-blue.svg)](https://github.com/GroepOnline/pi-missions/releases/tag/v0.1.3) ![Tests](https://img.shields.io/badge/tests-892%20passing-brightgreen.svg) ![Pi Extension](https://img.shields.io/badge/Pi-Extension-9b59b6.svg) ![License](https://img.shields.io/badge/license-MIT-green.svg)
 
 ## Status
 
@@ -36,7 +36,7 @@ Verified in this snapshot:
 
 ```bash
 # Install the extension
-pi install git:github.com/OnlineChefGroep/pi-missions
+pi install git:github.com/GroepOnline/pi-missions
 
 # Start a mission
 /mission start "Implement user auth"
