@@ -1,5 +1,5 @@
 {
-  "name": "@onlinechefgroep/pi-missions",
+  "name": "@groeponline/pi-missions",
   "version": "0.1.3",
   "description": "Durable mission orchestration for the Pi coding agent",
   "type": "module",
@@ -16,13 +16,13 @@
   ],
   "repository": {
     "type": "git",
-    "url": "https://github.com/OnlineChefGroep/pi-missions.git"
+    "url": "https://github.com/GroepOnline/pi-missions.git"
   },
-  "homepage": "https://github.com/OnlineChefGroep/pi-missions#readme",
+  "homepage": "https://github.com/GroepOnline/pi-missions#readme",
   "bugs": {
-    "url": "https://github.com/OnlineChefGroep/pi-missions/issues"
+    "url": "https://github.com/GroepOnline/pi-missions/issues"
   },
-  "author": "OnlineChefGroep",
+  "author": "GroepOnline",
   "license": "MIT",
   "pi": {
     "extensions": [

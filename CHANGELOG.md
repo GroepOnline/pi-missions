@@ -8,7 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.1.3] - 2026-05-29
 
 ### Changed
-- Migrated package scope from `@devctx/pi-missions` to `@onlinechefgroep/pi-missions`.
+- Migrated package scope from `@devctx/pi-missions` to `@groeponline/pi-missions`.
 - Added `publishConfig` for GitHub Packages.
 - Updated test count badges: 834 → 892.
 - Added license badge to README.

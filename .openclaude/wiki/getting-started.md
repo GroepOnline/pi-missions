@@ -8,7 +8,7 @@
 ## Installation
 
 ```bash
-npm install @onlinechefgroep/pi-missions
+npm install @groeponline/pi-missions
 ```
 
 Or load as extension in Pi:
