@@ -5,7 +5,7 @@
 // gate here. Port that suite if this copy ever diverges.
 // Local: npm run release [patch|minor|major|auto|x.y.z]
 // CI:    node scripts/release.mjs auto --push
-import { readFileSync, writeFileSync } from "node:fs";
+import { closeSync, fsyncSync, openSync, readFileSync, renameSync, unlinkSync, writeSync } from "node:fs";
 import { execSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { dirname, join, resolve } from "node:path";
@@ -44,6 +44,25 @@ function git(command) {
   return execSync(command, { cwd: root, encoding: "utf8" }).trim();
 }
 
+function atomicWriteFile(path, content) {
+  const tempPath = `${path}.${process.pid}.${Date.now()}.tmp`;
+  const fd = openSync(tempPath, "wx");
+  let closed = false;
+  try {
+    writeSync(fd, content);
+    fsyncSync(fd);
+    closeSync(fd);
+    closed = true;
+    renameSync(tempPath, path);
+  } catch (error) {
+    if (!closed) closeSync(fd);
+    try {
+      unlinkSync(tempPath);
+    } catch {}
+    throw error;
+  }
+}
+
 function lastReleaseTag() {
   try {
     return parseLatestVersionTag(git("git tag -l 'v*'").split("\n"));
@@ -62,8 +81,7 @@ function refExists(ref) {
 }
 
 function commitSubjectsSince(tag) {
-  const range = tag ? `${tag}..HEAD` : "HEAD";
-  const log = git(`git log ${range} --pretty=%s`);
+  const log = git(tag ? `git log ${tag}..HEAD --pretty=%s` : "git log --pretty=%s");
   return log.split("\n").map((line) => line.trim()).filter(Boolean);
 }
 
@@ -169,13 +187,13 @@ function main() {
   }
 
   pkg.version = next;
-  writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + "\n");
+  atomicWriteFile(pkgPath, JSON.stringify(pkg, null, 2) + "\n");
 
   const date = new Date().toISOString().slice(0, 10);
   const changelog = readFileSync(changelogPath, "utf8");
   const rolled = rewriteUnreleasedHeading(changelog, next, date);
   if (rolled.rewritten) {
-    writeFileSync(changelogPath, rolled.changelog);
+    atomicWriteFile(changelogPath, rolled.changelog);
     console.log(`CHANGELOG: [Unreleased] -> [${next}] - ${date}`);
   } else {
     console.log("No [Unreleased] section; leaving CHANGELOG as-is.");
