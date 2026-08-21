@@ -2,7 +2,7 @@
 
 ![Pi Missions Banner](docs/images/missions_banner.png)
 
-# 🚀 @groepchef/pi-missions
+# 🚀 @groeponline/pi-missions
 
 **Durable mission orchestration + task queues + state handoffs for the Pi coding agent**
 
@@ -12,7 +12,7 @@
 
 `pi-missions` turns short-lived Pi sessions into long-running execution tracks. It gives an agent a durable mission plan, feature queue, history log, evidence folder, and session handoff layer so multi-step work can survive restarts, context resets, forks, and interruptions.
 
-[![Version](https://img.shields.io/badge/version-0.1.3-blue.svg)](https://github.com/GroepOnline/pi-missions/releases/tag/v0.1.3) ![Tests](https://img.shields.io/badge/tests-892%20passing-brightgreen.svg) ![Pi Extension](https://img.shields.io/badge/Pi-Extension-9b59b6.svg) ![License](https://img.shields.io/badge/license-MIT-green.svg)
+[![npm](https://img.shields.io/npm/v/@groeponline/pi-missions.svg)](https://www.npmjs.com/package/@groeponline/pi-missions) ![Tests](https://img.shields.io/badge/tests-892%20passing-brightgreen.svg) ![Pi Extension](https://img.shields.io/badge/Pi-Extension-9b59b6.svg) ![License](https://img.shields.io/badge/license-MIT-green.svg)
 
 ## Status
 
@@ -36,7 +36,7 @@ Verified in this snapshot:
 
 ```bash
 # Install the extension
-pi install git:github.com/GroepOnline/pi-missions
+pi install npm:@groeponline/pi-missions
 
 # Start a mission
 /mission start "Implement user auth"

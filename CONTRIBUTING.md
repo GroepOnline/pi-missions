@@ -79,3 +79,17 @@ See [SECURITY.md](SECURITY.md) for security vulnerability reporting.
 ## License
 
 By contributing, you agree that your contributions will be licensed under the MIT License.
+
+## Release
+
+Releases are automated. Merging to `main` runs `.github/workflows/release.yml`,
+which typechecks, tests, builds, smoke-runs the extension and CLI, verifies the
+catalog contract, then bumps the version from the commit subjects
+(`feat:` = minor, `!:` or `BREAKING CHANGE` = major, otherwise patch), rolls the
+`## [Unreleased]` CHANGELOG heading, tags `vX.Y.Z`, publishes to npmjs with
+provenance, and creates the GitHub Release. Publishing is idempotent: re-runs
+skip a version that already exists on the registry.
+
+- Opt out of a release for a merge: put `[skip release]` in the commit subject.
+- Preview the next version locally: `npm run verify:release`.
+- Cut an explicit level locally: `npm run release -- minor` (then push the tag).

@@ -1,12 +1,13 @@
 {
   "name": "@groeponline/pi-missions",
   "version": "0.1.3",
-  "description": "Durable mission orchestration for the Pi coding agent",
+  "description": "Durable mission orchestration for the Pi coding agent: mission plans, feature queues, evidence trails, and session handoffs that survive restarts.",
   "type": "module",
   "private": false,
   "keywords": [
     "pi-package",
     "pi-extension",
+    "pi-coding-agent",
     "missions",
     "coding-agent",
     "orchestration",
@@ -27,7 +28,8 @@
   "pi": {
     "extensions": [
       "./dist/index.js"
-    ]
+    ],
+    "image": "https://raw.githubusercontent.com/GroepOnline/pi-missions/main/docs/images/missions_banner.png"
   },
   "exports": {
     ".": {
@@ -52,12 +54,15 @@
     "prepublishOnly": "npm run build",
     "db:init": "node dist/cli/index.js doctor",
     "test:coverage": "cross-env NODE_OPTIONS=--max-old-space-size=4096 vitest run --coverage",
-    "smoke:ci": "node scripts/ci-smoke.mjs"
+    "smoke:ci": "node scripts/ci-smoke.mjs",
+    "release": "node scripts/release.mjs",
+    "verify:package": "node scripts/verify-package.mjs",
+    "verify:release": "node scripts/release.mjs --dry-run"
   },
   "peerDependencies": {
-    "@earendil-works/pi-ai": "^0.77.0",
-    "@earendil-works/pi-coding-agent": "^0.74.0",
-    "@earendil-works/pi-tui": "^0.74.0",
+    "@earendil-works/pi-ai": ">=0.77.0 <0.85.0",
+    "@earendil-works/pi-coding-agent": ">=0.74.0 <0.85.0",
+    "@earendil-works/pi-tui": ">=0.74.0 <0.85.0",
     "typebox": "^1.1.38"
   },
   "dependencies": {
@@ -84,6 +89,7 @@
     "node": ">=22.5.0"
   },
   "publishConfig": {
-    "registry": "https://npm.pkg.github.com"
+    "access": "public",
+    "registry": "https://registry.npmjs.org"
   }
 }
