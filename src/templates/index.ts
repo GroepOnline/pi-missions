@@ -1,4 +1,5 @@
 import { getRepositories } from '../database/index.js';
+import type { TemplateRow } from '../database/index.js';
 
 export interface Template {
   id: string;
@@ -14,6 +15,7 @@ export interface Template {
   rating: number;
   usageCount: number;
 }
+
 
 export interface TemplateSearchResult {
   templates: Template[];
@@ -77,7 +79,7 @@ export class TemplateManager {
     return this.listTemplates(100).filter(t => t.difficulty === difficulty);
   }
   
-  private rowToTemplate(row: any): Template {
+  private rowToTemplate(row: TemplateRow): Template {
     return {
       id: row.id,
       name: row.name,
@@ -86,7 +88,10 @@ export class TemplateManager {
       version: row.version,
       content: JSON.parse(row.content || '{}'),
       tags: JSON.parse(row.tags || '[]'),
-      difficulty: row.difficulty,
+      difficulty:
+        row.difficulty === 'advanced' || row.difficulty === 'intermediate'
+          ? row.difficulty
+          : 'beginner',
       estimatedTimeHours: row.estimated_time_hours || 0,
       estimatedTokens: row.estimated_tokens || 0,
       rating: row.rating,
