@@ -44,14 +44,14 @@
     "LICENSE"
   ],
   "scripts": {
-    "build": "NODE_OPTIONS='--max-old-space-size=4096' tsup && node scripts/copy-build-assets.mjs",
-    "check": "NODE_OPTIONS='--max-old-space-size=4096' tsc --noEmit",
-    "lint": "NODE_OPTIONS='--max-old-space-size=4096' tsc --noEmit",
-    "test": "NODE_OPTIONS='--max-old-space-size=4096' vitest run",
+    "build": "cross-env NODE_OPTIONS=--max-old-space-size=4096 tsup && node scripts/copy-build-assets.mjs",
+    "check": "cross-env NODE_OPTIONS=--max-old-space-size=4096 tsc --noEmit",
+    "lint": "cross-env NODE_OPTIONS=--max-old-space-size=4096 tsc --noEmit",
+    "test": "cross-env NODE_OPTIONS=--max-old-space-size=4096 vitest run",
     "bench": "vitest bench",
     "prepublishOnly": "npm run build",
     "db:init": "node dist/cli/index.js doctor",
-    "test:coverage": "NODE_OPTIONS='--max-old-space-size=4096' vitest run --coverage",
+    "test:coverage": "cross-env NODE_OPTIONS=--max-old-space-size=4096 vitest run --coverage",
     "smoke:ci": "node scripts/ci-smoke.mjs"
   },
   "peerDependencies": {
@@ -72,6 +72,7 @@
     "@types/node": "^22.19.18",
     "@types/proper-lockfile": "^4.1.2",
     "@vitest/coverage-v8": "^4.1.7",
+    "cross-env": "^10.1.0",
     "tsup": "^8.0.0",
     "typescript": "^5.6.0",
     "vitest": "^4.1.7"
