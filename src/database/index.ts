@@ -423,7 +423,7 @@ export class MissionRepository {
     if (fields.length === 0) return this.findById(id);
     
     const setClause = fields.map(f => `${f} = ?`).join(', ');
-    const values = fields.map(f => (updates as any)[f]);
+    const values = fields.map(f => updates[f as keyof MissionRow]);
     
     this.db.prepare(`UPDATE missions SET ${setClause}, updated_at = ? WHERE id = ?`)
       .run(...values, Date.now(), id);
@@ -437,7 +437,8 @@ export class MissionRepository {
   }
   
   count(): number {
-    return (this.db.prepare('SELECT COUNT(*) as count FROM missions').get() as any).count;
+    const row = this.db.prepare('SELECT COUNT(*) as count FROM missions').get() as { count: number } | undefined;
+    return row?.count ?? 0;
   }
 }
 
@@ -494,7 +495,7 @@ export class FeatureRepository {
     if (fields.length === 0) return this.findById(id, missionId);
     
     const setClause = fields.map(f => `${f} = ?`).join(', ');
-    const values = fields.map(f => (updates as any)[f]);
+    const values = fields.map(f => updates[f as keyof FeatureRow]);
     
     this.db.prepare(`UPDATE features SET ${setClause} WHERE id = ? AND mission_id = ?`)
       .run(...values, id, missionId);
@@ -777,7 +778,7 @@ export class MetricRepository {
         COUNT(*) as count
       FROM metrics 
       WHERE metric_type = ? AND metric_name = ? AND recorded_at > ?
-    `).get(type, name, since) as any;
+    `).get(type, name, since) as { avg?: number; min?: number; max?: number; count?: number } | undefined;
     
     return {
       avg: row?.avg ?? 0,
@@ -833,7 +834,7 @@ export class PredictionRepository {
       SELECT AVG(accuracy) as avg_accuracy 
       FROM predictions 
       WHERE prediction_type = ? AND accuracy IS NOT NULL
-    `).get(type) as any;
+    `).get(type) as { avg_accuracy?: number } | undefined;
     
     return row?.avg_accuracy ?? 0;
   }

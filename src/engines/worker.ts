@@ -108,7 +108,10 @@ export function spawnWorker(
   config: WorkerConfig,
 ): Promise<WorkerResult | { error: string }> {
   if (isWorkerRunning()) {
-    return Promise.resolve({ error: `Worker already running for feature ${activeWorker!.featureId}. Wait for it to finish.` });
+    const running = activeWorker;
+    if (running) {
+      return Promise.resolve({ error: `Worker already running for feature ${running.featureId}. Wait for it to finish.` });
+    }
   }
 
   const feature = getFeatureById(mission, config.featureId);
