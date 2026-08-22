@@ -12,16 +12,16 @@
 
 `pi-missions` turns short-lived Pi sessions into long-running execution tracks. It gives an agent a durable mission plan, feature queue, history log, evidence folder, and session handoff layer so multi-step work can survive restarts, context resets, forks, and interruptions.
 
-[![npm](https://img.shields.io/npm/v/@groeponline/pi-missions.svg)](https://www.npmjs.com/package/@groeponline/pi-missions) ![Tests](https://img.shields.io/badge/tests-892%20passing-brightgreen.svg) ![Pi Extension](https://img.shields.io/badge/Pi-Extension-9b59b6.svg) ![License](https://img.shields.io/badge/license-MIT-green.svg)
+[![npm](https://img.shields.io/npm/v/@groeponline/pi-missions.svg)](https://www.npmjs.com/package/@groeponline/pi-missions) [![CI](https://github.com/GroepOnline/pi-missions/actions/workflows/ci.yml/badge.svg)](https://github.com/GroepOnline/pi-missions/actions/workflows/ci.yml) [![Pi package](https://img.shields.io/badge/Pi-package-9b59b6.svg)](https://pi.dev/packages/@groeponline/pi-missions) ![License](https://img.shields.io/badge/license-MIT-green.svg)
 
 ## Status
 
-This repository is a hardened `0.1.x` release candidate, not a finished marketplace platform. The extension entrypoint, state management, mission commands, tools, analytics dashboard, CLI, database repositories, and tests are wired. Integration classes for GitHub/Slack/webhooks are still lightweight scaffolding and should not be advertised as production integrations yet.
+The public package is on the `0.3.x` line and is actively maintained as a durable local mission/runtime layer for Pi. The extension entrypoint, state management, mission commands, tools, analytics dashboard, CLI, database repositories, and tests are wired. Integration classes for GitHub/Slack/webhooks are still lightweight scaffolding and should not be advertised as production integrations yet.
 
 Verified in this snapshot:
 
 - `npm run check` passes.
-- `npm test` passes: 31 test files, 892 tests.
+- `npm test` passes in the current CI matrix.
 - `npm run build` produces `dist/index.js`, `dist/index.d.ts`, `dist/cli/index.js`, and copied database schema assets.
 - `./scripts/smoke-test.sh` confirms the Pi extension exports the default `piMissions` function.
 - `node dist/cli/index.js doctor` works on Node.js 22 using `node:sqlite`.
@@ -146,4 +146,4 @@ Mission state is stored locally under `~/.pi/missions/<mission-id>/`:
 
 ## License
 
-MIT © OnlineChef
+MIT © GroepOnline

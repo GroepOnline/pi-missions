@@ -20,7 +20,7 @@
     "type": "git",
     "url": "https://github.com/GroepOnline/pi-missions.git"
   },
-  "homepage": "https://github.com/GroepOnline/pi-missions#readme",
+  "homepage": "https://pi.dev/packages/@groeponline/pi-missions",
   "bugs": {
     "url": "https://github.com/GroepOnline/pi-missions/issues"
   },
