@@ -1,6 +1,6 @@
 {
   "name": "@groeponline/pi-missions",
-  "version": "0.1.3",
+  "version": "0.2.0",
   "description": "Durable mission orchestration for the Pi coding agent: mission plans, feature queues, evidence trails, and session handoffs that survive restarts.",
   "type": "module",
   "private": false,
