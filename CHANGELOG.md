@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- Release flow: `scripts/release.mjs` (auto bump from conventional commit subjects, CHANGELOG roll, annotated tag), idempotent `scripts/npm-publish.sh`, idempotent `scripts/github-release.sh`, and `.github/workflows/release.yml` that cuts the tag and publishes on merge to main.
+- `npm run verify:package` catalog contract: package identity, discovery keywords, shipped files, npmjs registry, and the pi peer range.
+
+### Changed
+- Publishes to npmjs.org as a public package instead of GitHub Packages, so `pi install npm:@groeponline/pi-missions` works and the pi.dev catalog card resolves.
+- Pi peer ranges widened to `>=0.74.0 <0.85.0`; `^0.74.0` pinned a single 0.x minor and failed installs on pi 0.84.
+- `pi.image` points at the repository banner for the catalog card.
+
 ## [0.1.3] - 2026-05-29
 
 ### Changed
