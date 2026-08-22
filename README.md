@@ -1,18 +1,18 @@
 <div align="center">
 
-![Pi Missions Banner](docs/images/missions_banner.png)
+<img src="https://raw.githubusercontent.com/GroepOnline/pi-missions/main/docs/images/missions_banner.png" alt="Pi Missions — durable execution tracks for Pi" width="100%">
 
-# 🚀 @groeponline/pi-missions
+# @groeponline/pi-missions
 
-**Durable mission orchestration + task queues + state handoffs for the Pi coding agent**
+**Turn short-lived agent sessions into durable execution tracks.**
 
 ---
 
 </div>
 
-`pi-missions` turns short-lived Pi sessions into long-running execution tracks. It gives an agent a durable mission plan, feature queue, history log, evidence folder, and session handoff layer so multi-step work can survive restarts, context resets, forks, and interruptions.
+`pi-missions` keeps the work alive when a Pi session ends. A mission carries its plan, task queue, state, history, evidence, and handoff context forward, so multi-step implementation can survive restarts, compaction, forks, and interruptions without rebuilding the plan from memory.
 
-[![npm](https://img.shields.io/npm/v/@groeponline/pi-missions.svg)](https://www.npmjs.com/package/@groeponline/pi-missions) [![CI](https://github.com/GroepOnline/pi-missions/actions/workflows/ci.yml/badge.svg)](https://github.com/GroepOnline/pi-missions/actions/workflows/ci.yml) [![Pi package](https://img.shields.io/badge/Pi-package-9b59b6.svg)](https://pi.dev/packages/@groeponline/pi-missions) ![License](https://img.shields.io/badge/license-MIT-green.svg)
+[![npm](https://img.shields.io/npm/v/@groeponline/pi-missions.svg)](https://www.npmjs.com/package/@groeponline/pi-missions) [![downloads](https://img.shields.io/npm/dm/@groeponline/pi-missions.svg?label=downloads)](https://www.npmjs.com/package/@groeponline/pi-missions) [![CI](https://github.com/GroepOnline/pi-missions/actions/workflows/ci.yml/badge.svg)](https://github.com/GroepOnline/pi-missions/actions/workflows/ci.yml) [![Pi package](https://img.shields.io/badge/Pi-package-9b59b6.svg)](https://pi.dev/packages/@groeponline/pi-missions) ![License](https://img.shields.io/badge/license-MIT-green.svg)
 
 ## Status
 
@@ -125,7 +125,7 @@ The original native `better-sqlite3` hard dependency was removed from the defaul
 
 ## State Model
 
-![Pi Missions State Model](docs/images/missions_state_model.png)
+![Pi Missions State Model](https://raw.githubusercontent.com/GroepOnline/pi-missions/main/docs/images/missions_state_model.png)
 
 Mission state is stored locally under `~/.pi/missions/<mission-id>/`:
 - `plan.json`: Current mission plan, feature list, and active pointer.
@@ -136,7 +136,7 @@ Mission state is stored locally under `~/.pi/missions/<mission-id>/`:
 
 ## Typical Workflow
 
-![Pi Missions Typical Workflow](docs/images/missions_workflow.png)
+![Pi Missions Typical Workflow](https://raw.githubusercontent.com/GroepOnline/pi-missions/main/docs/images/missions_workflow.png)
 
 1. Create a mission with `/mission new <title>`.
 2. Break the mission into features or load an existing plan.

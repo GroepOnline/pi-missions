@@ -1,7 +1,7 @@
 {
   "name": "@groeponline/pi-missions",
   "version": "0.3.4",
-  "description": "Durable mission orchestration for the Pi coding agent: mission plans, feature queues, evidence trails, and session handoffs that survive restarts.",
+  "description": "Persistent mission orchestration for Pi: durable plans, task queues, evidence trails, SQLite state, resumable execution, and handoffs across agent sessions.",
   "type": "module",
   "private": false,
   "keywords": [
@@ -14,13 +14,20 @@
     "orchestration",
     "task-management",
     "sqlite",
-    "cli"
+    "cli",
+    "persistent-agent",
+    "workflow",
+    "state-management",
+    "task-queue",
+    "resumable",
+    "evidence",
+    "agent-state"
   ],
   "repository": {
     "type": "git",
     "url": "https://github.com/GroepOnline/pi-missions.git"
   },
-  "homepage": "https://pi.dev/packages/@groeponline/pi-missions",
+  "homepage": "https://github.com/GroepOnline/pi-missions#readme",
   "bugs": {
     "url": "https://github.com/GroepOnline/pi-missions/issues"
   },
