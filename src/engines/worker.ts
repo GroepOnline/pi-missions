@@ -148,7 +148,18 @@ export function spawnWorker(
 
   const child = spawn(piPath, args, {
     stdio: ["ignore", "pipe", "pipe"],
-    env: { ...process.env, ...correlationEnv, PI_NO_COLOR: "1" },
+    env: (() => {
+     const childEnv = { ...process.env, ...correlationEnv, PI_NO_COLOR: "1" };
+     if (!config.orchestraCorrelation) {
+       delete childEnv.PI_ORCHESTRA_CONTRACT_VERSION;
+       delete childEnv.PI_ORCHESTRA_CALLER;
+       delete childEnv.PI_MISSION_ID;
+       delete childEnv.PI_MISSION_TASK_ID;
+       delete childEnv.PI_MISSION_ATTEMPT_ID;
+       delete childEnv.PI_ORCHESTRA_IDEMPOTENCY_KEY;
+     }
+     return childEnv;
+   })(),
   });
 
   let stdout = "";
