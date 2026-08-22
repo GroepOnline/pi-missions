@@ -64,7 +64,7 @@ for (const [key, raw] of resources) {
   if (typeof raw !== "string" || !raw.trim()) { fail(`pi.${key} contains an invalid resource path`); continue; }
   if (raw.startsWith("!")) continue;
   const clean = normalize(raw);
-  if (clean.startsWith("../")) { fail(`pi.${key} resource escapes package root: ${raw}`); continue; }
+  if (path.isAbsolute(clean) || path.posix.isAbsolute(clean) || path.posix.normalize(clean).split("/").includes("..") || !path.resolve(packageRoot, clean).startsWith(packageRoot.endsWith(path.sep) ? packageRoot : `${packageRoot}${path.sep}`)) { fail(`pi.${key} resource escapes package root: ${raw}`); continue; }
   if (!/[?*{}[\]]/.test(clean) && !fs.existsSync(path.join(packageRoot, clean))) fail(`pi.${key} resource does not exist after build: ${raw}`);
 }
 
@@ -115,6 +115,30 @@ if (packed) {
   for (const [key, raw] of resources) {
     if (raw.startsWith("!")) continue;
     const clean = normalize(raw);
+    var normalizedPosix = path.posix.normalize(clean);
+    var resolved = path.resolve(packageRoot, clean);
+    var rootPrefix = packageRoot.endsWith(path.sep) ? packageRoot : `${packageRoot}${path.sep}`;
+    if (path.isAbsolute(clean) || path.posix.isAbsolute(clean) || normalizedPosix.split("/").includes("..") ||
+        (resolved !== packageRoot && !resolved.startsWith(rootPrefix))) {
+      fail(`pi.${key} resource escapes package root: ${raw}`);
+      continue;
+    }
+    if (/[?*{}[\\]]/.test(clean)) {
+      fail(`pi.${key} resource must not contain glob characters: ${raw}`);
+      continue;
+    }
+    var normalizedPosix = path.posix.normalize(clean);
+    var resolved = path.resolve(packageRoot, clean);
+    var rootPrefix = packageRoot.endsWith(path.sep) ? packageRoot : `${packageRoot}${path.sep}`;
+    if (path.isAbsolute(clean) || path.posix.isAbsolute(clean) || normalizedPosix.split("/").includes("..") ||
+        (resolved !== packageRoot && !resolved.startsWith(rootPrefix))) {
+      fail(`pi.${key} resource escapes package root: ${raw}`);
+      continue;
+    }
+    if (/[?*{}[\\]]/.test(clean)) {
+      fail(`pi.${key} resource must not contain glob characters: ${raw}`);
+      continue;
+    }
     if (/[?*{}[\]]/.test(clean)) continue;
     const local = path.join(packageRoot, clean);
     if (!fs.existsSync(local)) continue;
