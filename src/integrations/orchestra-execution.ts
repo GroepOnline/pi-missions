@@ -12,7 +12,10 @@ export interface MissionOrchestraExecutionCorrelation extends MissionOrchestraEx
 }
 
 function keyPart(value: string): string {
-  return encodeURIComponent(value.trim());
+  if (value.length === 0) {
+    throw new Error("Orchestra execution identity parts must be non-empty");
+  }
+  return encodeURIComponent(value);
 }
 
 /**
