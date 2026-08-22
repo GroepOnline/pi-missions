@@ -59,19 +59,20 @@
     "lint": "cross-env NODE_OPTIONS=--max-old-space-size=4096 tsc --noEmit",
     "test": "cross-env NODE_OPTIONS=--max-old-space-size=4096 vitest run",
     "bench": "vitest bench",
-    "prepublishOnly": "npm run build",
+    "prepublishOnly": "npm run build && npm run verify:pi-package",
     "db:init": "node dist/cli/index.js doctor",
     "test:coverage": "cross-env NODE_OPTIONS=--max-old-space-size=4096 vitest run --coverage",
     "smoke:ci": "node scripts/ci-smoke.mjs",
     "release": "node scripts/release.mjs",
-    "verify:package": "node scripts/verify-package.mjs",
-    "verify:release": "node scripts/release.mjs auto --dry-run"
+    "verify:package": "node scripts/verify-package.mjs && node scripts/verify-pi-package-contract.mjs",
+    "verify:release": "node scripts/release.mjs auto --dry-run",
+    "verify:pi-package": "node scripts/verify-pi-package-contract.mjs"
   },
   "peerDependencies": {
-    "@earendil-works/pi-ai": ">=0.77.0 <0.86.0",
-    "@earendil-works/pi-coding-agent": ">=0.74.0 <0.86.0",
-    "@earendil-works/pi-tui": ">=0.74.0 <0.86.0",
-    "typebox": "^1.1.38"
+    "@earendil-works/pi-ai": "*",
+    "@earendil-works/pi-coding-agent": "*",
+    "@earendil-works/pi-tui": "*",
+    "typebox": "*"
   },
   "dependencies": {
     "@sinclair/typebox": "^0.31.28",

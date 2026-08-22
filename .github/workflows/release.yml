@@ -55,7 +55,7 @@ jobs:
         run: npm run build
       - name: Extension and CLI smoke
         run: npm run smoke:ci
-      - name: Catalog contract
+      - name: Pi package release gate
         run: npm run verify:package
       - name: Release plan smoke
         run: npm run verify:release
@@ -97,7 +97,7 @@ jobs:
         run: npm run build
       - name: Extension and CLI smoke
         run: npm run smoke:ci
-      - name: Catalog contract
+      - name: Pi package release gate
         run: npm run verify:package
       - name: Publish to npm
         env:
