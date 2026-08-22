@@ -1,6 +1,10 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import type { Feature, MissionState } from "../core/types.js";
 import { appendHistory, getFeatureById, saveMissionSafe } from "../core/state.js";
+import {
+  orchestraCorrelationEnv,
+  type MissionOrchestraExecutionCorrelation,
+} from "../integrations/orchestra-execution.js";
 import { buildLeanContext } from "../utils/context.js";
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -12,6 +16,8 @@ export interface WorkerConfig {
   customPrompt?: string;
   model?: string;
   timeoutMs?: number;
+  /** Optional execution-local Orchestra correlation supplied by the mission layer. */
+  orchestraCorrelation?: MissionOrchestraExecutionCorrelation;
 }
 
 export interface WorkerResult {
@@ -22,6 +28,7 @@ export interface WorkerResult {
   stderr: string;
   durationMs: number;
   killed: boolean;
+  orchestraCorrelation?: MissionOrchestraExecutionCorrelation;
 }
 
 export type WorkerStatus = "idle" | "running" | "done" | "error" | "timeout";
@@ -32,6 +39,7 @@ export interface ActiveWorker {
   startedAt: number;
   result?: WorkerResult;
   status: WorkerStatus;
+  orchestraCorrelation?: MissionOrchestraExecutionCorrelation;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -134,9 +142,24 @@ export function spawnWorker(
   // pi takes messages as positional arguments; pass prompt directly
   args.push(prompt);
 
+  const correlationEnv = config.orchestraCorrelation
+    ? orchestraCorrelationEnv(config.orchestraCorrelation)
+    : {};
+
   const child = spawn(piPath, args, {
     stdio: ["ignore", "pipe", "pipe"],
-    env: { ...process.env, PI_NO_COLOR: "1" },
+    env: (() => {
+      const childEnv: NodeJS.ProcessEnv = { ...process.env, ...correlationEnv, PI_NO_COLOR: "1" };
+      if (!config.orchestraCorrelation) {
+        delete childEnv.PI_ORCHESTRA_CONTRACT_VERSION;
+        delete childEnv.PI_ORCHESTRA_CALLER;
+        delete childEnv.PI_MISSION_ID;
+        delete childEnv.PI_MISSION_TASK_ID;
+        delete childEnv.PI_MISSION_ATTEMPT_ID;
+        delete childEnv.PI_ORCHESTRA_IDEMPOTENCY_KEY;
+      }
+      return childEnv;
+    })(),
   });
 
   let stdout = "";
@@ -157,8 +180,11 @@ export function spawnWorker(
   const startedAt = Date.now();
 
   activeWorker = {
-    process: child, featureId: config.featureId,
-    startedAt, status: "running",
+    process: child,
+    featureId: config.featureId,
+    startedAt,
+    status: "running",
+    orchestraCorrelation: config.orchestraCorrelation,
   };
 
   const timeout = setTimeout(() => {
@@ -175,8 +201,13 @@ export function spawnWorker(
 
       const result: WorkerResult = {
         featureId: config.featureId,
-        exitCode: code, signal: signal ?? null,
-        stdout, stderr, durationMs, killed,
+        exitCode: code,
+        signal: signal ?? null,
+        stdout,
+        stderr,
+        durationMs,
+        killed,
+        orchestraCorrelation: config.orchestraCorrelation,
       };
 
       if (activeWorker) {
@@ -193,10 +224,15 @@ export function spawnWorker(
           featureId: config.featureId,
           note: `Exit ${code}${signal ? ` (${signal})` : ""} in ${Math.round(durationMs / 1000)}s`,
           details: {
-            exitCode: code, signal: signal ?? undefined,
-            durationMs, killed, missionId,
-            stdoutLen: stdout.length, stderrLen: stderr.length,
+            exitCode: code,
+            signal: signal ?? undefined,
+            durationMs,
+            killed,
+            missionId,
+            stdoutLen: stdout.length,
+            stderrLen: stderr.length,
             model,
+            orchestraCorrelation: config.orchestraCorrelation,
           },
         });
         saveMissionSafe(mission).catch(() => { /* best-effort */ });
