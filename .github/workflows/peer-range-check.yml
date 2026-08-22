@@ -1,0 +1,54 @@
+name: Pi peer range check
+
+# The pi peer ranges (<0.86.0) are hand-maintained. When pi ships a minor
+# outside the range, installs start failing. This job notices first and opens
+# an issue so a human bumps the range in a normal PR.
+on:
+  schedule:
+    - cron: "23 7 * * 1" # Mondays 07:23 UTC
+  workflow_dispatch:
+
+permissions:
+  issues: write
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.x
+      - name: Compare npm latest pi against package.json peer ranges
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          DRIFT="$(node -e '
+            const { execSync } = require("node:child_process");
+            const semver = (v) => v.split(".").map(Number);
+            const cmp = (a, b) => {
+              const [x, y] = [semver(a), semver(b)];
+              return x[0] - y[0] || x[1] - y[1] || x[2] - y[2];
+            };
+            const pkg = require("./package.json");
+            const latest = execSync("npm view @earendil-works/pi-coding-agent version")
+              .toString().trim();
+            const range = pkg.peerDependencies["@earendil-works/pi-coding-agent"];
+            const m = range.match(/>=([\d.]+) <([\d.]+)/);
+            const ok = m && cmp(latest, m[2]) < 0;
+            console.log(ok ? "" : `${latest} is outside peer range "${range}"`);
+          ')"
+          if [ -z "$DRIFT" ]; then
+            echo "pi peers still cover the latest release; nothing to do"
+            exit 0
+          fi
+          existing="$(gh issue list -R "$GITHUB_REPOSITORY" --search "pi peer range drift in:title" --state open --json number -q '.[0].number' 2>/dev/null || true)"
+          if [ -n "$existing" ]; then
+            echo "Issue #$existing already tracks peer range drift: $DRIFT"
+            exit 0
+          fi
+          gh issue create -R "$GITHUB_REPOSITORY" \
+            --title "pi peer range drift: widen peerDependencies" \
+            --body "$DRIFT — widen the @earendil-works/* peer ranges in package.json, regenerate the lockfile (npm install), and let the next release ship them. Weekly reminder comes from this workflow."
