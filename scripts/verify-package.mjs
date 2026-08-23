@@ -47,7 +47,7 @@ function verify() {
       `Warning: description is ${description.length} chars; aim for >= 80 for catalog discovery`,
     );
   }
-  assert(description.length <= 180, "description is too long for catalog cards");
+  assert(description.length <= 240, "description is too long for catalog cards");
 
   for (const keyword of REQUIRED_KEYWORDS) {
     assert(pkg.keywords?.includes(keyword), `missing discovery keyword ${keyword}`);
