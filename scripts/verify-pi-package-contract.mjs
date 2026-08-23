@@ -104,10 +104,11 @@ const assertResourcePattern = (key, raw) => {
   return { clean, negative };
 };
 
-const collectFiles = (relativePath, out) => {
+const collectFiles = (relativePath, out, visited = new Set()) => {
   const local = path.resolve(packageRoot, relativePath);
   if (!insidePackage(relativePath) || !fs.existsSync(local)) return;
   const real = fs.realpathSync(local);
+  if (visited.has(real)) return;
   const rootReal = fs.realpathSync(packageRoot);
   const realRelative = path.relative(rootReal, real);
   if (realRelative === ".." || realRelative.startsWith(`..${path.sep}`) || path.isAbsolute(realRelative)) {
@@ -116,8 +117,9 @@ const collectFiles = (relativePath, out) => {
   }
   const stat = fs.statSync(local);
   if (stat.isDirectory()) {
+    visited.add(real);
     for (const entry of fs.readdirSync(local, { withFileTypes: true })) {
-      collectFiles(normalize(path.relative(packageRoot, path.join(local, entry.name))), out);
+      collectFiles(normalize(path.relative(packageRoot, path.join(local, entry.name))), out, visited);
     }
     return;
   }
@@ -162,6 +164,7 @@ const peer = pkg.peerDependencies || {};
 for (const dep of core) {
   if (peer[dep] !== undefined && peer[dep] !== "*") fail(`Pi core peer ${dep} must use "*", found ${JSON.stringify(peer[dep])}`);
   if (pkg.dependencies?.[dep] !== undefined) fail(`Pi core package ${dep} must not be in dependencies; use peerDependencies: "*"`);
+  if (pkg.optionalDependencies?.[dep] !== undefined) fail(`Pi core package ${dep} must not be in optionalDependencies; use peerDependencies: "*"`);
   if ((pkg.bundledDependencies || pkg.bundleDependencies || []).includes(dep)) fail(`Pi core package ${dep} must not be bundled`);
 }
 
