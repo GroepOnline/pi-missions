@@ -9,19 +9,48 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.3.7] - 2026-08-30
 
+### Fixed
+- Removed the unrunnable `chef-linear-notion-sync` workflow caller (`GRO-1360`, #14) instead of shipping a repository workflow that could not execute with its local capabilities.
+
 ## [0.3.6] - 2026-08-28
+
+### Maintenance
+- Added the standard ignore block for OS metadata, Xcode output, editor-local state, and local environment files.
 
 ## [0.3.5] - 2026-08-23
 
+### Added
+- Added a Pi package contract verifier covering package identity, catalog discovery metadata, shipped files, registry targeting, and Pi peer dependency rules.
+
+### Fixed
+- Hardened package resource-path validation, including containment checks and protection against in-root symlink cycles.
+
 ## [0.3.4] - 2026-08-22
+
+### Changed
+- Refreshed the public package status and Pi catalog metadata.
+- Aligned lockfile package-version metadata with the published package version.
 
 ## [0.3.3] - 2026-08-22
 
+### Maintenance
+- Release metadata only; no runtime or source-code changes were introduced between `v0.3.2` and `v0.3.3`.
+
 ## [0.3.2] - 2026-08-22
+
+### Maintenance
+- Release metadata only; no runtime or source-code changes were introduced between `v0.3.1` and `v0.3.2`.
 
 ## [0.3.1] - 2026-08-22
 
+### CI
+- Updated GitHub Actions that still depended on the deprecated Node 20 action runtime to their current major versions.
+
 ## [0.3.0] - 2026-08-22
+
+### Added
+- Added the Orchestra execution-correlation contract (`CHE-142`) so spawned workers can carry and report orchestration execution context.
+- Added worker and integration tests for Orchestra correlation behavior and documented the execution boundary.
 
 ## [0.2.1] - 2026-08-22
 
