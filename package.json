@@ -1,6 +1,6 @@
 {
   "name": "@groeponline/pi-missions",
-  "version": "0.3.8",
+  "version": "0.3.9",
   "description": "Persistent mission orchestration for Pi: durable plans, task queues, evidence trails, SQLite state, resumable execution, and handoffs across agent sessions.",
   "type": "module",
   "private": false,
