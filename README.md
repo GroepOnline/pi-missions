@@ -20,6 +20,18 @@ Pi Missions gives a job a durable identity with a plan, ordered features, accept
 
 Use it when a task is too large for one prompt, one context window or one uninterrupted coding session.
 
+## Where it fits
+
+Pi Missions owns **durable work state**: plans, features, evidence, history, recovery, and handoff context that must survive session boundaries. It does not replace Wishcraft's lightweight idea inbox and it does not execute multi-agent swarms itself.
+
+`pi-wishcraft idea -> pi-missions mission -> pi-agent-orchestrator run` is the intended promotion path when a thought becomes durable work and then needs parallel or isolated execution.
+
+- [`pi-wishcraft`](https://github.com/GroepOnline/pi-wishcraft): operator cockpit and fast idea capture.
+- **pi-missions**: durable plan/task/evidence state.
+- [`pi-agent-orchestrator`](https://github.com/GroepOnline/pi-agent-orchestrator): execution fabric for agents, worktrees, swarms, schedules, and handoffs.
+
+GitHub, Slack and webhook integration classes remain lightweight scaffolding; production-readiness is tracked in [#13](https://github.com/GroepOnline/pi-missions/issues/13).
+
 ## 30-second start
 
 ```bash
@@ -180,6 +192,10 @@ Run the built extension locally:
 ```bash
 pi -e ./dist/index.js
 ```
+
+### Recovery behavior
+
+Safe mission saves keep the previous valid `plan.json` as `plan.json.bak`. When the primary plan is unreadable or invalid, loading automatically tries the backup before giving up. Schema migrations create a separate timestamped `plan.json.pre-migration-*.bak` before rewriting state. Recovery is automatic for a corrupt primary plan; operators can inspect the backup files directly when diagnosing a failed migration or filesystem problem.
 
 CLI diagnostics:
 

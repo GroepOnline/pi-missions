@@ -41,10 +41,31 @@ if (doctor.status !== 0) {
   process.exit(doctor.status ?? 1);
 }
 
+const fallbackDbPath = path.join(
+  os.tmpdir(),
+  `pi-missions-ci-node-sqlite-${process.platform}-${process.pid}.db`,
+);
+const fallbackDoctor = spawnSync(
+  process.execPath,
+  ["--require", path.resolve("scripts/force-node-sqlite.cjs"), "dist/cli/index.js", "doctor"],
+  {
+    env: {
+      ...process.env,
+      PI_MISSIONS_DB_PATH: fallbackDbPath,
+    },
+    stdio: "inherit",
+  },
+);
+if (fallbackDoctor.status !== 0) {
+  console.error(`node:sqlite fallback doctor failed with exit code ${fallbackDoctor.status ?? 1}`);
+  process.exit(fallbackDoctor.status ?? 1);
+}
+
 try {
   fs.rmSync(dbPath, { force: true });
+  fs.rmSync(fallbackDbPath, { force: true });
 } catch {
   // no-op cleanup
 }
 
-console.log("CI smoke test passed");
+console.log("CI smoke test passed (including forced node:sqlite fallback)");
