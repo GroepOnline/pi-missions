@@ -22,6 +22,16 @@ let db: Database.Database | null = null;
 const require = createRequire(import.meta.url);
 let databaseDriver: 'better-sqlite3' | 'node:sqlite' | null = null;
 const CURRENT_SCHEMA_VERSION = 1;
+const DEFAULT_SQLITE_BUSY_TIMEOUT_MS = 250;
+const MAX_SQLITE_BUSY_TIMEOUT_MS = 1000;
+
+/** Parse the external busy-timeout setting into a bounded main-thread stall budget. */
+export function parseSqliteBusyTimeoutMs(value = process.env.PI_MISSIONS_SQLITE_BUSY_TIMEOUT_MS): number {
+  if (value == null || value.trim() === '') return DEFAULT_SQLITE_BUSY_TIMEOUT_MS;
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed < 0) return DEFAULT_SQLITE_BUSY_TIMEOUT_MS;
+  return Math.min(parsed, MAX_SQLITE_BUSY_TIMEOUT_MS);
+}
 
 type DatabaseConstructor = new (filename: string) => Database.Database;
 
@@ -104,6 +114,8 @@ export function getDatabase(): Database.Database {
     const candidateDb = openSqliteDatabase(dbFile);
     try {
       applyPragma(candidateDb, 'journal_mode = WAL');
+      applyPragma(candidateDb, 'synchronous = NORMAL');
+      applyPragma(candidateDb, `busy_timeout = ${parseSqliteBusyTimeoutMs()}`);
       applyPragma(candidateDb, 'foreign_keys = ON');
 
       // Initialize schema before publishing singleton
