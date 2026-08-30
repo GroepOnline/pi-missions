@@ -28,6 +28,11 @@ const dbPath = path.join(
   `pi-missions-ci-${process.platform}-${process.pid}.db`,
 );
 
+const fallbackDbPath = path.join(
+  os.tmpdir(),
+  `pi-missions-ci-node-sqlite-${process.platform}-${process.pid}.db`,
+);
+
 let exitCode = 0;
 
 try {
