@@ -85,6 +85,65 @@ function commitSubjectsSince(tag) {
   return log.split("\n").map((line) => line.trim()).filter(Boolean);
 }
 
+
+export function buildReleaseNotesFromSubjects(subjects) {
+  const groups = new Map([
+    ["Added", []],
+    ["Fixed", []],
+    ["Security", []],
+    ["Changed", []],
+    ["Documentation", []],
+    ["Maintenance", []],
+  ]);
+
+  for (const raw of subjects) {
+    const subject = raw.trim();
+    if (!subject || /^chore:\s*release\b/i.test(subject)) continue;
+
+    const match = /^(\w+)(?:\([^)]+\))?(!)?:\s*(.+)$/.exec(subject);
+    const type = match?.[1]?.toLowerCase() ?? "";
+    const description = match?.[3]?.trim() || subject;
+    let group = "Changed";
+    if (type === "feat") group = "Added";
+    else if (type === "fix") group = "Fixed";
+    else if (type === "security") group = "Security";
+    else if (type === "docs") group = "Documentation";
+    else if (["ci", "build", "chore", "test"].includes(type)) group = "Maintenance";
+    else if (["perf", "refactor"].includes(type)) group = "Changed";
+    groups.get(group).push(`- ${description}`);
+  }
+
+  const sections = [];
+  for (const [heading, lines] of groups) {
+    if (lines.length > 0) sections.push(`### ${heading}\n${lines.join("\n")}`);
+  }
+  if (sections.length === 0) {
+    return "### Maintenance\n- Release metadata only; no user-facing changes were detected.";
+  }
+  return sections.join("\n\n");
+}
+
+export function seedUnreleasedNotes(changelog, subjects) {
+  const heading = /^## \[Unreleased\][ \t]*$/m;
+  const match = heading.exec(changelog);
+  if (!match) return { changelog, seeded: false };
+
+  const bodyStart = match.index + match[0].length;
+  const rest = changelog.slice(bodyStart);
+  const nextHeading = rest.search(/^## \[/m);
+  const body = (nextHeading === -1 ? rest : rest.slice(0, nextHeading)).trim();
+  if (body) return { changelog, seeded: false };
+
+  const notes = buildReleaseNotesFromSubjects(subjects);
+  return {
+    changelog:
+      changelog.slice(0, bodyStart) +
+      `\n\n${notes}\n` +
+      changelog.slice(bodyStart).replace(/^\s*/, ""),
+    seeded: true,
+  };
+}
+
 function parseArgs(argv) {
   const flags = new Set(argv.filter((arg) => arg.startsWith("--")));
   const kind = argv.find((arg) => !arg.startsWith("--")) ?? "patch";
@@ -157,10 +216,11 @@ function main() {
 
   const pkg = JSON.parse(readFileSync(pkgPath, "utf8"));
   const tagBase = lastReleaseTag();
+  const subjects = commitSubjectsSince(tagBase);
   const { kind, next } = resolveReleaseVersion(
     pkg.version,
     kindArg,
-    commitSubjectsSince(tagBase),
+    subjects,
   );
   const tag = `v${next}`;
 
@@ -191,7 +251,11 @@ function main() {
 
   const date = new Date().toISOString().slice(0, 10);
   const changelog = readFileSync(changelogPath, "utf8");
-  const rolled = rewriteUnreleasedHeading(changelog, next, date);
+  const seeded = seedUnreleasedNotes(changelog, subjects);
+  if (seeded.seeded) {
+    console.log("CHANGELOG: generated fallback notes from commit subjects.");
+  }
+  const rolled = rewriteUnreleasedHeading(seeded.changelog, next, date);
   if (rolled.rewritten) {
     atomicWriteFile(changelogPath, rolled.changelog);
     console.log(`CHANGELOG: [Unreleased] -> [${next}] - ${date}`);
