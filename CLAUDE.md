@@ -31,7 +31,7 @@ Mission state lives under `~/.pi/missions/<mission-id>/` with `plan.json` (+ `.b
 
 ## Architecture
 
-```
+```text
 src/
 ├── core/           # Extension entrypoint, state, types
 │   ├── extension.ts    # Default export piMissions(pi) — registers commands, tools, hooks
@@ -77,7 +77,7 @@ Tests mirror this layout under `tests/` (top-level files + per-layer subdirs), w
 - `src/engines/worker.ts` is the real worker runtime (real `child_process.spawn`, not simulated) — there is no separate `worker-pool.ts` shim.
 - Database schema is **copied to `dist/database/schema.sql`** during build via `scripts/copy-build-assets.mjs`. Always edit `src/database/schema.sql`, never the dist copy.
 - There is no `src/integrations/` directory — GitHub/Slack/webhook integrations are scaffolded via repository patterns in the engines, not a separate module.
-- When bumping the schema, update `schema_version` in `src/database/schema.sql` and the migration logic in `database/index.ts`.
+- When bumping the schema, DDL changes go in `src/database/schema.sql`; bump `CURRENT_SCHEMA_VERSION` in `src/database/index.ts` and update the migration logic there. The TypeBox `SCHEMA_VERSION` in `src/core/types.ts` is unrelated to SQL migrations.
 
 ## Status
 
