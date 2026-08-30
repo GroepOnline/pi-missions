@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import { 
-  getDatabase, closeDatabase, getRepositories,
+  getDatabase, closeDatabase, getRepositories, parseSqliteBusyTimeoutMs,
   MissionRepository, FeatureRepository, HistoryRepository,
   LearningRepository, PatternRepository, TemplateRepository,
   MetricRepository, PredictionRepository
@@ -46,6 +46,23 @@ beforeEach(() => {
 describe('Database Initialization', () => {
   it('should create database file', () => {
     expect(db).toBeDefined();
+  });
+
+  it('should apply bounded WAL runtime pragmas', () => {
+    const journal = db.prepare('PRAGMA journal_mode').get() as { journal_mode: string };
+    const synchronous = db.prepare('PRAGMA synchronous').get() as { synchronous: number };
+    const busy = db.prepare('PRAGMA busy_timeout').get() as { timeout: number };
+    expect(journal.journal_mode.toLowerCase()).toBe('wal');
+    expect(synchronous.synchronous).toBe(1);
+    expect(busy.timeout).toBe(250);
+  });
+
+  it('should bound external SQLite busy timeout configuration', () => {
+    expect(parseSqliteBusyTimeoutMs(undefined)).toBe(250);
+    expect(parseSqliteBusyTimeoutMs('50')).toBe(50);
+    expect(parseSqliteBusyTimeoutMs('5000')).toBe(1000);
+    expect(parseSqliteBusyTimeoutMs('-1')).toBe(250);
+    expect(parseSqliteBusyTimeoutMs('not-a-number')).toBe(250);
   });
   
   it('should have all tables', () => {
