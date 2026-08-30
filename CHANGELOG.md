@@ -54,6 +54,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.2.1] - 2026-08-22
 
+### Security
+- Cleared all high-severity npm audit findings present in the previous release line.
+
+### Changed
+- Widened the Pi peer ranges to include the current `0.85.x` line (`<0.86.0`).
+- Added a weekly peer-range drift workflow that opens an issue when the latest Pi release falls outside the declared compatibility range.
+
 ## [0.2.0] - 2026-08-22
 
 ### Added
