@@ -1,6 +1,6 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import type { Feature, MissionState } from "../core/types.js";
-import { appendHistory, getFeatureById, saveMissionSafe } from "../core/state.js";
+import { appendHistory, getFeatureById, loadMissionFromDisk, saveMissionSafe } from "../core/state.js";
 import {
   orchestraCorrelationEnv,
   type MissionOrchestraExecutionCorrelation,
@@ -215,27 +215,32 @@ export function spawnWorker(
         activeWorker.status = result.killed ? "timeout" : result.exitCode === 0 ? "done" : "error";
       }
 
-      // Log worker result to history (best-effort, may race with mission reload)
+      // The child may have persisted feature completion while it was running.
+      // Re-read after close and append parent-observed process history to that
+      // fresh state; writing the parent's stale in-memory object here can roll
+      // a completed/blocked feature back to its pre-worker status.
       try {
-        // Re-read mission from disk to avoid stale state
         const missionId = mission.id;
-        appendHistory(mission, {
-          event: "worker_finished",
-          featureId: config.featureId,
-          note: `Exit ${code}${signal ? ` (${signal})` : ""} in ${Math.round(durationMs / 1000)}s`,
-          details: {
-            exitCode: code,
-            signal: signal ?? undefined,
-            durationMs,
-            killed,
-            missionId,
-            stdoutLen: stdout.length,
-            stderrLen: stderr.length,
-            model,
-            orchestraCorrelation: config.orchestraCorrelation,
-          },
-        });
-        saveMissionSafe(mission).catch(() => { /* best-effort */ });
+        const freshMission = loadMissionFromDisk(missionId);
+        if (freshMission) {
+          appendHistory(freshMission, {
+            event: "worker_finished",
+            featureId: config.featureId,
+            note: `Exit ${code}${signal ? ` (${signal})` : ""} in ${Math.round(durationMs / 1000)}s`,
+            details: {
+              exitCode: code,
+              signal: signal ?? undefined,
+              durationMs,
+              killed,
+              missionId,
+              stdoutLen: stdout.length,
+              stderrLen: stderr.length,
+              model,
+              orchestraCorrelation: config.orchestraCorrelation,
+            },
+          });
+          await saveMissionSafe(freshMission);
+        }
       } catch { /* history is best-effort for workers */ }
 
       resolve(result);

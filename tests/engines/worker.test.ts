@@ -18,6 +18,7 @@ vi.mock("../../src/core/state.js", async () => {
     ...(actual as object),
     appendHistory: vi.fn(),
     saveMissionSafe: vi.fn(() => Promise.resolve()),
+    loadMissionFromDisk: vi.fn(),
     getFeatureById: (await vi.importActual("../../src/core/state.js") as any).getFeatureById,
   };
 });
@@ -33,7 +34,7 @@ import {
   type WorkerResult,
   type ActiveWorker,
 } from "../../src/engines/worker.js";
-import { appendHistory } from "../../src/core/state.js";
+import { appendHistory, loadMissionFromDisk, saveMissionSafe } from "../../src/core/state.js";
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // Helpers
@@ -408,6 +409,48 @@ describe("spawnWorker — process lifecycle", () => {
     expect(wr.killed).toBe(true);
 
     vi.useRealTimers();
+  });
+
+  it("persists worker history onto fresh child state instead of the stale parent mission", async () => {
+    const parent = makeMission();
+    const feature = activeFeature(parent);
+    const fresh = structuredClone(parent);
+    const freshFeature = fresh.milestones[0]!.features[0]!;
+    freshFeature.status = "completed";
+    freshFeature.completedAt = Date.now();
+    vi.mocked(loadMissionFromDisk).mockReturnValue(fresh);
+
+    const child = fakeChildProcess();
+    mockSpawn.mockReturnValue(child);
+
+    const promise = spawnWorker(parent, { featureId: feature.id, timeoutMs: 5000 });
+    child.emitClose(0, null);
+    await promise;
+
+    expect(loadMissionFromDisk).toHaveBeenCalledWith(parent.id);
+    expect(appendHistory).toHaveBeenCalledWith(fresh, expect.objectContaining({
+      event: "worker_finished",
+      featureId: feature.id,
+    }));
+    expect(saveMissionSafe).toHaveBeenCalledWith(fresh);
+    expect(freshFeature.status).toBe("completed");
+    expect(saveMissionSafe).not.toHaveBeenCalledWith(parent);
+  });
+
+  it("does not write stale state when the mission disappeared before worker exit", async () => {
+    const parent = makeMission();
+    const feature = activeFeature(parent);
+    vi.mocked(loadMissionFromDisk).mockReturnValue(null);
+
+    const child = fakeChildProcess();
+    mockSpawn.mockReturnValue(child);
+
+    const promise = spawnWorker(parent, { featureId: feature.id, timeoutMs: 5000 });
+    child.emitClose(0, null);
+    await promise;
+
+    expect(saveMissionSafe).not.toHaveBeenCalled();
+    expect(appendHistory).not.toHaveBeenCalled();
   });
 
   it("logs worker result to history via appendHistory", async () => {
