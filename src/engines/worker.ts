@@ -195,7 +195,7 @@ export function spawnWorker(
   }, timeoutMs);
 
   return new Promise<WorkerResult | { error: string }>((resolve) => {
-    child.on("close", (code, signal) => {
+    child.on("close", async (code, signal) => {
       clearTimeout(timeout);
       const durationMs = Date.now() - startedAt;
 

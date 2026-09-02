@@ -416,7 +416,7 @@ describe("spawnWorker — process lifecycle", () => {
     const feature = activeFeature(parent);
     const fresh = structuredClone(parent);
     const freshFeature = fresh.milestones[0]!.features[0]!;
-    freshFeature.status = "completed";
+    freshFeature.status = "done";
     freshFeature.completedAt = Date.now();
     vi.mocked(loadMissionFromDisk).mockReturnValue(fresh);
 
@@ -433,7 +433,7 @@ describe("spawnWorker — process lifecycle", () => {
       featureId: feature.id,
     }));
     expect(saveMissionSafe).toHaveBeenCalledWith(fresh);
-    expect(freshFeature.status).toBe("completed");
+    expect(freshFeature.status).toBe("done");
     expect(saveMissionSafe).not.toHaveBeenCalledWith(parent);
   });
 
@@ -456,6 +456,7 @@ describe("spawnWorker — process lifecycle", () => {
   it("logs worker result to history via appendHistory", async () => {
     const m = makeMission();
     const f = activeFeature(m);
+    vi.mocked(loadMissionFromDisk).mockReturnValue(m);
 
     const child = fakeChildProcess();
     mockSpawn.mockReturnValue(child);
