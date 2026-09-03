@@ -13,9 +13,17 @@ import {
 } from "../src/tools/index.js";
 import { createMission, getAllFeatures, getActiveFeature, getNextPendingFeature, loadMissionFromDisk, readHistory, saveMissionSafe } from "../src/core/state.js";
 import type { Feature, RuntimeState } from "../src/core/types.js";
+import { isWorkerRunning, spawnWorker } from "../src/engines/worker.js";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+
+vi.mock("../src/engines/worker.js", () => ({
+  isWorkerRunning: vi.fn(),
+  getActiveWorker: vi.fn(),
+  spawnWorker: vi.fn(),
+  killWorker: vi.fn(),
+}));
 
 // The tools module registers tools with the pi ExtensionAPI. We test both the
 // tool registration itself and the underlying state logic that handlers invoke.
@@ -380,6 +388,33 @@ describe("registerMissionTools — tool registration", () => {
     const result = await tools[1]!.execute("call2", {}, null as any, () => {}, ctx);
     expect(result.isError).toBe(true);
     expect(result.content[0].text).toContain("No unblocked pending feature");
+  });
+
+  it("mission_spawn_worker passes a freshly persisted mission to the worker", async () => {
+    const m = createMission("Worker tool", "Fresh worker state");
+    await saveMissionSafe(m);
+    const tools: any[] = [];
+    const pi = { registerTool: (t: any) => { tools.push(t); } };
+    const rt: RuntimeState = { activeMission: m, autoSaveInterval: null, phaseToolCallCount: 0, currentPhase: "execution", lastFeatureId: undefined };
+    registerMissionTools(pi as any, rt);
+
+    let resolveWorker!: (result: { error: string }) => void;
+    vi.mocked(isWorkerRunning).mockReturnValue(false);
+    vi.mocked(spawnWorker).mockReturnValue(new Promise<{ error: string }>((resolve) => {
+      resolveWorker = resolve;
+    }) as any);
+
+    const ctx = { ui: { setStatus: () => {}, notify: () => {} } };
+    const result = await tools[6]!.execute("worker-call", {}, null as any, () => {}, ctx);
+
+    expect(result.isError).toBe(false);
+    expect(vi.mocked(spawnWorker)).toHaveBeenCalledWith(
+      expect.objectContaining({ id: m.id }),
+      expect.objectContaining({ featureId: "F001" }),
+    );
+    resolveWorker({ error: "Worker crashed" });
+    await Promise.resolve();
+    expect(readHistory(m.id).some(e => e.event === "worker_error" && e.note === "Worker crashed")).toBe(true);
   });
 
   it("mission_fork execute creates persistent fork metadata and actionable manual handoff", async () => {

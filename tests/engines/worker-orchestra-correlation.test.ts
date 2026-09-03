@@ -11,12 +11,13 @@ vi.mock("../../src/core/state.js", async () => {
   return {
     ...(actual as object),
     appendHistory: vi.fn(),
-    saveMissionSafe: vi.fn(() => Promise.resolve()),
+    loadMissionFromDisk: vi.fn(),
     getFeatureById: (actual as any).getFeatureById,
   };
 });
 
 import { spawnWorker, type WorkerResult } from "../../src/engines/worker.js";
+import { loadMissionFromDisk } from "../../src/core/state.js";
 import { buildMissionOrchestraExecutionCorrelation } from "../../src/integrations/orchestra-execution.js";
 
 function fakeChildProcess(): ChildProcess & { emitClose(code: number | null, signal: string | null): void } {
@@ -30,7 +31,10 @@ function fakeChildProcess(): ChildProcess & { emitClose(code: number | null, sig
   return emitter as any;
 }
 
-beforeEach(() => vi.clearAllMocks());
+beforeEach(() => {
+  vi.clearAllMocks();
+  vi.mocked(loadMissionFromDisk).mockImplementation((id) => ({ id } as any);
+});
 
 describe("mission worker Orchestra correlation", () => {
   it("propagates correlation into child transport env and result metadata", async () => {

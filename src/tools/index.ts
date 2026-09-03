@@ -5,7 +5,7 @@ import { TOOL_POLICIES } from "../core/types.js";
 import {
   activateNextFeature, appendHistory, autoUnblockResolved,
   completeActiveFeature, getActiveFeature, getFeatureById, getMilestoneById,
-  getNextPendingFeature, loadMissionFromDisk, saveMissionSafe,
+  getNextPendingFeature, loadMissionFromDisk, updateMissionOnDisk, saveMissionSafe,
 } from "../core/state.js";
 import { getCompletionDetector } from "../engines/completion.js";
 import { getErrorRecoveryEngine } from "../engines/recovery.js";
@@ -389,13 +389,14 @@ export function registerMissionTools(_pi: ExtensionAPI, runtime: RuntimeState): 
           withSession: async (fc) => {
             const fcCtx = fc as unknown as ForkReplacementContext;
             const fsf = (fc.sessionManager as ForkSessionManager | undefined)?.getSessionFile?.();
-            const pm = loadMissionFromDisk(m.id);
-            const pf = pm ? getFeatureById(pm, forked.id) : null;
-            if (pm && pf) {
-              pushSessionRef(pf, fsf ? `session:${fsf}` : undefined);
-              appendHistory(pm, { event: "feature_fork_session_created", featureId: forked.id, note: reason, details: { sourceFeatureId: f.id, subtask: params.subtask, forkSessionFile: fsf, parentLeafId, self: true } });
-              await saveMissionSafe(pm);
-            }
+            const updated = await updateMissionOnDisk(m.id, (freshMission) => {
+              const freshForked = getFeatureById(freshMission, forked.id);
+              if (!freshForked) return false;
+              pushSessionRef(freshForked, fsf ? `session:${fsf}` : undefined);
+              appendHistory(freshMission, { event: "feature_fork_session_created", featureId: forked.id, note: reason, details: { sourceFeatureId: f.id, subtask: params.subtask, forkSessionFile: fsf, parentLeafId, self: true } });
+              return true;
+            });
+            if (updated?.result) runtime.activeMission = updated.mission;
             if (typeof fc.sendUserMessage === "function") await fc.sendUserMessage(kickoff);
             else fc.ui.notify(`🌿 Fork active: ${forked.title}\n\n${kickoff}`, "info");
           },
@@ -480,7 +481,7 @@ export function registerMissionTools(_pi: ExtensionAPI, runtime: RuntimeState): 
         };
       }
 
-      // Mark the feature as active
+      // Mark the feature as active.
       feat.status = "active";
       m.activeFeatureId = feat.id;
       m.activeMilestoneId = feat.milestoneId;
@@ -494,17 +495,19 @@ export function registerMissionTools(_pi: ExtensionAPI, runtime: RuntimeState): 
       });
 
       await saveMissionSafe(m);
+      const workerMission = loadMissionFromDisk(m.id) ?? m;
 
-      // Spawn async — don't await, return immediately
-      spawnWorker(m, {
+      // Spawn async — don't await, return immediately.
+      spawnWorker(workerMission, {
         featureId: feat.id,
         customPrompt: typeof params.customPrompt === "string" ? params.customPrompt : undefined,
         model: typeof params.model === "string" ? params.model : undefined,
       }).then((result) => {
         if ("error" in result) {
-          appendHistory(m, { event: "worker_error", featureId: feat.id, note: result.error });
-          saveMissionSafe(m).catch((saveErr) => {
-            process.stderr.write(`[pi-missions] Failed to save after worker error: ${saveErr}\n`);
+          appendHistory({ id: m.id }, {
+            event: "worker_error",
+            featureId: feat.id,
+            note: result.error,
           });
         }
       }).catch((spawnErr) => {
