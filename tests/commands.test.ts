@@ -1893,7 +1893,7 @@ describe("handleWorker", () => {
     } as any);
           await handleWorker(undefined, ctx, rt);
       expect(vi.mocked(spawnWorker)).toHaveBeenCalledWith(
-        rt.activeMission,
+        expect.objectContaining({ id: rt.activeMission!.id }),
         { featureId: "F001" },
       );
       expect(ctx.getCalls()[0]!.msg).toContain("Worker spawned for F001");
@@ -1918,7 +1918,7 @@ describe("handleWorker", () => {
     } as any);
           await handleWorker("F002", ctx, rt);
       expect(vi.mocked(spawnWorker)).toHaveBeenCalledWith(
-        rt.activeMission,
+        expect.objectContaining({ id: rt.activeMission!.id }),
         { featureId: "F002" },
       );
       expect(rt.activeMission!.activeFeatureId).toBe("F002");
@@ -1945,18 +1945,32 @@ describe("handleWorker", () => {
       expect(history.some(e => e.event === "worker_spawned" && e.featureId === "F001")).toBe(true);
   });
 
-  it("handles worker error result", async () => {
+  it("records worker errors without rewriting newer mission state", async () => {
     const ctx = mkCtx();
     const rt = runtimeFixture();
-    await saveMissionSafe(rt.activeMission!);
+    const parent = rt.activeMission!;
+    await saveMissionSafe(parent);
 
+    let resolveWorker!: (result: { error: string }) => void;
     vi.mocked(isWorkerRunning).mockReturnValue(false);
-    vi.mocked(spawnWorker).mockResolvedValue({
-      error: "Worker crashed",
-    });
-          await handleWorker(undefined, ctx, rt);
-      // Worker spawn succeeds initially, the error comes via the async callback
-      expect(ctx.getCalls()[0]!.msg).toContain("Worker spawned");
+    vi.mocked(spawnWorker).mockReturnValue(new Promise<{ error: string }>((resolve) => {
+      resolveWorker = resolve;
+    }) as any);
+    await handleWorker(undefined, ctx, rt);
+    expect(vi.mocked(spawnWorker)).toHaveBeenCalledWith(
+      expect.objectContaining({ id: parent.id }),
+      { featureId: "F001" },
+    );
+
+    const childState = structuredClone(parent);
+    childState.milestones[0]!.features[0]!.status = "done";
+    childState.milestones[0]!.features[0]!.completedAt = Date.now();
+    await saveMissionSafe(childState);
+    resolveWorker({ error: "Worker crashed" });
+    await Promise.resolve();
+
+    expect(readHistory(parent.id).some(e => e.event === "worker_error" && e.note === "Worker crashed")).toBe(true);
+    expect(loadMissionFromDisk(parent.id)?.milestones[0]!.features[0]!.status).toBe("done");
   });
 
   it("handles spawn rejection gracefully", async () => {

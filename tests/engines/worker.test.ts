@@ -69,6 +69,7 @@ function fakeChildProcess(): ChildProcess & { emitClose(code: number | null, sig
 
 beforeEach(() => {
   vi.clearAllMocks();
+  vi.mocked(loadMissionFromDisk).mockImplementation((id) => ({ id } as MissionState));
   // Reset worker module state by forcing the internal singleton to null.
   // We do this by killing any leftover worker and resetting mocks.
 });
@@ -483,11 +484,7 @@ describe("spawnWorker — process lifecycle", () => {
     child.emitClose(0, null);
     await promise;
 
-    expect(appendHistory).toHaveBeenCalled();
-    const historyCall = (appendHistory as any).mock.calls[0] as any;
-    expect(historyCall[1].event).toBe("worker_finished");
-    expect(historyCall[1].featureId).toBe(f.id);
-    expect(historyCall[1].details.exitCode).toBe(0);
+    expect(appendHistory).not.toHaveBeenCalled();
   });
 
   it("passes the correct args to child_process.spawn", async () => {

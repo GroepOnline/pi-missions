@@ -20,6 +20,7 @@ import { processAgentEndForAutopilot } from '../engines/autopilot.js';
 import { activateNextFeature, completeActiveFeature } from '../core/state.js';
 import { handleDashboard } from '../commands/index.js';
 import { isValidMissionId } from '../utils/fs.js';
+import { isWorkerRunning } from '../engines/worker.js';
 
 // Re-export types for external consumers
 export type { ToolCallEvent, ToolResultEvent };
@@ -125,7 +126,13 @@ export default function piMissions(pi: ExtensionAPI): void {
   function scheduleAutoSave(rt: RuntimeState): void {
     if (!rt.autoSaveInterval) {
       rt.autoSaveInterval = setInterval(async () => {
-        if (rt.activeMission?.status === 'active') await saveMissionSafe(rt.activeMission);
+        const mission = rt.activeMission;
+        if (!mission || mission.status !== 'active') return;
+        if (isWorkerRunning()) {
+          rt.activeMission = loadMissionFromDisk(mission.id) ?? mission;
+          return;
+        }
+        await saveMissionSafe(mission);
       }, 2 * 60 * 1000);
     }
   }
@@ -331,6 +338,7 @@ export default function piMissions(pi: ExtensionAPI): void {
     const m = runtime.activeMission;
     if (!m) return;
 
+    const workerRunning = isWorkerRunning();
     const usage = (ctx as unknown as { getContextUsage?: () => { tokens?: number; percent?: number } }).getContextUsage?.();
     if (usage?.tokens !== undefined) {
       const delta = Math.max(0, usage.tokens - m.lastContextTokens);
@@ -359,7 +367,7 @@ export default function piMissions(pi: ExtensionAPI): void {
       }
     } catch { /* best-effort */ }
 
-    if (active?.status === 'active') {
+    if (!workerRunning && active?.status === 'active') {
       const stuck = detector.detectStuck();
       const textLoop = detector.detectTextLoop();
       const effective = textLoop.isStuck ? textLoop : stuck;
@@ -380,8 +388,12 @@ export default function piMissions(pi: ExtensionAPI): void {
       }
     }
 
-    await saveMissionSafe(m);
-    updateFooter(ctx, m);
+    if (workerRunning) {
+      runtime.activeMission = loadMissionFromDisk(m.id) ?? m;
+    } else {
+      await saveMissionSafe(m);
+    }
+    updateFooter(ctx, runtime.activeMission);
   });
 
   // ── agent_end: completion detection + auto-advance ─────────────────────
@@ -390,9 +402,14 @@ export default function piMissions(pi: ExtensionAPI): void {
     const event = args[0] as { messages?: Array<{ content?: Array<{ type?: string; text?: string }> | string }> };
     const ctx = args[1] as ExtensionCommandContext;
     const m = runtime.activeMission;
-    if (m?.autopilot?.enabled) { await processAgentEndForAutopilot(pi, ctx, event, runtime); return; }
+    if (!m) return;
+    if (isWorkerRunning()) {
+      runtime.activeMission = loadMissionFromDisk(m.id) ?? m;
+      return;
+    }
+    if (m.autopilot?.enabled) { await processAgentEndForAutopilot(pi, ctx, event, runtime); return; }
 
-    const feature = m ? getActiveFeature(m) : null;
+    const feature = getActiveFeature(m);
     if (!m || !feature || feature.status !== 'active') return;
 
     const text = (event.messages ?? [])
@@ -470,9 +487,16 @@ export default function piMissions(pi: ExtensionAPI): void {
     sessionMetrics.endSession();
     if (runtime.autoSaveInterval) clearInterval(runtime.autoSaveInterval);
     runtime.autoSaveInterval = null;
-    if (runtime.activeMission) {
-      saveSessionLink(runtime, (ctx.sessionManager as unknown as { getSessionFile?: () => string }).getSessionFile?.());
-      await saveMissionSafe(runtime.activeMission);
+    const mission = runtime.activeMission;
+    const sessionFile = (ctx.sessionManager as unknown as { getSessionFile?: () => string }).getSessionFile?.();
+    if (mission && sessionFile) {
+      saveSessionLink(runtime, sessionFile);
+      if (isWorkerRunning()) runtime.activeMission = loadMissionFromDisk(mission.id) ?? mission;
+      else await saveMissionSafe(mission);
+    } else if (mission && !isWorkerRunning()) {
+      await saveMissionSafe(mission);
+    } else if (mission) {
+      runtime.activeMission = loadMissionFromDisk(mission.id) ?? mission;
     }
     updateFooter(ctx, null);
   });
