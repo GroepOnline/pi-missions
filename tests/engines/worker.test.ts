@@ -17,7 +17,7 @@ vi.mock("../../src/core/state.js", async () => {
   return {
     ...(actual as object),
     appendHistory: vi.fn(),
-    saveMissionSafe: vi.fn(() => Promise.resolve()),
+    loadMissionFromDisk: vi.fn(),
     getFeatureById: (await vi.importActual("../../src/core/state.js") as any).getFeatureById,
   };
 });
@@ -33,7 +33,7 @@ import {
   type WorkerResult,
   type ActiveWorker,
 } from "../../src/engines/worker.js";
-import { appendHistory } from "../../src/core/state.js";
+import { appendHistory, loadMissionFromDisk } from "../../src/core/state.js";
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // Helpers
@@ -68,6 +68,7 @@ function fakeChildProcess(): ChildProcess & { emitClose(code: number | null, sig
 
 beforeEach(() => {
   vi.clearAllMocks();
+  vi.mocked(loadMissionFromDisk).mockImplementation((id) => ({ id } as MissionState));
   // Reset worker module state by forcing the internal singleton to null.
   // We do this by killing any leftover worker and resetting mocks.
 });
@@ -410,9 +411,33 @@ describe("spawnWorker — process lifecycle", () => {
     vi.useRealTimers();
   });
 
-  it("logs worker result to history via appendHistory", async () => {
+  it("logs worker history against fresh child state without rewriting plan.json", async () => {
+    const parent = makeMission();
+    const f = activeFeature(parent);
+    const fresh = structuredClone(parent);
+    fresh.milestones[0]!.features[0]!.status = "done";
+    fresh.milestones[0]!.features[0]!.completedAt = Date.now();
+    vi.mocked(loadMissionFromDisk).mockReturnValue(fresh);
+
+    const child = fakeChildProcess();
+    mockSpawn.mockReturnValue(child);
+
+    const promise = spawnWorker(parent, { featureId: f.id, timeoutMs: 5000 });
+    child.emitClose(0, null);
+    await promise;
+
+    expect(loadMissionFromDisk).toHaveBeenCalledWith(parent.id);
+    expect(appendHistory).toHaveBeenCalledWith(
+      fresh,
+      expect.objectContaining({ event: "worker_finished", featureId: f.id }),
+    );
+    expect(fresh.milestones[0]!.features[0]!.status).toBe("done");
+  });
+
+  it("skips worker history when the mission was removed", async () => {
     const m = makeMission();
     const f = activeFeature(m);
+    vi.mocked(loadMissionFromDisk).mockReturnValue(null);
 
     const child = fakeChildProcess();
     mockSpawn.mockReturnValue(child);
@@ -421,11 +446,7 @@ describe("spawnWorker — process lifecycle", () => {
     child.emitClose(0, null);
     await promise;
 
-    expect(appendHistory).toHaveBeenCalled();
-    const historyCall = (appendHistory as any).mock.calls[0] as any;
-    expect(historyCall[1].event).toBe("worker_finished");
-    expect(historyCall[1].featureId).toBe(f.id);
-    expect(historyCall[1].details.exitCode).toBe(0);
+    expect(appendHistory).not.toHaveBeenCalled();
   });
 
   it("passes the correct args to child_process.spawn", async () => {

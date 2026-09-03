@@ -240,37 +240,53 @@ export function migrateMission(raw: unknown): MissionState {
 // Disk I/O
 // ═══════════════════════════════════════════════════════════════════════════
 
-export async function saveMissionSafe(mission: MissionState): Promise<void> {
+async function writeMissionSafe(mission: MissionState): Promise<void> {
   const dir = missionDirSafe(mission.id);
   const target = path.join(dir, "plan.json");
+  await fsAsync.mkdir(dir, { recursive: true });
+  await fsAsync.mkdir(path.join(dir, "evidence"), { recursive: true });
+  await fsAsync.mkdir(path.join(dir, "sessions"), { recursive: true });
 
-  await withLock(target, async () => {
-    await fsAsync.mkdir(dir, { recursive: true });
-    await fsAsync.mkdir(path.join(dir, "evidence"), { recursive: true });
-    await fsAsync.mkdir(path.join(dir, "sessions"), { recursive: true });
+  const backup = path.join(dir, "plan.json.bak");
+  const preMigration = path.join(dir, "plan.json.pre-migration.bak");
+  const temp = path.join(dir, "plan.json.tmp");
 
-    const backup = path.join(dir, "plan.json.bak");
-    const preMigration = path.join(dir, "plan.json.pre-migration.bak");
-    const temp = path.join(dir, "plan.json.tmp");
+  if (fs.existsSync(target)) {
+    await fsAsync.copyFile(target, backup);
+    if (!fs.existsSync(preMigration)) await fsAsync.copyFile(target, preMigration);
+  }
 
-    if (fs.existsSync(target)) {
-      await fsAsync.copyFile(target, backup);
-      if (!fs.existsSync(preMigration)) await fsAsync.copyFile(target, preMigration);
-    }
+  mission.updatedAt = Date.now();
+  // Strip goalTree (circular .root refs) before serialization
+  const { goalTree: _, ...serializable } = mission as MissionState & { goalTree?: unknown };
+  const data = JSON.stringify(serializable, null, 2);
 
-    mission.updatedAt = Date.now();
-    // Strip goalTree (circular .root refs) before serialization
-    const { goalTree: _, ...serializable } = mission as MissionState & { goalTree?: unknown };
-    const data = JSON.stringify(serializable, null, 2);
+  // Retry the write once on failure
+  try {
+    await fsAsync.writeFile(temp, data, "utf-8");
+  } catch {
+    await new Promise(r => setTimeout(r, 100));
+    await fsAsync.writeFile(temp, data, "utf-8");
+  }
+  await fsAsync.rename(temp, target);
+}
 
-    // Retry the write once on failure
-    try {
-      await fsAsync.writeFile(temp, data, "utf-8");
-    } catch {
-      await new Promise(r => setTimeout(r, 100));
-      await fsAsync.writeFile(temp, data, "utf-8");
-    }
-    await fsAsync.rename(temp, target);
+export async function saveMissionSafe(mission: MissionState): Promise<void> {
+  const target = path.join(missionDirSafe(mission.id), "plan.json");
+  await withLock(target, () => writeMissionSafe(mission));
+}
+
+export async function updateMissionOnDisk<T>(
+  missionId: string,
+  mutate: (mission: MissionState) => T | Promise<T>,
+): Promise<{ mission: MissionState; result: T } | null> {
+  const target = path.join(missionDirSafe(missionId), "plan.json");
+  return withLock(target, async () => {
+    const mission = loadMissionFromDisk(missionId);
+    if (!mission) return null;
+    const result = await mutate(mission);
+    await writeMissionSafe(mission);
+    return { mission, result };
   });
 }
 
@@ -366,7 +382,7 @@ export function listMissions(): MissionState[] {
 // ═══════════════════════════════════════════════════════════════════════════
 
 export function appendHistory(
-  mission: MissionState,
+  mission: Pick<MissionState, "id">,
   entry: Omit<MissionHistoryEntry, "ts" | "missionId">,
 ): void {
   const dir = missionDirSafe(mission.id);
