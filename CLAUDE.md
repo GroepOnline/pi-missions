@@ -20,7 +20,7 @@ Tests use Vitest globals; pick by file path with `npx vitest run tests/<file>.te
 
 ## What this is
 
-`@onlinechefgroep/pi-missions` is a **Pi coding agent extension** that turns short-lived Pi sessions into long-running, durable execution tracks. It provides:
+`@groeponline/pi-missions` is a **Pi coding agent extension** that turns short-lived Pi sessions into long-running, durable execution tracks. It provides:
 
 - A mission plan, feature queue, history log, and evidence folder per mission
 - Session handoff so work survives restarts/context resets/forks
@@ -46,6 +46,7 @@ src/
 │                   #   learning, pattern recognition — most are singletons
 ├── ui/             # Dashboard overlay, analytics, status/footer components
 ├── utils/          # Context builders, markdown, fs helpers, agent detection, logging
+├── integrations/   # Execution-boundary adapters (currently Orchestra correlation)
 ├── templates/      # Built-in mission templates (e.g. /mission templates)
 └── cli/            # `pi-missions` CLI entry point (list, status, analytics, doctor)
 ```
@@ -76,9 +77,9 @@ Tests mirror this layout under `tests/` (top-level files + per-layer subdirs), w
 - `src/utils/mission-builder.ts` is a **backward-compat shim** — prefer `src/utils/markdown.ts`.
 - `src/engines/worker.ts` is the real worker runtime (real `child_process.spawn`, not simulated) — there is no separate `worker-pool.ts` shim.
 - Database schema is **copied to `dist/database/schema.sql`** during build via `scripts/copy-build-assets.mjs`. Always edit `src/database/schema.sql`, never the dist copy.
-- There is no `src/integrations/` directory — GitHub/Slack/webhook integrations are scaffolded via repository patterns in the engines, not a separate module.
+- `src/integrations/` contains execution-boundary adapters such as `orchestra-execution.ts`; do not invent GitHub/Slack/webhook modules that are not present.
 - When bumping the schema, DDL changes go in `src/database/schema.sql`; bump `CURRENT_SCHEMA_VERSION` in `src/database/index.ts` and update the migration logic there. The TypeBox `SCHEMA_VERSION` in `src/core/types.ts` is unrelated to SQL migrations.
 
 ## Status
 
-Hardened `0.1.x` release candidate (currently `0.1.3`). Entry point, state, commands, tools, dashboard, CLI, repositories, and tests are wired; full production integrations are not yet shipped. See `README.md`, `CHANGELOG.md`, and `FIX_REPORT.md` for the verified-in-snapshot checklist.
+Released package with wired entry point, state, commands, tools, dashboard, CLI, repositories, and tests. Treat `package.json` and `CHANGELOG.md` as the version and release-status sources of truth; `FIX_REPORT.md` records snapshot verification details.
