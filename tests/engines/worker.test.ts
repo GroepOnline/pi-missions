@@ -17,7 +17,6 @@ vi.mock("../../src/core/state.js", async () => {
   return {
     ...(actual as object),
     appendHistory: vi.fn(),
-    saveMissionSafe: vi.fn(() => Promise.resolve()),
     loadMissionFromDisk: vi.fn(),
     getFeatureById: (await vi.importActual("../../src/core/state.js") as any).getFeatureById,
   };
@@ -34,7 +33,7 @@ import {
   type WorkerResult,
   type ActiveWorker,
 } from "../../src/engines/worker.js";
-import { appendHistory, loadMissionFromDisk, saveMissionSafe } from "../../src/core/state.js";
+import { appendHistory, loadMissionFromDisk } from "../../src/core/state.js";
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // Helpers
@@ -411,7 +410,7 @@ describe("spawnWorker — process lifecycle", () => {
     vi.useRealTimers();
   });
 
-  it("persists worker history onto fresh child state instead of the stale parent mission", async () => {
+  it("logs worker history against fresh child state without rewriting plan.json", async () => {
     const parent = makeMission();
     const feature = activeFeature(parent);
     const fresh = structuredClone(parent);
@@ -432,9 +431,7 @@ describe("spawnWorker — process lifecycle", () => {
       event: "worker_finished",
       featureId: feature.id,
     }));
-    expect(saveMissionSafe).toHaveBeenCalledWith(fresh);
     expect(freshFeature.status).toBe("done");
-    expect(saveMissionSafe).not.toHaveBeenCalledWith(parent);
   });
 
   it("does not write stale state when the mission disappeared before worker exit", async () => {
@@ -449,7 +446,6 @@ describe("spawnWorker — process lifecycle", () => {
     child.emitClose(0, null);
     await promise;
 
-    expect(saveMissionSafe).not.toHaveBeenCalled();
     expect(appendHistory).not.toHaveBeenCalled();
   });
 

@@ -1,6 +1,6 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import type { Feature, MissionState } from "../core/types.js";
-import { appendHistory, getFeatureById, loadMissionFromDisk, saveMissionSafe } from "../core/state.js";
+import { appendHistory, getFeatureById, loadMissionFromDisk } from "../core/state.js";
 import {
   orchestraCorrelationEnv,
   type MissionOrchestraExecutionCorrelation,
@@ -195,7 +195,7 @@ export function spawnWorker(
   }, timeoutMs);
 
   return new Promise<WorkerResult | { error: string }>((resolve) => {
-    child.on("close", async (code, signal) => {
+    child.on("close", (code, signal) => {
       clearTimeout(timeout);
       const durationMs = Date.now() - startedAt;
 
@@ -216,9 +216,9 @@ export function spawnWorker(
       }
 
       // The child may have persisted feature completion while it was running.
-      // Re-read after close and append parent-observed process history to that
-      // fresh state; writing the parent's stale in-memory object here can roll
-      // a completed/blocked feature back to its pre-worker status.
+      // Re-read after close so history is only appended for a mission that
+      // still exists. appendHistory writes its own JSONL record; rewriting
+      // plan.json here would risk rolling newer child state back.
       try {
         const missionId = mission.id;
         const freshMission = loadMissionFromDisk(missionId);
@@ -239,7 +239,6 @@ export function spawnWorker(
               orchestraCorrelation: config.orchestraCorrelation,
             },
           });
-          await saveMissionSafe(freshMission);
         }
       } catch { /* history is best-effort for workers */ }
 
