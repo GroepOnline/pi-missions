@@ -222,7 +222,7 @@ export function spawnWorker(
       try {
         const missionId = mission.id;
         const freshMission = loadMissionFromDisk(missionId);
-        if (freshMission) {
+        if (freshMission?.id === missionId) {
           appendHistory(freshMission, {
             event: "worker_finished",
             featureId: config.featureId,
