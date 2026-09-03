@@ -607,7 +607,9 @@ describe("piMissions extension registration", () => {
       sessionManager: { getSessionFile: () => "/tmp/session.jsonl" },
       ui: { setStatus: () => {}, notify: () => {} },
     };
+    mockIsWorkerRunning.mockReturnValue(true);
     await shutdownHandler({}, shutdownCtx);
+    mockIsWorkerRunning.mockReturnValue(false);
 
     expect(loadMissionFromDisk(parent.id)?.milestones[0]!.features[0]!.status).toBe("done");
   });
