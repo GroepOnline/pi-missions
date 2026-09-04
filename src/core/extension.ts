@@ -20,7 +20,7 @@ import { processAgentEndForAutopilot } from '../engines/autopilot.js';
 import { activateNextFeature, completeActiveFeature } from '../core/state.js';
 import { handleDashboard } from '../commands/index.js';
 import { isValidMissionId } from '../utils/fs.js';
-import { isWorkerRunning } from '../engines/worker.js';
+import { reconcileMissionLifecycle } from './lifecycle-persistence.js';
 
 // Re-export types for external consumers
 export type { ToolCallEvent, ToolResultEvent };
@@ -126,13 +126,7 @@ export default function piMissions(pi: ExtensionAPI): void {
   function scheduleAutoSave(rt: RuntimeState): void {
     if (!rt.autoSaveInterval) {
       rt.autoSaveInterval = setInterval(async () => {
-        const mission = rt.activeMission;
-        if (!mission || mission.status !== 'active') return;
-        if (isWorkerRunning()) {
-          rt.activeMission = loadMissionFromDisk(mission.id) ?? mission;
-          return;
-        }
-        await saveMissionSafe(mission);
+        await reconcileMissionLifecycle({ runtime: rt, checkpoint: 'autosave' });
       }, 2 * 60 * 1000);
     }
   }
@@ -338,7 +332,6 @@ export default function piMissions(pi: ExtensionAPI): void {
     const m = runtime.activeMission;
     if (!m) return;
 
-    const workerRunning = isWorkerRunning();
     const usage = (ctx as unknown as { getContextUsage?: () => { tokens?: number; percent?: number } }).getContextUsage?.();
     if (usage?.tokens !== undefined) {
       const delta = Math.max(0, usage.tokens - m.lastContextTokens);
@@ -367,33 +360,31 @@ export default function piMissions(pi: ExtensionAPI): void {
       }
     } catch { /* best-effort */ }
 
-    if (!workerRunning && active?.status === 'active') {
-      const stuck = detector.detectStuck();
-      const textLoop = detector.detectTextLoop();
-      const effective = textLoop.isStuck ? textLoop : stuck;
+    const result = await reconcileMissionLifecycle({
+      runtime,
+      checkpoint: 'turn_end',
+      whenIdle: async (mission) => {
+        if (active?.status !== 'active') return;
+        const stuck = detector.detectStuck();
+        const textLoop = detector.detectTextLoop();
+        const effective = textLoop.isStuck ? textLoop : stuck;
 
-      if (effective.isStuck && effective.suggestedAction === 'block_self') {
-        sessionMetrics.recordStuckDetection();
-        appendHistory(m, { event: 'stuck_detected', featureId: active.id, note: effective.reason, details: { source: textLoop.isStuck ? 'text_loop' : 'tool_pattern' } });
-        active.status = 'blocked';
-        active.notes = `Auto-blocked: ${effective.reason}`;
-        m.status = 'blocked';
-        m.autopilot.enabled = false;
-        m.autopilot.lastStopReason = 'blocked';
-        m.autopilot.lastStopMessage = effective.reason;
-        ctx.ui.notify(`🚫 Auto-blocked: ${effective.reason}`, 'warning');
-        await saveMissionSafe(m);
-      } else if (effective.isStuck) {
-        ctx.ui.notify(`⚠️ Stuck detected: ${effective.reason}. Consider mission_block_self.`, 'warning');
-      }
-    }
-
-    if (workerRunning) {
-      runtime.activeMission = loadMissionFromDisk(m.id) ?? m;
-    } else {
-      await saveMissionSafe(m);
-    }
-    updateFooter(ctx, runtime.activeMission);
+        if (effective.isStuck && effective.suggestedAction === 'block_self') {
+          sessionMetrics.recordStuckDetection();
+          appendHistory(mission, { event: 'stuck_detected', featureId: active.id, note: effective.reason, details: { source: textLoop.isStuck ? 'text_loop' : 'tool_pattern' } });
+          active.status = 'blocked';
+          active.notes = `Auto-blocked: ${effective.reason}`;
+          mission.status = 'blocked';
+          mission.autopilot.enabled = false;
+          mission.autopilot.lastStopReason = 'blocked';
+          mission.autopilot.lastStopMessage = effective.reason;
+          ctx.ui.notify(`🚫 Auto-blocked: ${effective.reason}`, 'warning');
+        } else if (effective.isStuck) {
+          ctx.ui.notify(`⚠️ Stuck detected: ${effective.reason}. Consider mission_block_self.`, 'warning');
+        }
+      },
+    });
+    updateFooter(ctx, result.kind === 'no_mission' ? null : result.mission);
   });
 
   // ── agent_end: completion detection + auto-advance ─────────────────────
@@ -401,12 +392,9 @@ export default function piMissions(pi: ExtensionAPI): void {
   hook(pi, 'agent_end', async (...args: unknown[]) => {
     const event = args[0] as { messages?: Array<{ content?: Array<{ type?: string; text?: string }> | string }> };
     const ctx = args[1] as ExtensionCommandContext;
-    const m = runtime.activeMission;
-    if (!m) return;
-    if (isWorkerRunning()) {
-      runtime.activeMission = loadMissionFromDisk(m.id) ?? m;
-      return;
-    }
+    const lifecycle = await reconcileMissionLifecycle({ runtime, checkpoint: 'agent_end' });
+    if (lifecycle.kind === 'no_mission' || lifecycle.kind === 'worker_active') return;
+    const m = lifecycle.mission;
     if (m.autopilot?.enabled) { await processAgentEndForAutopilot(pi, ctx, event, runtime); return; }
 
     const feature = getActiveFeature(m);
@@ -487,17 +475,9 @@ export default function piMissions(pi: ExtensionAPI): void {
     sessionMetrics.endSession();
     if (runtime.autoSaveInterval) clearInterval(runtime.autoSaveInterval);
     runtime.autoSaveInterval = null;
-    const mission = runtime.activeMission;
     const sessionFile = (ctx.sessionManager as unknown as { getSessionFile?: () => string }).getSessionFile?.();
-    if (mission && sessionFile) {
-      saveSessionLink(runtime, sessionFile);
-      if (isWorkerRunning()) runtime.activeMission = loadMissionFromDisk(mission.id) ?? mission;
-      else await saveMissionSafe(mission);
-    } else if (mission && !isWorkerRunning()) {
-      await saveMissionSafe(mission);
-    } else if (mission) {
-      runtime.activeMission = loadMissionFromDisk(mission.id) ?? mission;
-    }
+    if (runtime.activeMission && sessionFile) saveSessionLink(runtime, sessionFile);
+    await reconcileMissionLifecycle({ runtime, checkpoint: 'shutdown' });
     updateFooter(ctx, null);
   });
 }
