@@ -17,7 +17,8 @@ vi.mock("../../src/core/state.js", async () => {
   return {
     ...(actual as object),
     appendHistory: vi.fn(),
-    saveMissionSafe: vi.fn(() => Promise.resolve()),
+    loadMissionFromDisk: vi.fn(),
+    saveMissionSafe: vi.fn(),
     getFeatureById: (await vi.importActual("../../src/core/state.js") as any).getFeatureById,
   };
 });
@@ -33,7 +34,7 @@ import {
   type WorkerResult,
   type ActiveWorker,
 } from "../../src/engines/worker.js";
-import { appendHistory } from "../../src/core/state.js";
+import { appendHistory, loadMissionFromDisk, saveMissionSafe } from "../../src/core/state.js";
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // Helpers
@@ -410,9 +411,70 @@ describe("spawnWorker — process lifecycle", () => {
     vi.useRealTimers();
   });
 
+  it("logs worker history against fresh child state without rewriting plan.json", async () => {
+    const parent = makeMission();
+    const feature = activeFeature(parent);
+    const fresh = structuredClone(parent);
+    const freshFeature = fresh.milestones[0]!.features[0]!;
+    freshFeature.status = "done";
+    freshFeature.completedAt = Date.now();
+    vi.mocked(loadMissionFromDisk).mockReturnValue(fresh);
+
+    const child = fakeChildProcess();
+    mockSpawn.mockReturnValue(child);
+
+    const promise = spawnWorker(parent, { featureId: feature.id, timeoutMs: 5000 });
+    child.emitClose(0, null);
+    await promise;
+
+    expect(loadMissionFromDisk).toHaveBeenCalledWith(parent.id);
+    expect(appendHistory).toHaveBeenCalledWith(fresh, expect.objectContaining({
+      event: "worker_finished",
+      featureId: feature.id,
+    }));
+    expect(freshFeature.status).toBe("done");
+    expect(saveMissionSafe).not.toHaveBeenCalled();
+  });
+
+  it("does not write stale state when the mission disappeared before worker exit", async () => {
+    const parent = makeMission();
+    const feature = activeFeature(parent);
+    vi.mocked(loadMissionFromDisk).mockReturnValue(null);
+
+    const child = fakeChildProcess();
+    mockSpawn.mockReturnValue(child);
+
+    const promise = spawnWorker(parent, { featureId: feature.id, timeoutMs: 5000 });
+    child.emitClose(0, null);
+    await promise;
+
+    expect(appendHistory).not.toHaveBeenCalled();
+    expect(saveMissionSafe).not.toHaveBeenCalled();
+  });
+
+  it("does not append history when persisted mission identity mismatches", async () => {
+    const parent = makeMission();
+    const feature = activeFeature(parent);
+    const mismatched = structuredClone(parent);
+    mismatched.id = `${parent.id}-other`;
+    vi.mocked(loadMissionFromDisk).mockReturnValue(mismatched);
+
+    const child = fakeChildProcess();
+    mockSpawn.mockReturnValue(child);
+
+    const promise = spawnWorker(parent, { featureId: feature.id, timeoutMs: 5000 });
+    child.emitClose(0, null);
+    await promise;
+
+    expect(loadMissionFromDisk).toHaveBeenCalledWith(parent.id);
+    expect(appendHistory).not.toHaveBeenCalled();
+    expect(saveMissionSafe).not.toHaveBeenCalled();
+  });
+
   it("logs worker result to history via appendHistory", async () => {
     const m = makeMission();
     const f = activeFeature(m);
+    vi.mocked(loadMissionFromDisk).mockReturnValue(m);
 
     const child = fakeChildProcess();
     mockSpawn.mockReturnValue(child);
