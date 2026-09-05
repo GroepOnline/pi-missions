@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import type { SessionMetrics } from "../core/types.js";
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -25,7 +26,7 @@ export class SessionMetricsCollector {
 
   private freshMetrics(): SessionMetrics {
     return {
-      sessionId: `session-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      sessionId: `session-${randomUUID()}`,
       startTime: Date.now(),
       toolCalls: { total: 0, byTool: {}, successful: 0, failed: 0 },
       tokensUsed: 0,
