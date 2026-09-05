@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.12] - 2026-09-05
+
+### Fixed
+- generate session ids with crypto.randomUUID (#19)
 ## [0.3.11] - 2026-09-05
 
 ### Fixed
