@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.11] - 2026-09-05
+
+### Fixed
+- persist history onto fresh mission state (#18)
+
+### Documentation
+- disambiguate schema_version from SCHEMA_VERSION (#12)
 ## [0.3.10] - 2026-08-30
 
 ### Maintenance
