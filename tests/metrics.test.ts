@@ -193,7 +193,7 @@ describe("Session Metrics Collector", () => {
       const metrics = collector.getMetrics();
       
       expect(metrics.sessionId).toBeDefined();
-      expect(metrics.sessionId).toMatch(/^session-\d+-[a-z0-9]+$/);
+      expect(metrics.sessionId).toMatch(/^session-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
     });
 
     it("includes start time", () => {
