@@ -11,6 +11,7 @@ import type {
   MissionHistoryEntry,
   MissionMetrics,
   MissionState,
+  RuntimeState,
   StaleFeatureAlert,
   ToolPhase,
 } from "./types.js";
@@ -289,6 +290,20 @@ export async function updateMissionOnDisk<T>(
     if (options.shouldPersist?.(result) ?? true) await writeMissionSafe(mission);
     return { mission, result };
   });
+}
+
+/** Refresh a session's snapshot without making queued checkpoints see a session switch. */
+export function refreshActiveMission(
+  runtime: RuntimeState,
+  expected: MissionState,
+  fresh: MissionState,
+): boolean {
+  if (runtime.activeMission !== expected || fresh.id !== expected.id || fresh.validationToken !== expected.validationToken) return false;
+  for (const key of Object.keys(expected)) {
+    if (!(key in fresh)) Reflect.deleteProperty(expected, key);
+  }
+  Object.assign(expected, fresh);
+  return true;
 }
 
 export function loadMissionFromDisk(id: string): MissionState | null {

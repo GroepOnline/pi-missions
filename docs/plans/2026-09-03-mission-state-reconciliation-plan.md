@@ -38,6 +38,8 @@ Every parent lifecycle checkpoint reads the current mission under the plan lock,
 
 `updateMissionOnDisk` validates the loaded mission identity and accepts an optional `shouldPersist(result)` predicate. Lifecycle uses it to avoid writes for active workers, inactive autosave, or the read-only agent-end checkpoint. A missing or mismatched mission is skipped, never recreated from stale state. Idle callbacks must mutate only their supplied current mission and must not recursively save under the same lock. Turn-end token deltas and stuck detection use that supplied mission.
 
+Control mutations must be durable before a checkpoint can refresh them away: `mission_ask_user` atomically persists the autopilot stop before awaiting UI, then applies permission answers to current disk state. Explicit mission load and session restoration persist dependency blocking under the same plan lock. `refreshActiveMission` refreshes the existing session object in place (including removing absent optional fields), so queued same-session checkpoints remain valid. Explicit mission/session activation replaces that object; queued work still detects and skips a genuine switch, including a new session for the same mission ID.
+
 ## Implementation Units
 
 ### U1. Add a locked mission update primitive

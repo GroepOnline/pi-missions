@@ -747,6 +747,74 @@ describe("piMissions extension registration", () => {
     expect(notifyCalls[0]!.msg).toMatch(/complete|done/i);
   });
 
+  it.each([false, true])("persists dependency blocking while restoring a session (legacy=%s)", async (legacy) => {
+    const mission = createMission("Restore blocked dependency", "Retain control state");
+    if (legacy) mission.id = "legacy-session-restore";
+    mission.milestones[0]!.features[0]!.status = "blocked";
+    mission.milestones[0]!.features[1]!.dependsOn = [mission.milestones[0]!.features[0]!.id];
+    await saveMissionSafe(mission);
+    const pi = mkPi();
+    piMissions(pi);
+    const messages: string[] = [];
+    const ctx = {
+      sessionManager: { getEntries: () => [{ type: "custom", customType: "pi-mission-active", data: { missionId: mission.id, validationToken: mission.validationToken } }] },
+      ui: { setStatus: () => {}, notify: (message: string) => { messages.push(message); } },
+      getContextUsage: () => null,
+    };
+    await pi.getHooks()["session_start"][0]({}, ctx);
+    expect(loadMissionFromDisk(mission.id)!.milestones[0]!.features[1]!.status).toBe("blocked");
+    await pi.getHooks()["turn_end"][0]({}, ctx);
+    await pi.getCommands()[0].handler("status", ctx);
+    expect(messages.at(-1)).toMatch(/F002:.*\(blocked\)/);
+    expect(loadMissionFromDisk(mission.id)!.milestones[0]!.features[1]!.status).toBe("blocked");
+    await pi.getHooks()["session_shutdown"][0]({}, ctx);
+  });
+
+  it.each(["Proceed", "ALLOW_BASH_IN_PLANNING"])("persists ask-user stop before UI and retains it through lifecycle (%s)", async (answer) => {
+    const mission = createMission("Ask user", "Await explicit decision");
+    mission.autopilot.enabled = true;
+    await saveMissionSafe(mission);
+    let entered!: () => void;
+    let respond!: (answer: string) => void;
+    const uiEntered = new Promise<void>((resolve) => { entered = resolve; });
+    const uiAnswer = new Promise<string>((resolve) => { respond = resolve; });
+    const sendUserMessage = vi.fn();
+    const pi = mkPi({ sendUserMessage });
+    piMissions(pi);
+    const ctx = {
+      hasUI: true,
+      sessionManager: {
+        getEntries: () => [{ type: "custom", customType: "pi-mission-active", data: { missionId: mission.id, validationToken: mission.validationToken } }],
+        getLeafId: () => null,
+      },
+      ui: { setStatus: () => {}, notify: () => {}, input: () => { entered(); return uiAnswer; } },
+      getContextUsage: () => null,
+    };
+    await pi.getHooks()["session_start"][0]({}, ctx);
+    const pending = pi.getTools().find((tool: any) => tool.name === "mission_ask_user")
+      .execute("ask", { question: "Continue?" }, null, () => {}, ctx);
+    await uiEntered;
+    try {
+      expect(loadMissionFromDisk(mission.id)!.autopilot.enabled).toBe(false);
+      await pi.getHooks()["turn_end"][0]({}, ctx);
+      await pi.getHooks()["agent_end"][0]({ messages: [] }, ctx);
+      expect(sendUserMessage).not.toHaveBeenCalled();
+      const workerState = loadMissionFromDisk(mission.id)!;
+      workerState.milestones[0]!.features[0]!.status = "done";
+      workerState.milestones[0]!.features[0]!.notes = "Progress while waiting for user";
+      await saveMissionSafe(workerState);
+    } finally {
+      respond(answer);
+      await pending;
+      await pi.getHooks()["session_shutdown"][0]({}, ctx);
+    }
+    const saved = loadMissionFromDisk(mission.id)!;
+    expect(saved.autopilot.enabled).toBe(false);
+    expect(saved.autopilot.lastStopReason).toBe("needs_user_decision");
+    expect(saved.milestones[0]!.features[0]!.notes).toBe("Progress while waiting for user");
+    if (answer === "ALLOW_BASH_IN_PLANNING") expect(saved.userPreferences?.allowBashInPlanning).toBe(true);
+  });
+
   it("turn_end hook warns when token budget exceeded", async () => {
     const m = createMission("Budget", "Test");
     m.tokensBudget = 10000;

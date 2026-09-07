@@ -702,6 +702,21 @@ describe("handleList", () => {
 });
 
 describe("handleLoad", () => {
+  it("persists dependency blocking on the current locked mission", async () => {
+    const mission = createMission("Load blocked dependency", "Keep current control state");
+    mission.milestones[0]!.features[0]!.status = "blocked";
+    mission.milestones[0]!.features[1]!.dependsOn = [mission.milestones[0]!.features[0]!.id];
+    mission.milestones[0]!.features[2]!.status = "done";
+    await saveMissionSafe(mission);
+    const runtime = runtimeFixture();
+
+    await handleLoad(mission.id, mkCtx(), mkPi(), runtime);
+
+    expect(runtime.activeMission!.milestones[0]!.features[1]!.status).toBe("blocked");
+    const saved = loadMissionFromDisk(mission.id)!;
+    expect(saved.milestones[0]!.features[1]!.status).toBe("blocked");
+    expect(saved.milestones[0]!.features[2]!.status).toBe("done");
+  });
   const origHome = process.env.HOME;
 
   beforeAll(() => {
