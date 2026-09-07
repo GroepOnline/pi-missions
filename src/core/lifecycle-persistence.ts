@@ -1,5 +1,5 @@
 import type { MissionState, RuntimeState } from "./types.js";
-import { loadMissionFromDisk, saveMissionSafe } from "./state.js";
+import { updateMissionOnDisk } from "./state.js";
 import { isWorkerRunning } from "../engines/worker.js";
 
 export type MissionLifecycleCheckpoint = "autosave" | "turn_end" | "agent_end" | "shutdown";
@@ -26,8 +26,9 @@ const PERSIST_AFTER_IDLE = {
 
 /**
  * Applies the worker-safe persistence policy shared by lifecycle hooks.
- * While a worker owns mission progress, the parent refreshes from disk and
- * never invokes its idle callback or persists its in-memory snapshot.
+ * Every checkpoint reads current disk state under the plan lock, including
+ * after worker exit. Idle callbacks must mutate the supplied mission, not a
+ * captured parent snapshot, and must not recursively save it under this lock.
  */
 export async function reconcileMissionLifecycle({
   runtime,
@@ -36,19 +37,17 @@ export async function reconcileMissionLifecycle({
 }: ReconcileMissionLifecycleOptions): Promise<MissionLifecycleResult> {
   const mission = runtime.activeMission;
   if (!mission) return { kind: "no_mission" };
-  if (checkpoint === "autosave" && mission.status !== "active") {
-    return { kind: "skipped", mission };
-  }
+  const updated = await updateMissionOnDisk<MissionLifecycleResult>(mission.id, async (freshMission) => {
+    if (runtime.activeMission !== mission) return { kind: "skipped", mission: freshMission };
+    if (isWorkerRunning()) return { kind: "worker_active", mission: freshMission };
+    if (checkpoint === "autosave" && freshMission.status !== "active") {
+      return { kind: "skipped", mission: freshMission };
+    }
+    await whenIdle?.(freshMission);
+    return { kind: PERSIST_AFTER_IDLE[checkpoint] ? "persisted" : "idle", mission: freshMission };
+  }, { shouldPersist: (result) => result.kind === "persisted" });
 
-  if (isWorkerRunning()) {
-    const freshMission = loadMissionFromDisk(mission.id) ?? mission;
-    runtime.activeMission = freshMission;
-    return { kind: "worker_active", mission: freshMission };
-  }
-
-  await whenIdle?.(mission);
-  if (!PERSIST_AFTER_IDLE[checkpoint]) return { kind: "idle", mission };
-
-  await saveMissionSafe(mission);
-  return { kind: "persisted", mission };
+  if (!updated) return { kind: "skipped", mission };
+  if (runtime.activeMission === mission) runtime.activeMission = updated.mission;
+  return updated.result;
 }

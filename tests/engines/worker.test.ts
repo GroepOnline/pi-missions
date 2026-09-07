@@ -484,7 +484,11 @@ describe("spawnWorker — process lifecycle", () => {
     child.emitClose(0, null);
     await promise;
 
-    expect(appendHistory).not.toHaveBeenCalled();
+    expect(appendHistory).toHaveBeenCalledWith(m, expect.objectContaining({
+      event: "worker_finished",
+      featureId: f.id,
+      details: expect.objectContaining({ exitCode: 0 }),
+    }));
   });
 
   it("passes the correct args to child_process.spawn", async () => {

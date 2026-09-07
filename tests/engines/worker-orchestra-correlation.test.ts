@@ -33,7 +33,7 @@ function fakeChildProcess(): ChildProcess & { emitClose(code: number | null, sig
 
 beforeEach(() => {
   vi.clearAllMocks();
-  vi.mocked(loadMissionFromDisk).mockImplementation((id) => ({ id } as any);
+  vi.mocked(loadMissionFromDisk).mockImplementation((id) => ({ id } as any));
 });
 
 describe("mission worker Orchestra correlation", () => {

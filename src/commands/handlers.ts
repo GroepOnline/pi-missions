@@ -398,7 +398,7 @@ import { buildForkKickoffMessage, buildManualForkHandoff, appendForkNote, pushSe
 async function forkFeatureInternally(
   m: NonNullable<RuntimeState["activeMission"]>,
   reason: string,
-  pi: ExtensionAPI,
+  runtime: RuntimeState,
   ctx: ExtensionCommandContext,
 ): Promise<void> {
   const f = getActiveFeature(m);
@@ -441,7 +441,7 @@ async function forkFeatureInternally(
           appendHistory(freshMission, { event: "feature_fork_session_created", featureId: forked.id, note: reason, details: { sourceFeatureId: f.id, forkSessionFile: fsf, parentLeafId } });
           return true;
         });
-        if (updated?.result) runtime.activeMission = updated.mission;
+        if (updated?.result && runtime.activeMission?.id === m.id) runtime.activeMission = updated.mission;
         if (typeof fc.sendUserMessage === "function") await fc.sendUserMessage(kickoff);
         else fc.ui.notify(`🌿 Fork: ${forked.title}\n\n${kickoff}`, "info");
       },
@@ -457,7 +457,7 @@ export async function handleFork(reason: string, ctx: ExtensionCommandContext, r
   const m = runtime.activeMission;
   if (!m) return ctx.ui.notify("No active feature. Forks can only be created from an active feature.", "warning");
   if (ctx.hasUI) reason = (await ctx.ui.input("Alternative approach", reason || "Try a smaller/safer approach")) || reason;
-  await forkFeatureInternally(m, reason || "Alternative approach", {} as ExtensionAPI, ctx);
+  await forkFeatureInternally(m, reason || "Alternative approach", runtime, ctx);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

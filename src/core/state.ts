@@ -279,13 +279,14 @@ export async function saveMissionSafe(mission: MissionState): Promise<void> {
 export async function updateMissionOnDisk<T>(
   missionId: string,
   mutate: (mission: MissionState) => T | Promise<T>,
+  options: { shouldPersist?: (result: T) => boolean } = {},
 ): Promise<{ mission: MissionState; result: T } | null> {
   const target = path.join(missionDirSafe(missionId), "plan.json");
   return withLock(target, async () => {
     const mission = loadMissionFromDisk(missionId);
-    if (!mission) return null;
+    if (!mission || mission.id !== missionId) return null;
     const result = await mutate(mission);
-    await writeMissionSafe(mission);
+    if (options.shouldPersist?.(result) ?? true) await writeMissionSafe(mission);
     return { mission, result };
   });
 }
