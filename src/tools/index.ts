@@ -396,7 +396,7 @@ export function registerMissionTools(_pi: ExtensionAPI, runtime: RuntimeState): 
               appendHistory(freshMission, { event: "feature_fork_session_created", featureId: forked.id, note: reason, details: { sourceFeatureId: f.id, subtask: params.subtask, forkSessionFile: fsf, parentLeafId, self: true } });
               return true;
             });
-            if (updated?.result) runtime.activeMission = updated.mission;
+            if (updated?.result && runtime.activeMission?.id === m.id) runtime.activeMission = updated.mission;
             if (typeof fc.sendUserMessage === "function") await fc.sendUserMessage(kickoff);
             else fc.ui.notify(`🌿 Fork active: ${forked.title}\n\n${kickoff}`, "info");
           },

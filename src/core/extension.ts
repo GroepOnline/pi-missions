@@ -333,15 +333,6 @@ export default function piMissions(pi: ExtensionAPI): void {
     if (!m) return;
 
     const usage = (ctx as unknown as { getContextUsage?: () => { tokens?: number; percent?: number } }).getContextUsage?.();
-    if (usage?.tokens !== undefined) {
-      const delta = Math.max(0, usage.tokens - m.lastContextTokens);
-      m.tokensUsed += delta;
-      m.lastContextTokens = usage.tokens;
-      if (m.tokensBudget && m.tokensUsed > m.tokensBudget * 0.8 && m.status === 'active') {
-        m.status = 'budget_limited';
-        ctx.ui.notify('⚠️ Token budget 80% used.', 'warning');
-      }
-    }
 
     const leafId = (ctx.sessionManager as unknown as { getLeafId?: () => string | null }).getLeafId?.();
     const active = getActiveFeature(m);
@@ -364,6 +355,16 @@ export default function piMissions(pi: ExtensionAPI): void {
       runtime,
       checkpoint: 'turn_end',
       whenIdle: async (mission) => {
+        if (usage?.tokens !== undefined) {
+          const delta = Math.max(0, usage.tokens - mission.lastContextTokens);
+          mission.tokensUsed += delta;
+          mission.lastContextTokens = usage.tokens;
+          if (mission.tokensBudget && mission.tokensUsed > mission.tokensBudget * 0.8 && mission.status === 'active') {
+            mission.status = 'budget_limited';
+            ctx.ui.notify('⚠️ Token budget 80% used.', 'warning');
+          }
+        }
+        const active = getActiveFeature(mission);
         if (active?.status !== 'active') return;
         const stuck = detector.detectStuck();
         const textLoop = detector.detectTextLoop();
@@ -393,7 +394,7 @@ export default function piMissions(pi: ExtensionAPI): void {
     const event = args[0] as { messages?: Array<{ content?: Array<{ type?: string; text?: string }> | string }> };
     const ctx = args[1] as ExtensionCommandContext;
     const lifecycle = await reconcileMissionLifecycle({ runtime, checkpoint: 'agent_end' });
-    if (lifecycle.kind === 'no_mission' || lifecycle.kind === 'worker_active') return;
+    if (lifecycle.kind === 'no_mission' || lifecycle.kind === 'worker_active' || lifecycle.kind === 'skipped') return;
     const m = lifecycle.mission;
     if (m.autopilot?.enabled) { await processAgentEndForAutopilot(pi, ctx, event, runtime); return; }
 

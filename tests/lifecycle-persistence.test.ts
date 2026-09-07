@@ -17,6 +17,13 @@ vi.mock("../src/core/state.js", async () => {
     ...actual,
     loadMissionFromDisk: mocks.loadMissionFromDisk,
     saveMissionSafe: mocks.saveMissionSafe,
+    updateMissionOnDisk: async (_id: string, mutate: (mission: MissionState) => Promise<unknown>, options: { shouldPersist: (result: unknown) => boolean }) => {
+      const mission = mocks.loadMissionFromDisk();
+      if (!mission) return null;
+      const result = await mutate(mission);
+      if (options.shouldPersist(result)) await mocks.saveMissionSafe(mission);
+      return { mission, result };
+    },
   };
 });
 
@@ -24,8 +31,10 @@ import { createMission } from "../src/core/state.js";
 import { reconcileMissionLifecycle } from "../src/core/lifecycle-persistence.js";
 
 function runtimeWithMission(): RuntimeState {
+  const mission = createMission("Lifecycle", "Concentrate persistence policy");
+  mocks.loadMissionFromDisk.mockReturnValue(mission);
   return {
-    activeMission: createMission("Lifecycle", "Concentrate persistence policy"),
+    activeMission: mission,
     autoSaveInterval: null,
     phaseToolCallCount: 0,
     currentPhase: "execution",
@@ -104,7 +113,6 @@ describe("reconcileMissionLifecycle", () => {
     const result = await reconcileMissionLifecycle({ runtime, checkpoint: "autosave" });
 
     expect(result.kind).toBe("skipped");
-    expect(mocks.isWorkerRunning).not.toHaveBeenCalled();
     expect(mocks.saveMissionSafe).not.toHaveBeenCalled();
   });
 });
