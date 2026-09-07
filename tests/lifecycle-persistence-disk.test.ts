@@ -83,6 +83,50 @@ describe("lifecycle disk reconciliation", () => {
     expect(fs.readFileSync(plan, "utf8")).toBe(before);
   });
 
+  it("does not skip agent-end queued behind a refresh of the same active session", async () => {
+    let release!: () => void;
+    let entered!: () => void;
+    const started = new Promise<void>((resolve) => { entered = resolve; });
+    const wait = new Promise<void>((resolve) => { release = resolve; });
+    const autosave = reconcileMissionLifecycle({ runtime, checkpoint: "autosave", whenIdle: async (mission) => {
+      entered();
+      await wait;
+      mission.tokensUsed = 12;
+    } });
+    await started;
+    const whenIdle = vi.fn();
+    const agentEnd = reconcileMissionLifecycle({ runtime, checkpoint: "agent_end", whenIdle });
+    release();
+    await autosave;
+
+    expect((await agentEnd).kind).toBe("idle");
+    expect(whenIdle).toHaveBeenCalledOnce();
+    expect(whenIdle.mock.calls[0]![0].tokensUsed).toBe(12);
+  });
+
+  it.each(["different_mission", "same_mission_new_session"])(
+    "skips a checkpoint queued before a genuine %s switch", async (switchKind) => {
+      const previous = runtime.activeMission!;
+      let release!: () => void;
+      let entered!: () => void;
+      const started = new Promise<void>((resolve) => { entered = resolve; });
+      const wait = new Promise<void>((resolve) => { release = resolve; });
+      const owner = updateMissionOnDisk(previous.id, async () => { entered(); await wait; });
+      await started;
+      const whenIdle = vi.fn();
+      const checkpoint = reconcileMissionLifecycle({ runtime, checkpoint: "turn_end", whenIdle });
+      const next = switchKind === "different_mission"
+        ? createMission("Other session", "Do not overwrite") : structuredClone(previous);
+      runtime.activeMission = next;
+      release();
+      await owner;
+
+      expect((await checkpoint).kind).toBe("skipped");
+      expect(runtime.activeMission).toBe(next);
+      expect(whenIdle).not.toHaveBeenCalled();
+    },
+  );
+
   it("does not resurrect a removed mission or run completion handling", async () => {
     const id = runtime.activeMission!.id;
     fs.rmSync(missionDirSafe(id), { recursive: true });

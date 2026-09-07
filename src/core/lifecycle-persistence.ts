@@ -1,5 +1,5 @@
 import type { MissionState, RuntimeState } from "./types.js";
-import { updateMissionOnDisk } from "./state.js";
+import { refreshActiveMission, updateMissionOnDisk } from "./state.js";
 import { isWorkerRunning } from "../engines/worker.js";
 
 export type MissionLifecycleCheckpoint = "autosave" | "turn_end" | "agent_end" | "shutdown";
@@ -38,16 +38,17 @@ export async function reconcileMissionLifecycle({
   const mission = runtime.activeMission;
   if (!mission) return { kind: "no_mission" };
   const updated = await updateMissionOnDisk<MissionLifecycleResult>(mission.id, async (freshMission) => {
-    if (runtime.activeMission !== mission) return { kind: "skipped", mission: freshMission };
+    if (runtime.activeMission !== mission || freshMission.validationToken !== mission.validationToken) return { kind: "skipped", mission: freshMission };
     if (isWorkerRunning()) return { kind: "worker_active", mission: freshMission };
     if (checkpoint === "autosave" && freshMission.status !== "active") {
       return { kind: "skipped", mission: freshMission };
     }
     await whenIdle?.(freshMission);
+    if (runtime.activeMission !== mission) return { kind: "skipped", mission: freshMission };
     return { kind: PERSIST_AFTER_IDLE[checkpoint] ? "persisted" : "idle", mission: freshMission };
   }, { shouldPersist: (result) => result.kind === "persisted" });
 
   if (!updated) return { kind: "skipped", mission };
-  if (runtime.activeMission === mission) runtime.activeMission = updated.mission;
-  return updated.result;
+  if (!refreshActiveMission(runtime, mission, updated.mission)) return { kind: "skipped", mission: updated.mission };
+  return updated.result.kind === "no_mission" ? updated.result : { ...updated.result, mission };
 }

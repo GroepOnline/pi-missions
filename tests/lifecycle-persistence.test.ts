@@ -71,7 +71,7 @@ describe("reconcileMissionLifecycle", () => {
     const result = await reconcileMissionLifecycle({ runtime, checkpoint: "turn_end", whenIdle });
 
     expect(result).toEqual({ kind: "worker_active", mission: freshMission });
-    expect(runtime.activeMission).toBe(freshMission);
+    expect(runtime.activeMission).toEqual(freshMission);
     expect(whenIdle).not.toHaveBeenCalled();
     expect(mocks.saveMissionSafe).not.toHaveBeenCalled();
   });

@@ -8,7 +8,7 @@ import {
   completeActiveFeature, getActiveFeature, getFeatureById, getMilestoneById,
   getNextPendingFeature,
   loadMissionFromDisk, listMissions, progress, readHistory, saveMissionSafe,
-  updateMissionOnDisk,
+  refreshActiveMission, updateMissionOnDisk,
   readRawSchemaVersion, readRawMissionCounts, migrateMissionOnDisk,
 } from "../core/state.js";
 import { SCHEMA_VERSION } from "../core/types.js";
@@ -187,10 +187,10 @@ export async function handleList(ctx: ExtensionCommandContext, pi: ExtensionAPI,
 
 export async function handleLoad(id: string | undefined, ctx: ExtensionCommandContext, pi: ExtensionAPI, runtime: RuntimeState): Promise<void> {
   if (!id) return ctx.ui.notify("Usage: /mission load <id>", "warning");
-  const mission = loadMissionFromDisk(id);
+  const updated = await updateMissionOnDisk(id, autoBlockBlockedFeatures);
+  const mission = updated?.mission;
   if (!mission) return ctx.ui.notify(`Mission not found: ${id}`, "error");
 
-  autoBlockBlockedFeatures(mission);
   runtime.activeMission = mission;
   pi.appendEntry("pi-mission-active", { missionId: mission.id, validationToken: mission.validationToken });
   injectMissionContextWrapper(pi, ctx, mission, "mission_loaded");
@@ -441,7 +441,7 @@ async function forkFeatureInternally(
           appendHistory(freshMission, { event: "feature_fork_session_created", featureId: forked.id, note: reason, details: { sourceFeatureId: f.id, forkSessionFile: fsf, parentLeafId } });
           return true;
         });
-        if (updated?.result && runtime.activeMission?.id === m.id) runtime.activeMission = updated.mission;
+        if (updated?.result) refreshActiveMission(runtime, m, updated.mission);
         if (typeof fc.sendUserMessage === "function") await fc.sendUserMessage(kickoff);
         else fc.ui.notify(`🌿 Fork: ${forked.title}\n\n${kickoff}`, "info");
       },

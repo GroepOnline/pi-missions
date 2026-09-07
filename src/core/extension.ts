@@ -7,7 +7,7 @@ import type { RuntimeState, ToolCallEvent, ToolResultEvent } from '../core/types
 import { getMissionPhase } from '../core/state.js';
 import {
   appendHistory, autoBlockBlockedFeatures,
-  getActiveFeature, loadMissionFromDisk, saveEvidence, saveMissionSafe,
+  getActiveFeature, updateMissionOnDisk, saveEvidence, saveMissionSafe,
 } from '../core/state.js';
 import { registerMissionCommand, compactionCheckpoint, missionSummaryForTree, saveSessionLink } from '../commands/index.js';
 import { registerMissionTools, enforceToolPolicy, enforceToolMax, toolResultErrorMessage } from '../tools/index.js';
@@ -153,23 +153,16 @@ export default function piMissions(pi: ExtensionAPI): void {
     }
 
     const { missionId, validationToken } = active;
-    if (!isValidMissionId(missionId)) {
-      const fallback = loadMissionFromDisk(missionId);
-      if (!fallback) { ctx.ui?.notify(`⚠️ Mission '${missionId}' not found on disk. /mission load.`, 'warning'); return; }
-      runtime.activeMission = fallback;
-      autoBlockBlockedFeatures(fallback);
-      updateFooter(ctx, fallback);
-      pi.setSessionName(`🎯 ${fallback.title}`);
-      scheduleAutoSave(runtime);
-      return;
-    }
-
-    const mission = loadMissionFromDisk(missionId);
-    if (!mission) { ctx.ui?.notify(`⚠️ Mission '${missionId}' not found on disk. /mission load.`, 'warning'); return; }
-    if (validationToken && validationToken !== mission.validationToken) { ctx.ui?.notify('⚠️ Invalid mission event token.', 'warning'); return; }
+    const restored = await updateMissionOnDisk(missionId, (mission) => {
+      if (isValidMissionId(missionId) && validationToken && validationToken !== mission.validationToken) return false;
+      autoBlockBlockedFeatures(mission);
+      return true;
+    }, { shouldPersist: (valid) => valid });
+    if (!restored) { ctx.ui?.notify(`⚠️ Mission '${missionId}' not found on disk. /mission load.`, 'warning'); return; }
+    if (!restored.result) { ctx.ui?.notify('⚠️ Invalid mission event token.', 'warning'); return; }
+    const mission = restored.mission;
 
     runtime.activeMission = mission;
-    autoBlockBlockedFeatures(mission);
     updateFooter(ctx, mission);
     pi.setSessionName(`🎯 ${mission.title}`);
     scheduleAutoSave(runtime);
