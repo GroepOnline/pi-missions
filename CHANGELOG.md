@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.16] - 2026-09-11
+
+### Documentation
+- add durable mission lifecycle visual (#24)
 ## [0.3.15] - 2026-09-11
 
 ### Documentation
