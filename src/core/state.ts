@@ -10,6 +10,7 @@ import type {
   Milestone,
   MissionHistoryEntry,
   MissionMetrics,
+  MissionPersistenceEffects,
   MissionState,
   StaleFeatureAlert,
   ToolPhase,
@@ -34,6 +35,16 @@ import {
 
 // Re-export for consumers
 export { missionsRoot, missionDirSafe, createMissionId, isValidMissionId, createValidationToken, slugify };
+
+/** Last plan.json snapshot observed by each in-memory mission object. */
+const missionPlanSnapshots = new WeakMap<MissionState, string>();
+
+export class MissionStateConflictError extends Error {
+  constructor(public readonly missionId: string) {
+    super(`Mission ${missionId} changed on disk; reload before saving to avoid a lost update.`);
+    this.name = "MissionStateConflictError";
+  }
+}
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Lock management

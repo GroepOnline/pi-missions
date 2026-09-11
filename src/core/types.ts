@@ -346,14 +346,19 @@ export interface CompleteFeatureOptions {
   historyDetails?: Record<string, unknown>;
 }
 
+export interface MissionPersistenceEffects {
+  history: Array<Omit<MissionHistoryEntry, "ts" | "missionId">>;
+  evidence: Array<{ file: string; text: string }>;
+}
+
 export type CompleteFeatureResult =
-  | { ok: true; feature: Feature; evidenceFile: string; missionComplete: boolean }
+  | { ok: true; feature: Feature; evidenceFile: string; missionComplete: boolean; effects: MissionPersistenceEffects }
   | { ok: false; reason: string; unverifiedBashCount?: number };
 
 export type ActivateNextResult =
-  | { ok: true; next: Feature }
+  | { ok: true; next: Feature; effects: MissionPersistenceEffects }
   | { ok: false; reason: "active_not_done"; active: Feature }
-  | { ok: false; reason: "mission_complete" }
+  | { ok: false; reason: "mission_complete"; effects: MissionPersistenceEffects }
   | { ok: false; reason: "no_unblocked_pending" };
 
 // ═══════════════════════════════════════════════════════════════════════════
