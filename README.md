@@ -2,59 +2,60 @@
 
 <img src="https://raw.githubusercontent.com/GroepOnline/pi-missions/main/docs/images/missions_banner.png" alt="Pi Missions" width="100%">
 
-# @groeponline/pi-missions
+# Pi Missions
 
-**Durable execution tracks for Pi coding agents.**
+**Keep long-running coding work alive after the chat is gone.**
 
-Keep a multi-step job alive across restarts, compaction, forks and handoffs without reconstructing the plan from chat history.
+Turn a big implementation into a durable mission with ordered features, acceptance criteria, evidence and resumable state across Pi sessions.
 
 [![npm](https://img.shields.io/npm/v/@groeponline/pi-missions.svg)](https://www.npmjs.com/package/@groeponline/pi-missions) [![downloads](https://img.shields.io/npm/dm/@groeponline/pi-missions.svg?label=downloads)](https://www.npmjs.com/package/@groeponline/pi-missions) [![CI](https://github.com/GroepOnline/pi-missions/actions/workflows/ci.yml/badge.svg)](https://github.com/GroepOnline/pi-missions/actions/workflows/ci.yml) [![Pi package](https://img.shields.io/badge/Pi-package-9b59b6.svg)](https://pi.dev/packages/@groeponline/pi-missions) ![License](https://img.shields.io/badge/license-MIT-green.svg)
 
 </div>
 
-## Why Pi Missions
-
-Agent sessions are temporary. Real implementation work is not.
-
-Pi Missions gives a job a durable identity with a plan, ordered features, acceptance criteria, evidence, history and handoff state. The active session can end; the mission remains on disk and can be loaded again by Pi or another compatible worker.
-
-Use it when a task is too large for one prompt, one context window or one uninterrupted coding session.
-
-## Where it fits
-
-Pi Missions owns **durable work state**: plans, features, evidence, history, recovery, and handoff context that must survive session boundaries. It does not replace Wishcraft's lightweight idea inbox and it does not execute multi-agent swarms itself.
-
-`pi-wishcraft idea -> pi-missions mission -> pi-agent-orchestrator run` is the intended promotion path when a thought becomes durable work and then needs parallel or isolated execution.
-
-- [`pi-wishcraft`](https://github.com/GroepOnline/pi-wishcraft): operator cockpit and fast idea capture.
-- **pi-missions**: durable plan/task/evidence state.
-- [`pi-agent-orchestrator`](https://github.com/GroepOnline/pi-agent-orchestrator): execution fabric for agents, worktrees, swarms, schedules, and handoffs.
-
-GitHub, Slack and webhook integration classes remain lightweight scaffolding; production-readiness is tracked in [#13](https://github.com/GroepOnline/pi-missions/issues/13).
-
-## 30-second start
+## Start in 10 seconds
 
 ```bash
 pi install npm:@groeponline/pi-missions
 ```
 
-Inside Pi:
+Then inside Pi:
 
 ```text
 /mission start "Implement user auth"
-/mission status
 /mission next
-# work on the active feature
+```
+
+When the feature is actually done:
+
+```text
 /mission done "Tests pass and login flow verified"
 ```
 
-Resume later:
+Close Pi. Come back later. Resume the same mission:
 
 ```text
 /mission list
 /mission load <mission-id>
 /mission status
 ```
+
+## Why Pi Missions
+
+Agent sessions are temporary. Real implementation work is not. Pi Missions stores the plan, current feature, acceptance criteria, evidence, history and handoff state on disk so progress survives restarts, compaction, forks and context loss.
+
+Use it when a job is too large for one prompt, one context window or one uninterrupted coding session.
+
+## Where it fits
+
+Pi Missions owns **durable work state**. Wishcraft captures lightweight ideas; Missions turns serious work into a resumable track; Agent Orchestrator executes parallel or isolated work when that becomes useful.
+
+`pi-wishcraft idea → pi-missions mission → pi-agent-orchestrator run`
+
+- [`pi-wishcraft`](https://github.com/GroepOnline/pi-wishcraft): operator cockpit and fast idea capture.
+- **pi-missions**: durable plan, queue, evidence and recovery state.
+- [`pi-agent-orchestrator`](https://github.com/GroepOnline/pi-agent-orchestrator): agents, worktrees, swarms, schedules and execution handoffs.
+
+GitHub, Slack and webhook integration classes remain lightweight scaffolding; production-readiness is tracked in [#13](https://github.com/GroepOnline/pi-missions/issues/13).
 
 ## Execution loop
 
