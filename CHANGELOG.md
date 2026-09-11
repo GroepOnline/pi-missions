@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.14] - 2026-09-11
+
+### Changed
+- GitAuto setup
 ## [0.3.13] - 2026-09-05
 
 ### Maintenance
