@@ -8,7 +8,7 @@ import {
   completeActiveFeature, getActiveFeature, getFeatureById, getMilestoneById,
   getNextPendingFeature,
   loadMissionFromDisk, listMissions, progress, readHistory, saveMissionSafe,
-  refreshActiveMission, updateMissionOnDisk,
+  updateActiveMissionOnDisk, updateMissionOnDisk,
   readRawSchemaVersion, readRawMissionCounts, migrateMissionOnDisk,
 } from "../core/state.js";
 import { SCHEMA_VERSION } from "../core/types.js";
@@ -434,14 +434,13 @@ async function forkFeatureInternally(
       withSession: async (fc) => {
         const fcCtx = fc as unknown as ForkReplacementContext;
         const fsf = (fc.sessionManager as ForkSessionManager | undefined)?.getSessionFile?.();
-        const updated = await updateMissionOnDisk(m.id, (freshMission) => {
+        await updateActiveMissionOnDisk(runtime, m, (freshMission) => {
           const freshForked = getFeatureById(freshMission, forked.id);
           if (!freshForked) return false;
           pushSessionRef(freshForked, fsf ? `session:${fsf}` : undefined);
           appendHistory(freshMission, { event: "feature_fork_session_created", featureId: forked.id, note: reason, details: { sourceFeatureId: f.id, forkSessionFile: fsf, parentLeafId } });
           return true;
         });
-        if (updated?.result) refreshActiveMission(runtime, m, updated.mission);
         if (typeof fc.sendUserMessage === "function") await fc.sendUserMessage(kickoff);
         else fc.ui.notify(`🌿 Fork: ${forked.title}\n\n${kickoff}`, "info");
       },

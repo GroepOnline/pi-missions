@@ -272,9 +272,60 @@ async function writeMissionSafe(mission: MissionState): Promise<void> {
   await fsAsync.rename(temp, target);
 }
 
+const missionWrites = new WeakMap<MissionState, { revision: number; pending: number; settled: Set<() => void> }>();
+
+function writesFor(mission: MissionState) {
+  let writes = missionWrites.get(mission);
+  if (!writes) {
+    writes = { revision: 0, pending: 0, settled: new Set() };
+    missionWrites.set(mission, writes);
+  }
+  return writes;
+}
+
+export function missionWriteRevision(mission: MissionState): number {
+  return writesFor(mission).revision;
+}
+
+export function missionWritesUnchanged(mission: MissionState, revision: number): boolean {
+  const writes = writesFor(mission);
+  return writes.revision === revision && writes.pending === 0;
+}
+
+/** Never wait for queued writes while holding the plan lock they need. */
+export async function waitForMissionWrites(mission: MissionState): Promise<void> {
+  const writes = writesFor(mission);
+  while (writes.pending) await new Promise<void>((resolve) => { writes.settled.add(resolve); });
+}
+
+function beginMissionWrite(mission: MissionState) {
+  const writes = writesFor(mission);
+  const revision = ++writes.revision;
+  writes.pending++;
+  return () => {
+    const unchanged = writes.revision === revision;
+    writes.revision++;
+    writes.pending--;
+    if (!writes.pending) {
+      for (const resolve of writes.settled) resolve();
+      writes.settled.clear();
+    }
+    return unchanged;
+  };
+}
+
 export async function saveMissionSafe(mission: MissionState): Promise<void> {
-  const target = path.join(missionDirSafe(mission.id), "plan.json");
-  await withLock(target, () => writeMissionSafe(mission));
+  // Capture the caller's mutation before waiting for any other owner of the lock.
+  // Match disk serialization: goalTree is circular and runtime functions are omitted.
+  const { goalTree: _, ...serializable } = mission as MissionState & { goalTree?: unknown };
+  const snapshot = JSON.parse(JSON.stringify(serializable)) as MissionState;
+  const settle = beginMissionWrite(mission);
+  try {
+    const target = path.join(missionDirSafe(snapshot.id), "plan.json");
+    await withLock(target, () => writeMissionSafe(snapshot));
+  } finally {
+    if (settle()) mission.updatedAt = snapshot.updatedAt;
+  }
 }
 
 export async function updateMissionOnDisk<T>(
@@ -297,13 +348,34 @@ export function refreshActiveMission(
   runtime: RuntimeState,
   expected: MissionState,
   fresh: MissionState,
+  revision: number,
 ): boolean {
-  if (runtime.activeMission !== expected || fresh.id !== expected.id || fresh.validationToken !== expected.validationToken) return false;
+  if (runtime.activeMission !== expected || fresh.id !== expected.id || fresh.validationToken !== expected.validationToken || !missionWritesUnchanged(expected, revision)) return false;
   for (const key of Object.keys(expected)) {
     if (!(key in fresh)) Reflect.deleteProperty(expected, key);
   }
   Object.assign(expected, fresh);
   return true;
+}
+
+/** Coordinate a semantic disk mutation with checkpoints of the active session. */
+export async function updateActiveMissionOnDisk<T>(
+  runtime: RuntimeState,
+  expected: MissionState,
+  mutate: (mission: MissionState) => T | Promise<T>,
+  options: { shouldPersist?: (result: T) => boolean } = {},
+): Promise<{ mission: MissionState; result: T; refreshed: boolean } | null> {
+  const settle = beginMissionWrite(expected);
+  let unchanged = false;
+  let updated;
+  try {
+    updated = await updateMissionOnDisk(expected.id, mutate, options);
+  } finally {
+    unchanged = settle();
+  }
+  if (!updated) return null;
+  const refreshed = unchanged && refreshActiveMission(runtime, expected, updated.mission, missionWriteRevision(expected));
+  return { ...updated, refreshed };
 }
 
 export function loadMissionFromDisk(id: string): MissionState | null {
