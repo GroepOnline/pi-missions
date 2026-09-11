@@ -45,6 +45,12 @@ Agent sessions are temporary. Real implementation work is not. Pi Missions store
 
 Use it when a job is too large for one prompt, one context window or one uninterrupted coding session.
 
+<p align="center">
+  <img src="https://raw.githubusercontent.com/GroepOnline/pi-missions/main/docs/images/mission-lifecycle.svg" alt="Pi Missions durable lifecycle: create or load, advance features, persist state and resume later" width="100%">
+</p>
+
+The important bit is not the queue UI. It is that the active pointer, transition history and completion evidence survive the session that created them.
+
 ## Where it fits
 
 Pi Missions owns **durable work state**. Wishcraft captures lightweight ideas; Missions turns serious work into a resumable track; Agent Orchestrator executes parallel or isolated work when that becomes useful.
@@ -57,22 +63,9 @@ Pi Missions owns **durable work state**. Wishcraft captures lightweight ideas; M
 
 GitHub, Slack and webhook integration classes remain lightweight scaffolding; production-readiness is tracked in [#13](https://github.com/GroepOnline/pi-missions/issues/13).
 
-## Execution loop
+## Runtime contract
 
-```mermaid
-flowchart LR
-    A[Create or load mission] --> B[Pending feature]
-    B -->|/mission next| C[Active feature]
-    C -->|evidence accepted| D[Done]
-    C -->|cannot proceed| E[Blocked]
-    D -->|more ready work| B
-    D -->|all features complete| F[Mission complete]
-    E -->|another feature is ready| B
-    C --> G[history.jsonl]
-    D --> H[evidence/Fxxx.md]
-```
-
-The agent is expected to work only on the active feature. Completion is explicit: `/mission done` or `mission_feature_done` records evidence before the queue advances.
+The agent works only on the active feature. Completion is explicit: `/mission done` or `mission_feature_done` records evidence before the queue advances. A blocked feature records its reason instead of being silently skipped.
 
 ## What persists
 
