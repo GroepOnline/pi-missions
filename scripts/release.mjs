@@ -28,16 +28,19 @@ export function shouldSkipRelease(message) {
 }
 
 export function chooseBump(subjects) {
-  let level = "patch";
+  // Org policy: every user-visible main change ships as +0.1 minor — small
+  // fixes and additions alike. Only an explicit breaking `!:`/"breaking
+  // change" auto-promotes to major. Patch stays an explicit manual choice
+  // (`node scripts/release.mjs patch`).
   for (const raw of subjects) {
     const subject = raw.trim();
     if (!subject || /^chore:\s*release\b/i.test(subject)) continue;
     if (/^(\w+)(\([^)]+\))?!:/.test(subject) || /breaking change/i.test(subject)) {
       return "major";
     }
-    if (/^feat(\([^)]+\))?:/.test(subject)) level = "minor";
+    return "minor";
   }
-  return level;
+  return "patch";
 }
 
 function git(command) {
