@@ -61,7 +61,7 @@ Pi Missions owns **durable work state**. Wishcraft captures lightweight ideas; M
 - **pi-missions**: durable plan, queue, evidence and recovery state.
 - [`pi-agent-orchestrator`](https://github.com/GroepOnline/pi-agent-orchestrator): agents, worktrees, swarms, schedules and execution handoffs.
 
-GitHub, Slack and webhook integration classes remain lightweight scaffolding; production-readiness is tracked in [#13](https://github.com/GroepOnline/pi-missions/issues/13).
+Explicit non-goal: pi-missions ships no GitHub, Slack or webhook integrations — there are no such integration classes in this package, no network calls to those providers, and no webhook listeners. Mission state stays local (SQLite/JSONL under `MISSIONS_ROOT`). If provider integrations are ever proposed, production-readiness gates are tracked in [#13](https://github.com/GroepOnline/pi-missions/issues/13).
 
 ## Runtime contract
 
@@ -162,7 +162,7 @@ src/
 └── cli/         # pi-missions CLI
 ```
 
-GitHub, Slack and webhook integration classes are still lightweight scaffolding. They are not advertised as production integrations.
+Explicit non-goal: GitHub, Slack and webhook integrations are out of scope for this package (no integration classes, no provider network calls, no webhook listeners). They are not advertised as features; any future proposal must meet the gates tracked in [#13](https://github.com/GroepOnline/pi-missions/issues/13).
 
 ## Requirements
 

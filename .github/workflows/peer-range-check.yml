@@ -1,8 +1,8 @@
 name: Pi peer range check
 
-# The pi peer ranges (<0.86.0) are hand-maintained. When pi ships a minor
-# outside the range, installs start failing. This job notices first and opens
-# an issue so a human bumps the range in a normal PR.
+# Pi peer ranges are pinned to "*" by the package contract
+# (scripts/verify-pi-package-contract.mjs). This job only guards the legacy
+# >=a.b.c <x.y.z form; a "*" range trivially covers the latest release.
 on:
   schedule:
     - cron: "23 7 * * 1" # Mondays 07:23 UTC
@@ -36,6 +36,13 @@ jobs:
             const latest = execSync("npm view @earendil-works/pi-coding-agent version")
               .toString().trim();
             const range = pkg.peerDependencies["@earendil-works/pi-coding-agent"];
+            // The package contract (scripts/verify-pi-package-contract.mjs)
+            // pins pi peers to "*", which covers every release. Only the
+            // legacy >=a.b.c <x.y.z form needs a drift check.
+            if (range === "*" || range === "latest") {
+              console.log("");
+              return;
+            }
             const m = range.match(/>=([\d.]+) <([\d.]+)/);
             const ok = m && cmp(latest, m[2]) < 0;
             console.log(ok ? "" : `${latest} is outside peer range "${range}"`);
