@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 // @ts-ignore release.mjs is an executable JS helper without declarations
-import { buildReleaseNotesFromSubjects, extractChangelogNotes, seedUnreleasedNotes } from "../scripts/release.mjs";
+import { buildReleaseNotesFromSubjects, chooseBump, extractChangelogNotes, seedUnreleasedNotes } from "../scripts/release.mjs";
 
 describe("release changelog fallback", () => {
   it("groups conventional commit subjects into useful release notes", () => {
@@ -36,5 +36,24 @@ describe("release changelog fallback", () => {
     const seeded = seedUnreleasedNotes(base, ["ci: refresh release action"]);
     const rolled = rewriteUnreleasedHeading(seeded.changelog, "0.3.8", "2026-08-31");
     expect(extractChangelogNotes(rolled.changelog, "0.3.8")).toContain("refresh release action");
+  });
+});
+
+describe("release bump policy (org: +0.1 minor per change)", () => {
+  it("ships minor for fixes, feats and docs alike", () => {
+    expect(chooseBump(["fix(ci): stop blank releases"])).toBe("minor");
+    expect(chooseBump(["feat(runtime): resumable worker handoff"])).toBe("minor");
+    expect(chooseBump(["docs: rewrite quick start"])).toBe("minor");
+  });
+
+  it("still promotes explicit breaking changes to major", () => {
+    expect(chooseBump(["feat!: drop old state shape"])).toBe("major");
+    expect(chooseBump(["fix: overhaul", "breaking change: new schema"])).toBe("major");
+  });
+
+  it("ignores release commits and falls back to patch when empty", () => {
+    expect(chooseBump(["fix: foo", "chore: release 0.5.0"])).toBe("minor");
+    expect(chooseBump(["chore: release 0.5.0"])).toBe("patch");
+    expect(chooseBump([])).toBe("patch");
   });
 });
