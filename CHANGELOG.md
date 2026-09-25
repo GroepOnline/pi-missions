@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-09-13
+
+### Maintenance
+- pin +0.1 minor policy; fix major scan across subjects (#28)
+## [0.5.0] - 2026-09-12
+
+### Added
+- per-package preview container (#27)
+## [0.4.0] - 2026-09-12
+
+### Fixed
+- peer-range check honors pinned * range; integration non-goals (#26)
 ## [0.3.16] - 2026-09-11
 
 ### Documentation
