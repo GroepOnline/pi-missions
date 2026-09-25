@@ -2,12 +2,16 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { createMission, loadMissionFromDisk, missionDirSafe, saveMissionSafe, updateMissionOnDisk } from "../src/core/state.js";
+import { createMission, loadMissionFromDisk, missionDirSafe, missionWriteRevision, refreshActiveMission, saveMissionSafe, updateMissionOnDisk } from "../src/core/state.js";
 import type { RuntimeState } from "../src/core/types.js";
 import { reconcileMissionLifecycle } from "../src/core/lifecycle-persistence.js";
+import { registerMissionTools } from "../src/tools/index.js";
+import { handleDone } from "../src/commands/handlers.js";
 
 const mocks = vi.hoisted(() => ({ running: vi.fn(() => false) }));
-vi.mock("../src/engines/worker.js", () => ({ isWorkerRunning: mocks.running }));
+vi.mock("../src/engines/worker.js", () => ({
+  isWorkerRunning: mocks.running, getActiveWorker: vi.fn(), spawnWorker: vi.fn(), killWorker: vi.fn(),
+}));
 
 describe("lifecycle disk reconciliation", () => {
   let root: string;
@@ -102,6 +106,75 @@ describe("lifecycle disk reconciliation", () => {
     expect((await agentEnd).kind).toBe("idle");
     expect(whenIdle).toHaveBeenCalledOnce();
     expect(whenIdle.mock.calls[0]![0].tokensUsed).toBe(12);
+  });
+
+  it.each(["tool", "command"])("retains %s completion queued behind an autosave", async (mode) => {
+    const mission = runtime.activeMission!;
+    mission.milestones[0]!.features[0]!.acceptance.forEach((criterion) => { criterion.verified = true; });
+    await saveMissionSafe(mission);
+    let release!: () => void;
+    let entered!: () => void;
+    const started = new Promise<void>((resolve) => { entered = resolve; });
+    const wait = new Promise<void>((resolve) => { release = resolve; });
+    const autosaveIdle = vi.fn(async () => {
+      entered();
+      await wait;
+    });
+    const autosave = reconcileMissionLifecycle({ runtime, checkpoint: "autosave", whenIdle: autosaveIdle });
+    await started;
+    const ctx = { hasUI: false, ui: { notify: vi.fn(), setStatus: vi.fn() } } as any;
+    const tools: any[] = [];
+    registerMissionTools({ registerTool: (tool: any) => { tools.push(tool); } } as any, runtime);
+    const completion = mode === "tool"
+      ? tools.find((tool) => tool.name === "mission_feature_done").execute("done", { evidence: "Verified completion" }, null, null, ctx)
+      : handleDone("Verified completion", ctx, runtime);
+    expect(mission.milestones[0]!.features[0]!.status).toBe("done");
+    const agentEndIdle = vi.fn();
+    const agentEnd = reconcileMissionLifecycle({ runtime, checkpoint: "agent_end", whenIdle: agentEndIdle });
+    release();
+    await autosave;
+    const result = await completion;
+    if (mode === "tool") expect(result.isError).toBe(false);
+
+    expect(loadMissionFromDisk(mission.id)!.milestones[0]!.features[0]!.status).toBe("done");
+    expect(runtime.activeMission!.milestones[0]!.features[0]!.status).toBe("done");
+    expect(autosaveIdle).toHaveBeenCalledOnce();
+    expect((await agentEnd).kind).toBe("idle");
+    expect(agentEndIdle).toHaveBeenCalledOnce();
+    expect(agentEndIdle.mock.calls[0]![0].milestones[0].features[0].status).toBe("done");
+  });
+
+  it("rejects an old refresh even after the completion write has settled", async () => {
+    const mission = runtime.activeMission!;
+    mission.milestones[0]!.features[0]!.acceptance.forEach((criterion) => { criterion.verified = true; });
+    await saveMissionSafe(mission);
+    const revision = missionWriteRevision(mission);
+    const stale = loadMissionFromDisk(mission.id)!;
+    const ctx = { hasUI: false, ui: { notify: vi.fn(), setStatus: vi.fn() } } as any;
+
+    await handleDone("Verified completion", ctx, runtime);
+
+    expect(refreshActiveMission(runtime, mission, stale, revision)).toBe(false);
+    expect(runtime.activeMission!.milestones[0]!.features[0]!.status).toBe("done");
+    expect(loadMissionFromDisk(mission.id)!.milestones[0]!.features[0]!.status).toBe("done");
+  });
+
+  it("captures queued saves without mutating later runtime changes on settlement", async () => {
+    const mission = runtime.activeMission!;
+    let release!: () => void;
+    let entered!: () => void;
+    const started = new Promise<void>((resolve) => { entered = resolve; });
+    const wait = new Promise<void>((resolve) => { release = resolve; });
+    const owner = updateMissionOnDisk(mission.id, async () => { entered(); await wait; });
+    await started;
+    mission.milestones[0]!.features[0]!.notes = "Requested write";
+    const save = saveMissionSafe(mission);
+    mission.milestones[0]!.features[0]!.notes = "Later runtime edit";
+    release();
+    await Promise.all([owner, save]);
+
+    expect(loadMissionFromDisk(mission.id)!.milestones[0]!.features[0]!.notes).toBe("Requested write");
+    expect(runtime.activeMission!.milestones[0]!.features[0]!.notes).toBe("Later runtime edit");
   });
 
   it.each(["different_mission", "same_mission_new_session"])(

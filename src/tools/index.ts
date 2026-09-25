@@ -5,7 +5,7 @@ import { TOOL_POLICIES } from "../core/types.js";
 import {
   activateNextFeature, appendHistory, autoUnblockResolved,
   completeActiveFeature, getActiveFeature, getFeatureById, getMilestoneById,
-  getNextPendingFeature, loadMissionFromDisk, refreshActiveMission, updateMissionOnDisk, saveMissionSafe,
+  getNextPendingFeature, loadMissionFromDisk, updateActiveMissionOnDisk, saveMissionSafe,
 } from "../core/state.js";
 import { getCompletionDetector } from "../engines/completion.js";
 import { getErrorRecoveryEngine } from "../engines/recovery.js";
@@ -257,14 +257,14 @@ export function registerMissionTools(_pi: ExtensionAPI, runtime: RuntimeState): 
     async execute(_id: string, params: Record<string, unknown>, _sig: unknown, _upd: unknown, ctx: ExtensionCommandContext) {
       const m = runtime.activeMission;
       if (!m) throw new Error("No active mission.");
-      const stopped = await updateMissionOnDisk(m.id, (fresh) => {
+      const stopped = await updateActiveMissionOnDisk(runtime, m, (fresh) => {
         if (fresh.validationToken !== m.validationToken) return false;
         fresh.autopilot.enabled = false;
         fresh.autopilot.lastStopReason = "needs_user_decision";
         fresh.autopilot.lastStopMessage = String(params.question ?? "");
         return true;
       }, { shouldPersist: (changed) => changed });
-      if (!stopped?.result || !refreshActiveMission(runtime, m, stopped.mission)) throw new Error("Active mission changed before user decision.");
+      if (!stopped?.result || !stopped.refreshed) throw new Error("Active mission changed before user decision.");
       const f = getActiveFeature(stopped.mission);
 
       appendHistory(m, { event: "user_asked", featureId: f?.id, note: `Q: ${params.question}`, details: { questionType: params.questionType, options: params.options, defaultValue: params.defaultValue } });
@@ -298,13 +298,12 @@ export function registerMissionTools(_pi: ExtensionAPI, runtime: RuntimeState): 
 
       if (f) appendHistory(m, { event: "user_answered", featureId: f.id, note: `A: ${answer}`, details: { answer, answerSource: source, questionType: qType } });
       if (answer === "ALLOW_BASH_IN_PLANNING") {
-        const updated = await updateMissionOnDisk(m.id, (fresh) => {
+        await updateActiveMissionOnDisk(runtime, m, (fresh) => {
           if (fresh.validationToken !== m.validationToken) return false;
           fresh.userPreferences = fresh.userPreferences ?? {};
           fresh.userPreferences.allowBashInPlanning = true;
           return true;
         }, { shouldPersist: (changed) => changed });
-        if (updated?.result) refreshActiveMission(runtime, m, updated.mission);
       }
 
       return { content: [{ type: "text", text: `User answered: ${answer}${source !== "ui" ? ` (via ${source})` : ""}` }], details: { question: params.question, answer, answerSource: source }, isError: false };
@@ -397,14 +396,13 @@ export function registerMissionTools(_pi: ExtensionAPI, runtime: RuntimeState): 
           withSession: async (fc) => {
             const fcCtx = fc as unknown as ForkReplacementContext;
             const fsf = (fc.sessionManager as ForkSessionManager | undefined)?.getSessionFile?.();
-            const updated = await updateMissionOnDisk(m.id, (freshMission) => {
+            await updateActiveMissionOnDisk(runtime, m, (freshMission) => {
               const freshForked = getFeatureById(freshMission, forked.id);
               if (!freshForked) return false;
               pushSessionRef(freshForked, fsf ? `session:${fsf}` : undefined);
               appendHistory(freshMission, { event: "feature_fork_session_created", featureId: forked.id, note: reason, details: { sourceFeatureId: f.id, subtask: params.subtask, forkSessionFile: fsf, parentLeafId, self: true } });
               return true;
             });
-            if (updated?.result) refreshActiveMission(runtime, m, updated.mission);
             if (typeof fc.sendUserMessage === "function") await fc.sendUserMessage(kickoff);
             else fc.ui.notify(`🌿 Fork active: ${forked.title}\n\n${kickoff}`, "info");
           },
