@@ -1,4 +1,4 @@
-import { bench, describe } from "vitest";
+import { describe, test } from "vitest";
 import { createMission } from "../src/core/state.js";
 import {
   buildMissionContext,
@@ -84,12 +84,16 @@ function createLargeMission(): MissionState {
 describe("context generation", () => {
   const m = createLargeMission();
 
-  bench("buildMissionContext (18 features, 5 milestones)", () => {
-    buildMissionContext(m);
+  test("buildMissionContext (18 features, 5 milestones)", async ({ bench }) => {
+    await bench("buildMissionContext (18 features, 5 milestones)", () => {
+      buildMissionContext(m);
+    }).run();
   });
 
-  bench("buildCompactionSummary (18 features)", () => {
-    buildCompactionSummary(m);
+  test("buildCompactionSummary (18 features)", async ({ bench }) => {
+    await bench("buildCompactionSummary (18 features)", () => {
+      buildCompactionSummary(m);
+    }).run();
   });
 });
 
@@ -115,20 +119,28 @@ describe("context scaling", () => {
     return m;
   })();
 
-  bench("buildMissionContext (tiny: 2 features)", () => {
-    buildMissionContext(tiny);
+  test("buildMissionContext (tiny: 2 features)", async ({ bench }) => {
+    await bench("buildMissionContext (tiny: 2 features)", () => {
+      buildMissionContext(tiny);
+    }).run();
   });
 
-  bench("buildMissionContext (medium: 9 features)", () => {
-    buildMissionContext(medium);
+  test("buildMissionContext (medium: 9 features)", async ({ bench }) => {
+    await bench("buildMissionContext (medium: 9 features)", () => {
+      buildMissionContext(medium);
+    }).run();
   });
 
-  bench("buildCompactionSummary (tiny)", () => {
-    buildCompactionSummary(tiny);
+  test("buildCompactionSummary (tiny)", async ({ bench }) => {
+    await bench("buildCompactionSummary (tiny)", () => {
+      buildCompactionSummary(tiny);
+    }).run();
   });
 
-  bench("buildCompactionSummary (medium)", () => {
-    buildCompactionSummary(medium);
+  test("buildCompactionSummary (medium)", async ({ bench }) => {
+    await bench("buildCompactionSummary (medium)", () => {
+      buildCompactionSummary(medium);
+    }).run();
   });
 });
 
@@ -148,16 +160,22 @@ describe("completion signal detection", () => {
     "The feature is complete. ".repeat(5);
   const negative = "Working on implementing the database migration scripts";
 
-  bench("completionSignal (short, positive)", () => {
-    completionSignal(positiveShort);
+  test("completionSignal (short, positive)", async ({ bench }) => {
+    await bench("completionSignal (short, positive)", () => {
+      completionSignal(positiveShort);
+    }).run();
   });
 
-  bench("completionSignal (long, positive)", () => {
-    completionSignal(positiveLong);
+  test("completionSignal (long, positive)", async ({ bench }) => {
+    await bench("completionSignal (long, positive)", () => {
+      completionSignal(positiveLong);
+    }).run();
   });
 
-  bench("completionSignal (negative, no match)", () => {
-    completionSignal(negative);
+  test("completionSignal (negative, no match)", async ({ bench }) => {
+    await bench("completionSignal (negative, no match)", () => {
+      completionSignal(negative);
+    }).run();
   });
 });
 
@@ -169,9 +187,11 @@ describe("feature summary", () => {
   const m = createLargeMission();
   const features = m.milestones.flatMap((ms) => ms.features);
 
-  bench("featureSummary (18 features sequential)", () => {
-    for (const f of features) {
-      featureSummary(f);
-    }
+  test("featureSummary (18 features sequential)", async ({ bench }) => {
+    await bench("featureSummary (18 features sequential)", () => {
+      for (const f of features) {
+        featureSummary(f);
+      }
+    }).run();
   });
 });
