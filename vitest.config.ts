@@ -3,6 +3,9 @@ import { defineConfig } from "vitest/config";
 export default defineConfig({
   test: {
     include: ["tests/**/*.test.ts"],
+    benchmark: {
+      include: ["tests/**/*.bench.ts"],
+    },
     coverage: {
       all: true,
       include: ["src/**/*.ts"],
@@ -15,8 +18,5 @@ export default defineConfig({
         lines: 85,
       },
     },
-  },
-  bench: {
-    include: ["tests/**/*.bench.ts"],
   },
 });

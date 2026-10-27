@@ -1,4 +1,4 @@
-import { bench, describe } from "vitest";
+import { describe, test } from "vitest";
 import {
   createMission,
   computeMissionMetrics,
@@ -102,17 +102,23 @@ function createLargeMission(): MissionState {
 // ═══════════════════════════════════════════════════════════════════════════════
 
 describe("mission creation", () => {
-  bench("createMission (small)", () => {
-    createMission("Small", "Just a small mission");
+  test("createMission (small)", async ({ bench }) => {
+    await bench("createMission (small)", () => {
+      createMission("Small", "Just a small mission");
+    }).run();
   });
 
-  bench("createMission with milestones (large)", () => {
-    createLargeMission();
+  test("createMission with milestones (large)", async ({ bench }) => {
+    await bench("createMission with milestones (large)", () => {
+      createLargeMission();
+    }).run();
   });
 
-  bench("exportMarkdown (large mission)", () => {
-    const m = createLargeMission();
-    exportMarkdown(m);
+  test("exportMarkdown (large mission)", async ({ bench }) => {
+    await bench("exportMarkdown (large mission)", () => {
+      const m = createLargeMission();
+      exportMarkdown(m);
+    }).run();
   });
 });
 
@@ -123,42 +129,58 @@ describe("mission creation", () => {
 describe("mission analysis", () => {
   const m = createLargeMission();
 
-  bench("computeMissionMetrics", () => {
-    computeMissionMetrics(m);
+  test("computeMissionMetrics", async ({ bench }) => {
+    await bench("computeMissionMetrics", () => {
+      computeMissionMetrics(m);
+    }).run();
   });
 
-  bench("autoBlockBlockedFeatures", () => {
-    autoBlockBlockedFeatures(m);
+  test("autoBlockBlockedFeatures", async ({ bench }) => {
+    await bench("autoBlockBlockedFeatures", () => {
+      autoBlockBlockedFeatures(m);
+    }).run();
   });
 
-  bench("autoUnblockResolved", () => {
-    autoUnblockResolved(m);
+  test("autoUnblockResolved", async ({ bench }) => {
+    await bench("autoUnblockResolved", () => {
+      autoUnblockResolved(m);
+    }).run();
   });
 
-  bench("detectStaleFeature (no stale)", () => {
-    detectStaleFeature(m, Date.now());
+  test("detectStaleFeature (no stale)", async ({ bench }) => {
+    await bench("detectStaleFeature (no stale)", () => {
+      detectStaleFeature(m, Date.now());
+    }).run();
   });
 
-  bench("detectStaleFeature (deep stale)", () => {
-    const clone = structuredClone(m);
-    const af = getActiveFeature(clone);
-    if (af) {
-      af.toolCallCount = 999;
-      af.startedAt = Date.now() - 3600000 * 24 * 7; // 7 days old
-    }
-    detectStaleFeature(clone, Date.now());
+  test("detectStaleFeature (deep stale)", async ({ bench }) => {
+    await bench("detectStaleFeature (deep stale)", () => {
+      const clone = structuredClone(m);
+      const af = getActiveFeature(clone);
+      if (af) {
+        af.toolCallCount = 999;
+        af.startedAt = Date.now() - 3600000 * 24 * 7; // 7 days old
+      }
+      detectStaleFeature(clone, Date.now());
+    }).run();
   });
 
-  bench("getAllFeatures", () => {
-    getAllFeatures(m);
+  test("getAllFeatures", async ({ bench }) => {
+    await bench("getAllFeatures", () => {
+      getAllFeatures(m);
+    }).run();
   });
 
-  bench("getActiveFeature", () => {
-    getActiveFeature(m);
+  test("getActiveFeature", async ({ bench }) => {
+    await bench("getActiveFeature", () => {
+      getActiveFeature(m);
+    }).run();
   });
 
-  bench("buildWorkerPrompt", () => {
-    const f = getActiveFeature(m);
-    if (f) buildWorkerPrompt(m, f);
+  test("buildWorkerPrompt", async ({ bench }) => {
+    await bench("buildWorkerPrompt", () => {
+      const f = getActiveFeature(m);
+      if (f) buildWorkerPrompt(m, f);
+    }).run();
   });
 });

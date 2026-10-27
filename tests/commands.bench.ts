@@ -1,4 +1,4 @@
-import { bench, describe } from "vitest";
+import { describe, test } from "vitest";
 import {
   cloneFeatureForFork,
   missionSummaryForTree,
@@ -31,32 +31,46 @@ function createLargeMission(): import("../src/core/types.js").MissionState {
   return m;
 }
 
+const emptyRuntime: RuntimeState = {
+  activeMission: null,
+  autoSaveInterval: null,
+  phaseToolCallCount: 0,
+  currentPhase: "execution",
+  lastFeatureId: undefined,
+};
+
 describe("command helpers", () => {
   const m = createLargeMission();
 
-  bench("cloneFeatureForFork", () => {
-    const f = m.milestones[0].features[0]!;
-    cloneFeatureForFork(f, `${f.id}-fork-1`, `${f.title} [fork]`, "Alternative approach");
+  test("cloneFeatureForFork", async ({ bench }) => {
+    await bench("cloneFeatureForFork", () => {
+      const f = m.milestones[0].features[0]!;
+      cloneFeatureForFork(f, `${f.id}-fork-1`, `${f.title} [fork]`, "Alternative approach");
+    }).run();
   });
 
-  bench("missionSummaryForTree (active mission + feature)", () => {
-    const rt: RuntimeState = { activeMission: m, autoSaveInterval: null, phaseToolCallCount: 0, currentPhase: "execution", lastFeatureId: undefined };
-    missionSummaryForTree(rt);
+  test("missionSummaryForTree (active mission + feature)", async ({ bench }) => {
+    await bench("missionSummaryForTree (active mission + feature)", () => {
+      const rt: RuntimeState = { ...emptyRuntime, activeMission: m };
+      missionSummaryForTree(rt);
+    }).run();
   });
 
-  bench("missionSummaryForTree (no mission)", () => {
-    const rt: RuntimeState = { activeMission: null, autoSaveInterval: null, phaseToolCallCount: 0, currentPhase: "execution", lastFeatureId: undefined };
-    missionSummaryForTree(rt);
+  test("missionSummaryForTree (no mission)", async ({ bench }) => {
+    await bench("missionSummaryForTree (no mission)", () => {
+      missionSummaryForTree(emptyRuntime);
+    }).run();
   });
 
-  bench("saveSessionLink (no mission)", () => {
-    const rt: RuntimeState = { activeMission: null, autoSaveInterval: null, phaseToolCallCount: 0, currentPhase: "execution", lastFeatureId: undefined };
-    saveSessionLink(rt, "/tmp/session.jsonl");
+  test("saveSessionLink (no mission)", async ({ bench }) => {
+    await bench("saveSessionLink (no mission)", () => {
+      saveSessionLink(emptyRuntime, "/tmp/session.jsonl");
+    }).run();
   });
 
-  bench("exportMarkdown (large mission)", () => {
-    exportMarkdown(m);
+  test("exportMarkdown (large mission)", async ({ bench }) => {
+    await bench("exportMarkdown (large mission)", () => {
+      exportMarkdown(m);
+    }).run();
   });
 });
-
-
