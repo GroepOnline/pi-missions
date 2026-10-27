@@ -7,7 +7,7 @@ import type { RuntimeState, ToolCallEvent, ToolResultEvent } from '../core/types
 import { getMissionPhase } from '../core/state.js';
 import {
   appendHistory, autoBlockBlockedFeatures,
-  getActiveFeature, loadMissionFromDisk, saveEvidence, saveMissionSafe,
+  getActiveFeature, updateMissionOnDisk, saveEvidence, saveMissionSafe,
 } from '../core/state.js';
 import { registerMissionCommand, compactionCheckpoint, missionSummaryForTree, saveSessionLink } from '../commands/index.js';
 import { registerMissionTools, enforceToolPolicy, enforceToolMax, toolResultErrorMessage } from '../tools/index.js';
@@ -20,6 +20,7 @@ import { processAgentEndForAutopilot } from '../engines/autopilot.js';
 import { activateNextFeature, completeActiveFeature } from '../core/state.js';
 import { handleDashboard } from '../commands/index.js';
 import { isValidMissionId } from '../utils/fs.js';
+import { reconcileMissionLifecycle } from './lifecycle-persistence.js';
 
 // Re-export types for external consumers
 export type { ToolCallEvent, ToolResultEvent };
@@ -125,7 +126,7 @@ export default function piMissions(pi: ExtensionAPI): void {
   function scheduleAutoSave(rt: RuntimeState): void {
     if (!rt.autoSaveInterval) {
       rt.autoSaveInterval = setInterval(async () => {
-        if (rt.activeMission?.status === 'active') await saveMissionSafe(rt.activeMission);
+        await reconcileMissionLifecycle({ runtime: rt, checkpoint: 'autosave' });
       }, 2 * 60 * 1000);
     }
   }
@@ -152,23 +153,16 @@ export default function piMissions(pi: ExtensionAPI): void {
     }
 
     const { missionId, validationToken } = active;
-    if (!isValidMissionId(missionId)) {
-      const fallback = loadMissionFromDisk(missionId);
-      if (!fallback) { ctx.ui?.notify(`⚠️ Mission '${missionId}' not found on disk. /mission load.`, 'warning'); return; }
-      runtime.activeMission = fallback;
-      autoBlockBlockedFeatures(fallback);
-      updateFooter(ctx, fallback);
-      pi.setSessionName(`🎯 ${fallback.title}`);
-      scheduleAutoSave(runtime);
-      return;
-    }
-
-    const mission = loadMissionFromDisk(missionId);
-    if (!mission) { ctx.ui?.notify(`⚠️ Mission '${missionId}' not found on disk. /mission load.`, 'warning'); return; }
-    if (validationToken && validationToken !== mission.validationToken) { ctx.ui?.notify('⚠️ Invalid mission event token.', 'warning'); return; }
+    const restored = await updateMissionOnDisk(missionId, (mission) => {
+      if (isValidMissionId(missionId) && validationToken && validationToken !== mission.validationToken) return false;
+      autoBlockBlockedFeatures(mission);
+      return true;
+    }, { shouldPersist: (valid) => valid });
+    if (!restored) { ctx.ui?.notify(`⚠️ Mission '${missionId}' not found on disk. /mission load.`, 'warning'); return; }
+    if (!restored.result) { ctx.ui?.notify('⚠️ Invalid mission event token.', 'warning'); return; }
+    const mission = restored.mission;
 
     runtime.activeMission = mission;
-    autoBlockBlockedFeatures(mission);
     updateFooter(ctx, mission);
     pi.setSessionName(`🎯 ${mission.title}`);
     scheduleAutoSave(runtime);
@@ -332,15 +326,6 @@ export default function piMissions(pi: ExtensionAPI): void {
     if (!m) return;
 
     const usage = (ctx as unknown as { getContextUsage?: () => { tokens?: number; percent?: number } }).getContextUsage?.();
-    if (usage?.tokens !== undefined) {
-      const delta = Math.max(0, usage.tokens - m.lastContextTokens);
-      m.tokensUsed += delta;
-      m.lastContextTokens = usage.tokens;
-      if (m.tokensBudget && m.tokensUsed > m.tokensBudget * 0.8 && m.status === 'active') {
-        m.status = 'budget_limited';
-        ctx.ui.notify('⚠️ Token budget 80% used.', 'warning');
-      }
-    }
 
     const leafId = (ctx.sessionManager as unknown as { getLeafId?: () => string | null }).getLeafId?.();
     const active = getActiveFeature(m);
@@ -359,29 +344,41 @@ export default function piMissions(pi: ExtensionAPI): void {
       }
     } catch { /* best-effort */ }
 
-    if (active?.status === 'active') {
-      const stuck = detector.detectStuck();
-      const textLoop = detector.detectTextLoop();
-      const effective = textLoop.isStuck ? textLoop : stuck;
+    const result = await reconcileMissionLifecycle({
+      runtime,
+      checkpoint: 'turn_end',
+      whenIdle: async (mission) => {
+        if (usage?.tokens !== undefined) {
+          const delta = Math.max(0, usage.tokens - mission.lastContextTokens);
+          mission.tokensUsed += delta;
+          mission.lastContextTokens = usage.tokens;
+          if (mission.tokensBudget && mission.tokensUsed > mission.tokensBudget * 0.8 && mission.status === 'active') {
+            mission.status = 'budget_limited';
+            ctx.ui.notify('⚠️ Token budget 80% used.', 'warning');
+          }
+        }
+        const active = getActiveFeature(mission);
+        if (active?.status !== 'active') return;
+        const stuck = detector.detectStuck();
+        const textLoop = detector.detectTextLoop();
+        const effective = textLoop.isStuck ? textLoop : stuck;
 
-      if (effective.isStuck && effective.suggestedAction === 'block_self') {
-        sessionMetrics.recordStuckDetection();
-        appendHistory(m, { event: 'stuck_detected', featureId: active.id, note: effective.reason, details: { source: textLoop.isStuck ? 'text_loop' : 'tool_pattern' } });
-        active.status = 'blocked';
-        active.notes = `Auto-blocked: ${effective.reason}`;
-        m.status = 'blocked';
-        m.autopilot.enabled = false;
-        m.autopilot.lastStopReason = 'blocked';
-        m.autopilot.lastStopMessage = effective.reason;
-        ctx.ui.notify(`🚫 Auto-blocked: ${effective.reason}`, 'warning');
-        await saveMissionSafe(m);
-      } else if (effective.isStuck) {
-        ctx.ui.notify(`⚠️ Stuck detected: ${effective.reason}. Consider mission_block_self.`, 'warning');
-      }
-    }
-
-    await saveMissionSafe(m);
-    updateFooter(ctx, m);
+        if (effective.isStuck && effective.suggestedAction === 'block_self') {
+          sessionMetrics.recordStuckDetection();
+          appendHistory(mission, { event: 'stuck_detected', featureId: active.id, note: effective.reason, details: { source: textLoop.isStuck ? 'text_loop' : 'tool_pattern' } });
+          active.status = 'blocked';
+          active.notes = `Auto-blocked: ${effective.reason}`;
+          mission.status = 'blocked';
+          mission.autopilot.enabled = false;
+          mission.autopilot.lastStopReason = 'blocked';
+          mission.autopilot.lastStopMessage = effective.reason;
+          ctx.ui.notify(`🚫 Auto-blocked: ${effective.reason}`, 'warning');
+        } else if (effective.isStuck) {
+          ctx.ui.notify(`⚠️ Stuck detected: ${effective.reason}. Consider mission_block_self.`, 'warning');
+        }
+      },
+    });
+    updateFooter(ctx, result.kind === 'no_mission' ? null : result.mission);
   });
 
   // ── agent_end: completion detection + auto-advance ─────────────────────
@@ -389,10 +386,12 @@ export default function piMissions(pi: ExtensionAPI): void {
   hook(pi, 'agent_end', async (...args: unknown[]) => {
     const event = args[0] as { messages?: Array<{ content?: Array<{ type?: string; text?: string }> | string }> };
     const ctx = args[1] as ExtensionCommandContext;
-    const m = runtime.activeMission;
-    if (m?.autopilot?.enabled) { await processAgentEndForAutopilot(pi, ctx, event, runtime); return; }
+    const lifecycle = await reconcileMissionLifecycle({ runtime, checkpoint: 'agent_end' });
+    if (lifecycle.kind === 'no_mission' || lifecycle.kind === 'worker_active' || lifecycle.kind === 'skipped') return;
+    const m = lifecycle.mission;
+    if (m.autopilot?.enabled) { await processAgentEndForAutopilot(pi, ctx, event, runtime); return; }
 
-    const feature = m ? getActiveFeature(m) : null;
+    const feature = getActiveFeature(m);
     if (!m || !feature || feature.status !== 'active') return;
 
     const text = (event.messages ?? [])
@@ -470,10 +469,9 @@ export default function piMissions(pi: ExtensionAPI): void {
     sessionMetrics.endSession();
     if (runtime.autoSaveInterval) clearInterval(runtime.autoSaveInterval);
     runtime.autoSaveInterval = null;
-    if (runtime.activeMission) {
-      saveSessionLink(runtime, (ctx.sessionManager as unknown as { getSessionFile?: () => string }).getSessionFile?.());
-      await saveMissionSafe(runtime.activeMission);
-    }
+    const sessionFile = (ctx.sessionManager as unknown as { getSessionFile?: () => string }).getSessionFile?.();
+    if (runtime.activeMission && sessionFile) saveSessionLink(runtime, sessionFile);
+    await reconcileMissionLifecycle({ runtime, checkpoint: 'shutdown' });
     updateFooter(ctx, null);
   });
 }

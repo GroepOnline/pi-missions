@@ -32,6 +32,7 @@ import {
   readRawSchemaVersion,
   saveEvidence,
   saveMissionSafe,
+  updateMissionOnDisk,
   slugify,
 } from "../src/core/state.js";
 import { exportMarkdown } from "../src/utils/markdown.js";
@@ -255,6 +256,28 @@ describe("save / load roundtrip", () => {
     const loaded = loadMissionFromDisk(m.id);
     expect(loaded).not.toBeNull();
     expect(loaded!.id).toBe(m.id);
+  });
+
+  it("updates the latest persisted mission under the plan lock", async () => {
+    const parent = createMission("Atomic update", "Keep fresh worker state");
+    await saveMissionSafe(parent);
+
+    const childState = structuredClone(parent);
+    const childFeature = childState.milestones[0]!.features[0]!;
+    childFeature.status = "done";
+    childFeature.completedAt = Date.now();
+    await saveMissionSafe(childState);
+
+    const updated = await updateMissionOnDisk(parent.id, (freshMission) => {
+      freshMission.title = "Atomic update with session metadata";
+      return freshMission.activeFeatureId;
+    });
+
+    expect(updated?.result).toBe("F001");
+    expect(updated?.mission.milestones[0]!.features[0]!.status).toBe("done");
+    const loaded = loadMissionFromDisk(parent.id);
+    expect(loaded?.title).toBe("Atomic update with session metadata");
+    expect(loaded?.milestones[0]!.features[0]!.status).toBe("done");
   });
 
   it("returns null for unknown mission id", () => {

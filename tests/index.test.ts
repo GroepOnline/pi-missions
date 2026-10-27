@@ -1,9 +1,18 @@
-import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import piMissions from "../src/index.js";
 import { createMission, saveMissionSafe, getActiveFeature, loadMissionFromDisk, readHistory } from "../src/core/state.js";
+
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+
+const { mockIsWorkerRunning } = vi.hoisted(() => ({ mockIsWorkerRunning: vi.fn(() => false) }));
+vi.mock("../src/engines/worker.js", async () => {
+  const actual = await vi.importActual("../src/engines/worker.js");
+  return { ...(actual as object), isWorkerRunning: mockIsWorkerRunning };
+});
+
+afterEach(() => mockIsWorkerRunning.mockReturnValue(false));
 
 const tmpRoot = path.join(os.tmpdir(), `pi-missions-index-test-${process.pid}`);
 
@@ -569,17 +578,16 @@ describe("piMissions extension registration", () => {
     // Should not throw
   });
 
-  it("session_shutdown hook clears interval and saves", async () => {
-    const m = createMission("Shutdown", "Shutdown test");
-    await saveMissionSafe(m);
+  it("session_shutdown preserves current disk state while linking the session", async () => {
+    const parent = createMission("Shutdown", "Shutdown test");
+    await saveMissionSafe(parent);
 
     const pi = mkPi();
     piMissions(pi);
 
-    // First load the mission via session_start
     const sessionStartHandler = pi.getHooks()["session_start"]![0];
     const entries = [
-      { type: "custom", customType: "pi-mission-active", data: { missionId: m.id, validationToken: m.validationToken } },
+      { type: "custom", customType: "pi-mission-active", data: { missionId: parent.id, validationToken: parent.validationToken } },
     ];
     const startCtx = {
       sessionManager: { getEntries: () => entries, getLeafId: () => null, getSessionFile: () => "/tmp/session.jsonl" },
@@ -589,14 +597,21 @@ describe("piMissions extension registration", () => {
     };
     await sessionStartHandler({}, startCtx);
 
-    // Now trigger shutdown
+    const childState = structuredClone(parent);
+    childState.milestones[0]!.features[0]!.status = "done";
+    childState.milestones[0]!.features[0]!.completedAt = Date.now();
+    await saveMissionSafe(childState);
+
     const shutdownHandler = pi.getHooks()["session_shutdown"]![0];
-    expect(shutdownHandler).toBeDefined();
     const shutdownCtx = {
       sessionManager: { getSessionFile: () => "/tmp/session.jsonl" },
       ui: { setStatus: () => {}, notify: () => {} },
     };
+    mockIsWorkerRunning.mockReturnValue(true);
     await shutdownHandler({}, shutdownCtx);
+    mockIsWorkerRunning.mockReturnValue(false);
+
+    expect(loadMissionFromDisk(parent.id)?.milestones[0]!.features[0]!.status).toBe("done");
   });
 
   it("session_before_tree returns mission summary when mission active", async () => {
@@ -732,6 +747,74 @@ describe("piMissions extension registration", () => {
     expect(notifyCalls[0]!.msg).toMatch(/complete|done/i);
   });
 
+  it.each([false, true])("persists dependency blocking while restoring a session (legacy=%s)", async (legacy) => {
+    const mission = createMission("Restore blocked dependency", "Retain control state");
+    if (legacy) mission.id = "legacy-session-restore";
+    mission.milestones[0]!.features[0]!.status = "blocked";
+    mission.milestones[0]!.features[1]!.dependsOn = [mission.milestones[0]!.features[0]!.id];
+    await saveMissionSafe(mission);
+    const pi = mkPi();
+    piMissions(pi);
+    const messages: string[] = [];
+    const ctx = {
+      sessionManager: { getEntries: () => [{ type: "custom", customType: "pi-mission-active", data: { missionId: mission.id, validationToken: mission.validationToken } }] },
+      ui: { setStatus: () => {}, notify: (message: string) => { messages.push(message); } },
+      getContextUsage: () => null,
+    };
+    await pi.getHooks()["session_start"][0]({}, ctx);
+    expect(loadMissionFromDisk(mission.id)!.milestones[0]!.features[1]!.status).toBe("blocked");
+    await pi.getHooks()["turn_end"][0]({}, ctx);
+    await pi.getCommands()[0].handler("status", ctx);
+    expect(messages.at(-1)).toMatch(/F002:.*\(blocked\)/);
+    expect(loadMissionFromDisk(mission.id)!.milestones[0]!.features[1]!.status).toBe("blocked");
+    await pi.getHooks()["session_shutdown"][0]({}, ctx);
+  });
+
+  it.each(["Proceed", "ALLOW_BASH_IN_PLANNING"])("persists ask-user stop before UI and retains it through lifecycle (%s)", async (answer) => {
+    const mission = createMission("Ask user", "Await explicit decision");
+    mission.autopilot.enabled = true;
+    await saveMissionSafe(mission);
+    let entered!: () => void;
+    let respond!: (answer: string) => void;
+    const uiEntered = new Promise<void>((resolve) => { entered = resolve; });
+    const uiAnswer = new Promise<string>((resolve) => { respond = resolve; });
+    const sendUserMessage = vi.fn();
+    const pi = mkPi({ sendUserMessage });
+    piMissions(pi);
+    const ctx = {
+      hasUI: true,
+      sessionManager: {
+        getEntries: () => [{ type: "custom", customType: "pi-mission-active", data: { missionId: mission.id, validationToken: mission.validationToken } }],
+        getLeafId: () => null,
+      },
+      ui: { setStatus: () => {}, notify: () => {}, input: () => { entered(); return uiAnswer; } },
+      getContextUsage: () => null,
+    };
+    await pi.getHooks()["session_start"][0]({}, ctx);
+    const pending = pi.getTools().find((tool: any) => tool.name === "mission_ask_user")
+      .execute("ask", { question: "Continue?" }, null, () => {}, ctx);
+    await uiEntered;
+    try {
+      expect(loadMissionFromDisk(mission.id)!.autopilot.enabled).toBe(false);
+      await pi.getHooks()["turn_end"][0]({}, ctx);
+      await pi.getHooks()["agent_end"][0]({ messages: [] }, ctx);
+      expect(sendUserMessage).not.toHaveBeenCalled();
+      const workerState = loadMissionFromDisk(mission.id)!;
+      workerState.milestones[0]!.features[0]!.status = "done";
+      workerState.milestones[0]!.features[0]!.notes = "Progress while waiting for user";
+      await saveMissionSafe(workerState);
+    } finally {
+      respond(answer);
+      await pending;
+      await pi.getHooks()["session_shutdown"][0]({}, ctx);
+    }
+    const saved = loadMissionFromDisk(mission.id)!;
+    expect(saved.autopilot.enabled).toBe(false);
+    expect(saved.autopilot.lastStopReason).toBe("needs_user_decision");
+    expect(saved.milestones[0]!.features[0]!.notes).toBe("Progress while waiting for user");
+    if (answer === "ALLOW_BASH_IN_PLANNING") expect(saved.userPreferences?.allowBashInPlanning).toBe(true);
+  });
+
   it("turn_end hook warns when token budget exceeded", async () => {
     const m = createMission("Budget", "Test");
     m.tokensBudget = 10000;
@@ -761,6 +844,35 @@ describe("piMissions extension registration", () => {
     const loaded = loadMissionFromDisk(m.id);
     expect(loaded!.status).toBe("budget_limited");
     expect(notifyCalls.some((c) => c.msg.includes("budget") && c.level === "warning")).toBe(true);
+  });
+
+  it("turn_end reloads persisted worker state instead of saving a stale parent", async () => {
+    const parent = createMission("Worker turn end", "Test");
+    await saveMissionSafe(parent);
+
+    const pi = mkPi();
+    piMissions(pi);
+    const entries = [
+      { type: "custom", customType: "pi-mission-active", data: { missionId: parent.id, validationToken: parent.validationToken } },
+    ];
+    const ctx = {
+      sessionManager: { getEntries: () => entries, getLeafId: () => "leaf-1" },
+      ui: { setStatus: () => {}, notify: () => {} },
+      getContextUsage: () => null,
+      fork: async () => {},
+    };
+    await pi.getHooks()["session_start"]![0]!({}, ctx);
+
+    const childState = structuredClone(parent);
+    childState.milestones[0]!.features[0]!.status = "done";
+    childState.milestones[0]!.features[0]!.completedAt = Date.now();
+    await saveMissionSafe(childState);
+
+    mockIsWorkerRunning.mockReturnValue(true);
+    await pi.getHooks()["turn_end"]![0]!({}, ctx);
+    mockIsWorkerRunning.mockReturnValue(false);
+
+    expect(loadMissionFromDisk(parent.id)?.milestones[0]!.features[0]!.status).toBe("done");
   });
 
   it("turn_end hook tracks token usage and labels leaf", async () => {

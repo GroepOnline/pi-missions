@@ -8,6 +8,7 @@ import {
   completeActiveFeature, getActiveFeature, getFeatureById, getMilestoneById,
   getNextPendingFeature,
   loadMissionFromDisk, listMissions, progress, readHistory, saveMissionSafe,
+  updateActiveMissionOnDisk, updateMissionOnDisk,
   readRawSchemaVersion, readRawMissionCounts, migrateMissionOnDisk,
 } from "../core/state.js";
 import { SCHEMA_VERSION } from "../core/types.js";
@@ -186,10 +187,10 @@ export async function handleList(ctx: ExtensionCommandContext, pi: ExtensionAPI,
 
 export async function handleLoad(id: string | undefined, ctx: ExtensionCommandContext, pi: ExtensionAPI, runtime: RuntimeState): Promise<void> {
   if (!id) return ctx.ui.notify("Usage: /mission load <id>", "warning");
-  const mission = loadMissionFromDisk(id);
+  const updated = await updateMissionOnDisk(id, autoBlockBlockedFeatures);
+  const mission = updated?.mission;
   if (!mission) return ctx.ui.notify(`Mission not found: ${id}`, "error");
 
-  autoBlockBlockedFeatures(mission);
   runtime.activeMission = mission;
   pi.appendEntry("pi-mission-active", { missionId: mission.id, validationToken: mission.validationToken });
   injectMissionContextWrapper(pi, ctx, mission, "mission_loaded");
@@ -397,7 +398,7 @@ import { buildForkKickoffMessage, buildManualForkHandoff, appendForkNote, pushSe
 async function forkFeatureInternally(
   m: NonNullable<RuntimeState["activeMission"]>,
   reason: string,
-  pi: ExtensionAPI,
+  runtime: RuntimeState,
   ctx: ExtensionCommandContext,
 ): Promise<void> {
   const f = getActiveFeature(m);
@@ -433,13 +434,13 @@ async function forkFeatureInternally(
       withSession: async (fc) => {
         const fcCtx = fc as unknown as ForkReplacementContext;
         const fsf = (fc.sessionManager as ForkSessionManager | undefined)?.getSessionFile?.();
-        const pm = loadMissionFromDisk(m.id);
-        const pf = pm ? getFeatureById(pm, forked.id) : null;
-        if (pm && pf) {
-          pushSessionRef(pf, fsf ? `session:${fsf}` : undefined);
-          appendHistory(pm, { event: "feature_fork_session_created", featureId: forked.id, note: reason, details: { sourceFeatureId: f.id, forkSessionFile: fsf, parentLeafId } });
-          await saveMissionSafe(pm);
-        }
+        await updateActiveMissionOnDisk(runtime, m, (freshMission) => {
+          const freshForked = getFeatureById(freshMission, forked.id);
+          if (!freshForked) return false;
+          pushSessionRef(freshForked, fsf ? `session:${fsf}` : undefined);
+          appendHistory(freshMission, { event: "feature_fork_session_created", featureId: forked.id, note: reason, details: { sourceFeatureId: f.id, forkSessionFile: fsf, parentLeafId } });
+          return true;
+        });
         if (typeof fc.sendUserMessage === "function") await fc.sendUserMessage(kickoff);
         else fc.ui.notify(`🌿 Fork: ${forked.title}\n\n${kickoff}`, "info");
       },
@@ -455,7 +456,7 @@ export async function handleFork(reason: string, ctx: ExtensionCommandContext, r
   const m = runtime.activeMission;
   if (!m) return ctx.ui.notify("No active feature. Forks can only be created from an active feature.", "warning");
   if (ctx.hasUI) reason = (await ctx.ui.input("Alternative approach", reason || "Try a smaller/safer approach")) || reason;
-  await forkFeatureInternally(m, reason || "Alternative approach", {} as ExtensionAPI, ctx);
+  await forkFeatureInternally(m, reason || "Alternative approach", runtime, ctx);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -660,12 +661,18 @@ export async function handleWorker(
   });
 
   await saveMissionSafe(m);
+  const workerMission = loadMissionFromDisk(m.id) ?? m;
 
   ctx.ui.notify(`🚀 Worker spawned for ${f.id} — ${f.title}. Check /mission worker-status for progress.`, "info");
 
   // Fire-and-forget: spawn async, report result when done
-  spawnWorker(m, { featureId: f.id }).then((result) => {
+  spawnWorker(workerMission, { featureId: f.id }).then((result) => {
     if ("error" in result) {
+      appendHistory({ id: m.id }, {
+        event: "worker_error",
+        featureId: f.id,
+        note: result.error,
+      });
       ctx.ui.notify(`❌ Worker error: ${result.error}`, "error");
       return;
     }
