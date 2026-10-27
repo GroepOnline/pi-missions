@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-10-27
+
+### Maintenance
+- bump the npm_and_yarn group across 1 directory with 2 updates (#31)
 ## [0.6.0] - 2026-09-13
 
 ### Maintenance
