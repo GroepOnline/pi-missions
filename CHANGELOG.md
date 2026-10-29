@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-10-29
+
+### Maintenance
+- add Cloud Agent development environment config (#25)
+- add compound-engineering determinism overlay (#30)
 ## [0.9.0] - 2026-10-29
 
 ### Maintenance
