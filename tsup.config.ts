@@ -18,7 +18,6 @@ export default defineConfig({
     '@earendil-works/pi-coding-agent',
     '@earendil-works/pi-tui',
     'typebox',
-    '@sinclair/typebox',
     'proper-lockfile',
     'better-sqlite3',
   ],
