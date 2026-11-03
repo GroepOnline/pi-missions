@@ -1,4 +1,4 @@
-import { bench, describe } from "vitest";
+import { describe, test } from "vitest";
 import {
   featureLabel,
   buildFeatureItems,
@@ -45,54 +45,77 @@ function createLargeMission(): MissionState {
   return m;
 }
 
+function createOverlay(m: MissionState): any {
+  return missionControlOverlay(m, () => {})({
+    hideOverlay: () => {},
+    requestRender: () => {},
+  } as any);
+}
+
 describe("dashboard helpers", () => {
   const m = createLargeMission();
 
-  bench("featureLabel (done feature)", () => {
-    featureLabel(m.milestones[0].features[0]!);
+  test("featureLabel (done feature)", async ({ bench }) => {
+    await bench("featureLabel (done feature)", () => {
+      featureLabel(m.milestones[0].features[0]!);
+    }).run();
   });
 
-  bench("featureLabel (active feature)", () => {
-    featureLabel(m.milestones[0].features[1]!);
+  test("featureLabel (active feature)", async ({ bench }) => {
+    await bench("featureLabel (active feature)", () => {
+      featureLabel(m.milestones[0].features[1]!);
+    }).run();
   });
 
-  bench("featureLabel (blocked feature)", () => {
-    featureLabel(m.milestones[0].features[2]!);
+  test("featureLabel (blocked feature)", async ({ bench }) => {
+    await bench("featureLabel (blocked feature)", () => {
+      featureLabel(m.milestones[0].features[2]!);
+    }).run();
   });
 
-  bench("buildFeatureItems (15 features)", () => {
-    buildFeatureItems(m);
+  test("buildFeatureItems (15 features)", async ({ bench }) => {
+    await bench("buildFeatureItems (15 features)", () => {
+      buildFeatureItems(m);
+    }).run();
   });
 
-  bench("featureDetailLines (active feature with deps)", () => {
-    featureDetailLines(m.milestones[0].features[1]!, 80);
+  test("featureDetailLines (active feature with deps)", async ({ bench }) => {
+    await bench("featureDetailLines (active feature with deps)", () => {
+      featureDetailLines(m.milestones[0].features[1]!, 80);
+    }).run();
   });
 
-  bench("featureDetailLines (done feature with notes)", () => {
-    featureDetailLines(m.milestones[0].features[0]!, 80);
+  test("featureDetailLines (done feature with notes)", async ({ bench }) => {
+    await bench("featureDetailLines (done feature with notes)", () => {
+      featureDetailLines(m.milestones[0].features[0]!, 80);
+    }).run();
   });
 });
 
 describe("mission control overlay", () => {
   const m = createLargeMission();
 
-  bench("missionControlOverlay render (15 features, 80 cols)", () => {
-    const comp: any = missionControlOverlay(m, () => {})({ hideOverlay: () => {}, requestRender: () => {} } as any);
-    comp.render(80);
+  test("missionControlOverlay render (15 features, 80 cols)", async ({ bench }) => {
+    await bench("missionControlOverlay render (15 features, 80 cols)", () => {
+      createOverlay(m).render(80);
+    }).run();
   });
 
-  bench("missionControlOverlay render (15 features, 120 cols)", () => {
-    const comp: any = missionControlOverlay(m, () => {})({ hideOverlay: () => {}, requestRender: () => {} } as any);
-    comp.render(120);
+  test("missionControlOverlay render (15 features, 120 cols)", async ({ bench }) => {
+    await bench("missionControlOverlay render (15 features, 120 cols)", () => {
+      createOverlay(m).render(120);
+    }).run();
   });
 
-  bench("missionControlOverlay handleInput navigation", () => {
-    const comp: any = missionControlOverlay(m, () => {})({ hideOverlay: () => {}, requestRender: () => {} } as any);
-    for (let i = 0; i < 10; i++) {
-      comp.handleInput("\x1b[B"); // down arrow
-    }
-    for (let i = 0; i < 5; i++) {
-      comp.handleInput("\x1b[A"); // up arrow
-    }
+  test("missionControlOverlay handleInput navigation", async ({ bench }) => {
+    await bench("missionControlOverlay handleInput navigation", () => {
+      const comp: any = createOverlay(m);
+      for (let i = 0; i < 10; i++) {
+        comp.handleInput("\x1b[B"); // down arrow
+      }
+      for (let i = 0; i < 5; i++) {
+        comp.handleInput("\x1b[A"); // up arrow
+      }
+    }).run();
   });
 });

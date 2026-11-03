@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-10-29
+
+### Maintenance
+- add Cloud Agent development environment config (#25)
+- add compound-engineering determinism overlay (#30)
+## [0.9.0] - 2026-10-29
+
+### Maintenance
+- bump the npm_and_yarn group across 1 directory with 3 updates (#33)
+## [0.8.0] - 2026-10-27
+
+### Fixed
+- reconcile mission updates around workers (#29)
+## [0.7.0] - 2026-10-27
+
+### Maintenance
+- bump the npm_and_yarn group across 1 directory with 2 updates (#31)
 ## [0.6.0] - 2026-09-13
 
 ### Maintenance
