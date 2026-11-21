@@ -9,22 +9,27 @@ on:
 
 permissions:
   contents: read
-  packages: write
 
 jobs:
   preview:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - name: Build preview image
         run: docker build -f preview/Dockerfile -t ghcr.io/groeponline/pi-missions-preview:sha-${GITHUB_SHA} .
       - name: Run preview smoke
         run: docker run --rm ghcr.io/groeponline/pi-missions-preview:sha-${GITHUB_SHA}
       - name: Push preview image (main only)
         if: github.ref == 'refs/heads/main'
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GHCR_ACTOR: ${{ github.actor }}
         run: |
-          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+          printf '%s' "${GHCR_TOKEN}" | docker login ghcr.io -u "${GHCR_ACTOR}" --password-stdin
           docker tag ghcr.io/groeponline/pi-missions-preview:sha-${GITHUB_SHA} ghcr.io/groeponline/pi-missions-preview:main
           docker push ghcr.io/groeponline/pi-missions-preview:sha-${GITHUB_SHA}
           docker push ghcr.io/groeponline/pi-missions-preview:main
