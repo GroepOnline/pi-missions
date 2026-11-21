@@ -66,7 +66,8 @@
     "release": "node scripts/release.mjs",
     "verify:package": "node scripts/verify-package.mjs && node scripts/verify-pi-package-contract.mjs",
     "verify:release": "node scripts/release.mjs auto --dry-run",
-    "verify:pi-package": "node scripts/verify-pi-package-contract.mjs"
+    "verify:pi-package": "node scripts/verify-pi-package-contract.mjs",
+    "prepare": "husky"
   },
   "peerDependencies": {
     "@earendil-works/pi-ai": "*",
@@ -80,12 +81,15 @@
     "better-sqlite3": "^11.3.0"
   },
   "devDependencies": {
-    "@types/better-sqlite3": "^7.6.8",
     "@sinclair/typebox": "^0.31.28",
+    "@types/better-sqlite3": "^7.6.8",
     "@types/node": "^22.19.18",
     "@types/proper-lockfile": "^4.1.2",
     "@vitest/coverage-v8": "^5.0.2",
     "cross-env": "^10.1.0",
+    "husky": "^9.1.7",
+    "lint-staged": "^17.6.1",
+    "prettier": "^3.10.1",
     "tsup": "^8.0.0",
     "typescript": "^5.6.0",
     "vitest": "^5.0.2"
