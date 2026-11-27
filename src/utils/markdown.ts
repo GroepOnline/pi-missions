@@ -1,4 +1,4 @@
-import { Type } from "@sinclair/typebox";
+import { Type } from "typebox";
 import type { Feature, Milestone, MissionState } from "../core/types.js";
 import { SCHEMA_VERSION, type WizardOutput } from "../core/types.js";
 import { createMissionId, createValidationToken } from "./fs.js";

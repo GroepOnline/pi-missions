@@ -66,8 +66,8 @@ Tests mirror this layout under `tests/` (top-level files + per-layer subdirs), w
 
 - **ESM only**: `"type": "module"`. All internal imports use the `.js` extension even for `.ts` source (NodeNext resolution).
 - **TypeScript strict**: `tsconfig.json` has `"strict": true`; `noEmit` (tsup emits). Target ES2022.
-- **TypeBox** (`@sinclair/typebox`): runtime validation schemas live in `src/core/types.ts`.
-- **Build externals**: `@earendil-works/pi-*`, `typebox`, `@sinclair/typebox`, `proper-lockfile`, `better-sqlite3` are tsup externals — never bundle Pi peer deps.
+- **TypeBox** (`typebox`, host-provided): runtime validation schemas live in `src/core/types.ts`.
+- **Build externals**: `@earendil-works/pi-*`, `typebox`, `proper-lockfile`, `better-sqlite3` are tsup externals — never bundle Pi peer deps.
 - **Tests**: Vitest globals; `describe`/`it`/`expect`. Mock the Pi `ExtensionAPI`/`ExtensionContext` for tool/command tests.
 - **No `console.log`** in library code — CLI entry point is the exception. Use the shared logger in `src/utils/logger.ts`.
 - **Coverage thresholds** (vitest): statements 85, branches 74, functions 86, lines 85. Coverage scope = `src/**/*.ts`, excluding `*.test.ts`.

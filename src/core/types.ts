@@ -1,5 +1,5 @@
-import { Type, type Static, type TSchema } from "@sinclair/typebox";
-import { Value } from "@sinclair/typebox/value";
+import { Type, type Static, type TSchema } from "typebox";
+import { Value } from "typebox/value";
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Constants
@@ -528,8 +528,11 @@ export function validate<T extends TSchema>(schema: T, value: unknown): Validati
   try {
     if (Value.Check(schema, value)) return { valid: true, errors: [] };
     const errors: ValidationError[] = [];
-    for (const error of Value.Errors(schema, value)) {
-      errors.push({ path: error.path, message: error.message, value: error.value });
+    for (const raw of Value.Errors(schema, value)) {
+      // typebox 1.x reports instancePath (older releases used path) and omits value from its types.
+      const error = raw as { path?: string; instancePath?: string; message: string; value?: unknown };
+      const errorPath = (error.path ?? error.instancePath ?? "").replace(/^\//, "");
+      errors.push({ path: errorPath || "root", message: error.message, value: error.value });
     }
     return { valid: false, errors };
   } catch (e) {
