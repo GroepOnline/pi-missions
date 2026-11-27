@@ -1,0 +1,29 @@
+CLAUDE.md
+  s_15328a52041f73::t_6a3af35bf70e77 69-70
+package-lock.json
+  s_15328a52041f73::t_7d7bf2a621e796 3,9,27,40-41,4547
+package.json
+  s_15328a52041f73::t_6325a8a95a42ca 75-76,94
+src/core/types.ts
+  s_15328a52041f73::t_d63c371d165a19 1-2,531-535
+src/tools/index.ts
+  s_15328a52041f73::t_6c7d12f2c2d120 1
+src/utils/markdown.ts
+  s_15328a52041f73::t_250439536dd95d 1
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "5f115741841236a37d89d4aa0258352bd29d24a6",
+  "prompts": {},
+  "sessions": {
+    "s_15328a52041f73": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "01a21e6a-9f7c-718c-a437-f7c2307b5511",
+        "model": "deepseek-v4.1-flash"
+      },
+      "human_author": "chefgroep <chefadmin@chefgroep.online>"
+    }
+  }
+}
